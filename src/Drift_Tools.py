@@ -1,0 +1,1124 @@
+#!/usr/bin/env python
+#-*- coding: utf-8 -*-
+
+import numpy as np
+from numpy import pi
+import pandas as pd
+import numpy.matlib
+from netCDF4 import Dataset, date2num
+from datetime import datetime, timedelta
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import time
+import netCDF4 as nc
+
+import os, glob,sys
+import sys, pprint
+sys.displayhook = pprint.pprint  # Improves print of variables (e.g. locals(), globals(), dir())) to screen
+import shutil
+import shlex,subprocess
+import time
+from configparser import ConfigParser
+
+import getpass
+username=getpass.getuser()
+print('username: ',username)
+import os, glob,sys
+from operator import attrgetter
+from metpy.units import units
+from scipy.ndimage import gaussian_filter
+from siphon.catalog import TDSCatalog
+from siphon.ncss import NCSS
+#import metpy.calc as mpcalc
+
+sys.path.append("/home/svangennip/DEV/Drift/LIU_SCORE/src/")
+from extras import dist as sw_dist
+def coord2index(lon1,lat1,z1, nav_lon, nav_lat, nb_zlevels, decimals=0, display=0):
+    """
+    Find closest gridcell for input point of coordinate: lon, lat, depth(m)
+    => returns positions i, j, k within model gridcell
+    sjvg 13/1/2018: improve to return i&j at decimals accuracy, set decimals==1
+    set display==1 to print results to screen
+    """
+
+
+    #print('coord2index...')
+    #print('lon shape',len(nav_lon.shape))
+    #print('lat shape',nav_lat.shape)
+
+    if display:
+        print ("      # identify gridcell for lon=", lon1,'; lat=', lat1,'z=', z1)
+        print ("      # for ORCA grid  x=", nav_lon.shape,'; y=', nav_lat.shape,'z=', nb_zlevels)
+
+    #Case for regular grids with 1-dim vector nav_lon, nav_lat
+    if len(nav_lon.shape)==1 & len(nav_lat.shape)==1:
+        print('lat, lon vars are 1D arrays')
+        POS_K = 0
+        #print('regular grid')
+        #print('# identify gridcell for lon=', lon1,'; lat=', lat1,'z=', z1)
+        POS_I = np.argmin(np.square(nav_lon-lon1))
+        POS_J = np.argmin(np.square(nav_lat-lat1))
+        #print(POS_I, POS_J, nav_lon[POS_I-1:POS_I+1], nav_lat[POS_J-1:POS_J+1])
+        return POS_I, POS_J, POS_K
+
+    if (nb_zlevels == 50) | (nb_zlevels == 75) | (nb_zlevels==0):
+        # find i and j
+        dd=np.sqrt(np.square(lon1-nav_lon)+np.square(lat1-nav_lat));
+
+        #print ('      min_dist=',np.min(dd[:]))
+        pos = np.argwhere(dd == np.min(dd[:]))
+        POS_J = pos[0,0]
+        POS_I = pos[0,1]
+        print( 'POS_J : ', POS_J)
+        print('POS_I : ', POS_I)
+        #print('POS_J, POS_I = ', POS_J, POS_I)
+        lat1_model=nav_lat[POS_J, POS_I]
+        lon1_model=nav_lon[POS_J, POS_I]
+        #print('lat1_model, lon1_model =',lat1_model, lon1_model)
+
+        # determine lat and lon width of cell:
+        dx=nav_lon[POS_J, POS_I-1]-nav_lon[POS_J, POS_I]
+        dy=nav_lat[POS_J-1, POS_I]-nav_lat[POS_J, POS_I]
+        #print ("      dx, dy = ", dx, dy)
+
+        # determine position within cell
+        i_inside=(lon1-lon1_model)/dx
+        j_inside=(lat1-lat1_model)/dy
+        #print ("      i_inside, j_inside =", i_inside, j_inside)
+        if i_inside>0:
+            POS_I2=POS_I-i_inside
+        else:
+            POS_I2=POS_I+i_inside
+
+        if j_inside>0:
+            POS_J2=POS_J-j_inside
+        else:
+            POS_J2=POS_J+j_inside
+        POS_I2=np.around(POS_I2, decimals=2)
+        POS_J2=np.around(POS_J2, decimals=2)
+
+        if display:
+            print ("      lon=", lon1, "lat=", lat1)
+            print ("      => in nemo grid (C position): i=", POS_I, "j=", POS_J)
+            print ("      =>               lon=",lon1_model,", lat=",lat1_model )
+            if decimals:
+                print ("      when placed inside cell:")
+                print ("      =>               I2=",POS_I2,", J2=",POS_J2)
+
+        if nb_zlevels!= 0:
+            # find k
+            z1=np.abs(z1) # set depth as positive value
+            # load file to convert depth (m) to depth (position)
+            filename1 = '/data/rd_exchange/svangennip/rd2/svangennip/ARIANE/GRID/Level_seeded_and_DepthReleasedinModel_'+str(nb_zlevels)+'zlevels.dat'
+            z_01, depth_01 = np.loadtxt(filename1, unpack=True)  # z_01=> depth levels in dcimals, depth_01 => equivalent depth in m.
+
+            # take abs value of depths (as -ve)
+            depth_01b = np.abs(depth_01[np.newaxis,:])
+            diff_z = np.abs(z1 - depth_01b)
+
+            min_diff = np.argmin(diff_z, axis=1)
+            POS_K = np.asscalar(z_01[min_diff])
+            POS_K=np.abs(POS_K)
+            #print('POS_K=',POS_K)
+            if decimals==1:
+                return POS_I2, POS_J2, POS_K
+            else:
+                return POS_I, POS_J, POS_K
+        else:
+            POS_K=0
+            return POS_I, POS_J, POS_K
+    elif len(nav_lon.shape) & len(nav_lat.shape):
+       print('1D vector = regula2 grid')
+       # find i and j
+       dlon=np.sqrt(np.square(lon1-nav_lon))
+       dlat=np.sqrt(np.square(lat1-nav_lat))
+
+       #print ('      min_dist=',np.min(dd[:]))
+       pos_lon = np.argwhere(dlon == np.min(dlon[:]))
+       pos_lat = np.argwhere(dlat == np.min(dlat[:]))
+       print('nearest cell [i,j]=', pos_lon, pos_lat)
+       print('(lon,lat) = ',nav_lon[pos_lon], nav_lat[pos_lat])
+    else:
+        print ("      nb levels =", str(nb_zlevels), ": unknown Z-grid \n")
+        sys.exit(1)
+
+
+
+
+
+
+
+
+
+
+
+def retrieve_zone(str_zone):
+    zone = str_zone.split('_')[1]
+    if len(zone.split('W'))==3: 
+        lon_min = -float(zone.split('W')[0])
+        lon_max = -float(zone.split('W')[1])
+    elif len(zone.split('W'))>1:
+        new_zone = zone.split('W')
+        if len(new_zone[0].split('E'))>1:
+            lon_min = float(new_zone[0].split('E')[0])
+        else :
+            lon_min = -float(new_zone[0])
+            if len(new_zone[1].split('E'))>1:
+                lon_max = float(new_zone[1].split('E')[0])
+    if len(zone.split('E'))==3: 
+        lon_min = float(zone.split('E')[0])
+        lon_max = float(zone.split('E')[1])
+    elif len(zone.split('E'))>1 and not len(zone.split('W'))>1:
+        print('flag')
+        new_zone = zone.split('E')
+        if len(new_zone[0].split('W'))>1:
+            lon_min = float(new_zone[0].split('W')[0])
+        else :
+            lon_min = float(new_zone[0])
+            if len(new_zone[1].split('W'))>1:
+                lon_max = -float(new_zone[1].split('W')[0])
+
+    zone1 = str_zone.split('-')[1]
+    if len(zone1.split('N'))==3:
+        lat_min = float(zone1.split('N')[0])
+        lat_max = float(zone1.split('N')[1])
+    if len(zone1.split('S'))==3 : 
+        lat_min = -float(zone1.split('S')[0])
+        lat_max = -float(zone1.split('S')[1])
+    elif len(zone1.split('S'))>1:
+        new_zone = zone1.split('S')
+        if len(new_zone[0].split('N'))>1:
+            lat_min = float(new_zone[0].split('N')[0])
+        else :
+            lat_min = -float(new_zone[0])
+            if len(new_zone[1].split('N'))>1:
+                lat_max = float(new_zone[1].split('N')[0])
+    return lon_min,lon_max,lat_min,lat_max
+   
+   
+
+
+
+def shift360( lon_2D, lat_2D, var ):
+    '''This Script takes two arguments: nav_lon (ORCA grid) and a variable (VAR) that is function of nav_lon.
+       It returns VAR reordered and shifted for a 0-360 lon range.
+       To obtain a reordered nav_lon, do shift360(nav_lon, nav_lon)
+       Script may not deal with n-dimensions array well.
+       s. van gennip 24/09/2018'''
+
+    #lon_2D[lon_2D<0]+=360
+    nparange = np.arange(lon_2D.shape[0])[:,None]
+    npargsort = np.argsort(lon_2D)
+    lons = lon_2D[nparange,npargsort]
+    lats = lat_2D[nparange,npargsort]
+    var_sort = var[nparange,npargsort]
+
+    return lons, lats, var_sort
+
+
+def StringRegion(lon1,lon2,lat1,lat2):
+
+    if lon1>=0:
+        str_lon1=str(np.abs(lon1))+'E'
+    else:
+        str_lon1=str(np.abs(lon1))+'W'
+
+    if lon2>=0:
+        str_lon2=str(np.abs(lon2))+'E'
+    else:
+        str_lon2=str(np.abs(lon2))+'W'
+
+    if lat1>=0:
+        str_lat1=str(np.abs(lat1))+'N'
+    else:
+        str_lat1=str(np.abs(lat1))+'S'
+
+    if lat2>=0:
+        str_lat2=str(np.abs(lat2))+'N'
+    else:
+        str_lat2=str(np.abs(lat2))+'S'
+
+    string_area= str_lon1+str_lon2+'-'+str_lat1+str_lat2
+    return string_area
+
+
+def match_elements(list_a, list_b):
+    match = []
+    for i in list_a:
+        if i in list_b:
+            match.append(i)
+    return match
+
+def DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start, date_end, f_drifters_all, outfile):
+    str_date1=date_start.strftime('%Y-%m-%d')
+    str_date2=date_end.strftime('%Y-%m-%d')
+    str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
+    
+    T_DRIFT = (date_end-date_start).days
+
+    #Check output dir exists:
+    dir_out = os.path.dirname(outfile)
+    if not os.path.exists(dir_out):
+        print('\ncreate folder : ', dir_out)
+        # Create directory where to store results:
+        os.makedirs(dir_out)    
+    
+    print('loading ',f_drifters_all)
+    #drifters = pd.read_csv(f_drifters_all, sep='\s+') #when unknown number of spaces separating columns
+    drifters = pd.read_csv(f_drifters_all) #when unknown number of spaces separating columns
+    print(drifters.head(5))
+    #select all data within time frame
+    drifters_i = drifters[(drifters.date>=str_date1) & (drifters.date<=str_date2)]
+    print(drifters_i.head(5))
+    # print('save data on drifters within ', str_date1, ' and ', str_date1,':', outfile2)
+    # drifters_i.to_csv(outfile2, index=False)
+    if lon_max < lon_min :
+        drifters_zone_at_start_all1 = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
+                              (drifters_i.lon>lon_min)     & (drifters_i.lon<=180) &\
+                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
+        drifters_zone_at_start_all2 = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
+                              (drifters_i.lon>=-180)     & (drifters_i.lon<=lon_max) &\
+                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
+        print('drifters_zone_at_start_all2 : \n',drifters_zone_at_start_all2.head(3))
+        drifters_zone_at_start_all = pd.concat([drifters_zone_at_start_all1,drifters_zone_at_start_all2])
+        print('drifters_zone_at_start_all : \n', drifters_zone_at_start_all.head(3))
+
+    #identify all drifters within target zone on starting date at 12:00:00
+    else : 
+        drifters_zone_at_start_all = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
+                              (drifters_i.lon>lon_min)     & (drifters_i.lon<=lon_max) &\
+                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
+        print(drifters_zone_at_start_all.head(3))
+
+    list_drifters_at_start=drifters_zone_at_start_all['id'].values
+    #print('drifters inside zone on',str_date1,': \n',list_drifters_at_start)
+    nb_drifters=len(list_drifters_at_start)
+    print('total nb of drifters in zone at start:',nb_drifters)
+    #Select all traj points from identified drifters
+    drifters_i.set_index("id", inplace=True)  #need to set index to being id
+    drifters_zone_traj_at_start = drifters_i.loc[list_drifters_at_start] #select data along id column
+
+    drifters_i=drifters_i.reset_index()  #reset index for both spreadsheets
+    drifters_zone_traj_at_start=drifters_zone_traj_at_start.reset_index()
+
+    #Now identify drifters that reach end of period:
+    drifters_date_at_end = drifters_zone_traj_at_start[(drifters_zone_traj_at_start['date'] == str_date2) &  \
+                                                       (drifters_zone_traj_at_start['time'] == '12:00:00')]
+    print('nb drifters at end of period:',len(drifters_date_at_end['id'].values))
+    #find id's of drifters that finish
+    list_drifters_at_end=drifters_date_at_end['id'].values
+    #print('list_drifters_end=\n',list_drifters_at_end)
+
+    #identify id's in both lists
+    list_drifters_full_period = match_elements(list_drifters_at_start, list_drifters_at_end)
+    #print("match elements: \n", list_drifters_full_period)
+
+    #Select all traj points from identified drifters
+    drifters_i.set_index("id", inplace=True)  #need to set index to being id
+    drifters_zone_traj = drifters_i.loc[list_drifters_full_period] #select data along id column
+    drifters_i=drifters_i.reset_index()
+    drifters_zone_traj=drifters_zone_traj.reset_index()
+
+    #Now remove data points before/after 12:00:00 for start/end date
+    index = drifters_zone_traj[(drifters_zone_traj['date'] == str_date1) & ((drifters_zone_traj['time'] == '00:00:00') | (drifters_zone_traj['time'] == '06:00:00')) | \
+                                  (drifters_zone_traj['time'] == '18:00:00') & (drifters_zone_traj['date'] == str_date2) ].index
+    drifters_zone_traj.drop(index, inplace=True) #remove data points
+    drifters_zone_traj=drifters_zone_traj.reset_index()
+    #print(drifters_zone_traj.head(30))
+
+    #Select start points of drifters that reach end
+    drifters_zone_at_start_all.set_index("id", inplace=True)  #need to set index to being id
+    drifters_zone_at_start = drifters_zone_at_start_all.loc[list_drifters_full_period] #select data along id column
+    drifters_zone_at_start=drifters_zone_at_start.reset_index()
+    list_drifters_at_start2=drifters_zone_at_start['id'].values
+    #print('drifters inside zone on',str_date1,': \n',list_drifters_at_start)
+
+    print('\nlist drifters in area: \n', list_drifters_at_start2)
+    print('\n', drifters_zone_traj)
+    print('\n', drifters_zone_traj.shape)
+
+    #print('save data on drifters within [ ', str_date1, ' - ', str_date1,'] and for region ', str_region,' :', outfile2)
+    drifters_zone_traj.to_csv(outfile, index=False)
+
+
+def trapz(f,x):
+    '''Approximate the integral of f(x) from a to b by the trapezoid rule.
+
+    The trapezoid rule approximates the integral \int_a^b f(x) dx by the sum:
+    (dx/2) \sum_{k=1}^N (f(x_k) + f(x_{k-1}))
+    where x_k = a + k*dx and dx = (b - a)/N.
+
+    Parameters
+    ----------
+    f : function
+        Vectorized function of a single variable
+    a , b : numbers
+        Interval of integration [a,b]
+    N : integer
+        Number of subintervals of [a,b]
+
+    Returns
+    -------
+    float
+        Approximation of the integral of f(x) from a to b using the
+        trapezoid rule with N subintervals of equal length.
+
+    Examples
+    --------
+    >>> trapz(np.sin,0,np.pi/2,1000)
+    0.9999997943832332
+    '''
+    y_right = f[1:,:] # right endpoints
+    #print(y_right.shape)
+    y_left = f[:-1,:] # left endpoints
+    #print(y_left.shape)
+
+    dx = (x[1] - x[0])
+    #print(dx)
+    #T = (dx/2) * np.sum(y_right + y_left)
+    T = (dx/2) * np.nansum(y_right + y_left, axis=0)
+    return T
+
+
+## return U, V files within date range:
+def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
+
+    print ("#-----------------------------------------------------------------------------------------")
+    print ("#                      READ IN FIELDSET")
+    print ("#-----------------------------------------------------------------------------------------")
+
+    print('script ReturnUVlist')
+    print('model :', MODEL)
+    print('date_start :', date_start)
+    print('date_end :', date_end)
+    print('dir_in :', dir_in)
+
+    #reconstruct date1
+    DD1=date_start.day
+    MM1=date_start.month
+    YYYY1=date_start.year 
+
+    DD2=date_end.day
+    MM2=date_end.month
+    YYYY2=date_end.year
+
+    config_object = ConfigParser()
+    config_object.read("/home/pgouvenou/drifter_comparison/src/config_products.ini")
+    #config_object.read("/config_products.ini")
+
+
+    if MODEL not in config_object.sections():
+        print(MODEL, "is either a typo or not yet tuned for this program")
+        print('model runs available: ',config_object.sections())
+        sys.exit(1)
+
+    run_info = config_object[MODEL]
+    fname_prefix=run_info["fname_prefix"]
+    #path to files 
+    if dir_in:
+        print(dir_in)
+        path_UV=dir_in
+    else:    
+        path_UV=run_info["path"]
+
+    print('path_UV: ', path_UV)
+    print('fname_prefix: ', fname_prefix)
+    #sys.exit(1)
+
+    #e.g.       /sortref/opr/pgn/PSY4/psy4v3r1/2009/07/PSY4V3R1_1dAV_20090703_20090704_gridU_R20090708.nc
+    #e.g.     /sortref/reanalyse/glorys/phy/GLORYS12V1/RUN5free/PGN/1991/12/GLORYS12V1_1dAV_19911204_19911205_gridU_R19911211.nc
+    # create list of files:
+    print('identify U,V :')
+
+    list_years = range (YYYY1, YYYY2+1, 1)
+    print('years=', list_years)
+    u_files,v_files, ssh_files= [],[],[]  # initialise arryas
+    for i in list_years:
+        print (i)
+        #pathA = data_path2+'*/*/PSY4V3R1_1dAV_'+str(i)+'*gridU*.nc'
+        #print(pathA)
+
+        if MODEL == 'GLOBC':
+            # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
+            # nrt_global_allsat_phy_l4_20181224_20181230.nc
+            u_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
+            v_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
+            
+            #provide how file starts to identify it in list
+            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+            print('f_input_start=', f_input_start)
+            print('f_input_end=', f_input_end)
+
+            #sys.exit(1)
+        elif MODEL == 'ORCA12_RBB':
+            print('got here')
+            #e.g. /sortref/ose-2/btchonang/GLORYS12V1/GLO12OSSE/NatRun/ORCA12-TRBB36s003b_1d_grid_T_20141120-20141120.nc
+            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+'grid_U_'+str(i)+'*.nc'))
+            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ 'grid_V_'+str(i)+'*.nc'))
+            
+            #provide how file starts to identify it in list
+            f_input_start = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+            f_input_end =str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+            print('f_input_start=', f_input_start)
+            print('f_input_end=', f_input_end)
+
+        elif MODEL == 'GLO12V4':
+            # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
+            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
+            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ str(i)+ '*3DV-vo_*.nc'))
+            
+            #provide how file starts to identify it in list
+            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+            print('f_input_start=', f_input_start)
+            print('f_input_end=', f_input_end)
+        elif MODEL == 'IBI36':
+            print(path_UV+fname_prefix+'*gridU_R*.nc')
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*gridU_R*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*gridV_R*.nc'))
+            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d')
+
+        elif MODEL == 'SMOC' or MODEL == 'SMOC_GLO12':
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) +format(MM2,'02d') + format(DD2,'02d')
+
+        elif MODEL == 'IBI8':
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d')+ format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2)+format(MM2,'02d')+ format(DD2,'02d')
+
+        elif MODEL == 'GLO8':
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+
+        else :
+            # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
+            u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
+            v_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridV_*.nc'))
+            
+            
+            #provide how file starts to identify it in list
+            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+            print('f_input_start=', f_input_start)
+            print('f_input_end=', f_input_end)
+
+
+    #ssh_files=ssh_files.sort() 
+
+    
+    #sys.exit(1)
+    print('f_input_start',f_input_start)
+    print('f_input_end',f_input_end)
+
+    print('UV field, identify start date:')
+    print('nb files in Ulist = ', len(u_files))
+    counter=0
+    for line in u_files:
+        if f_input_start in line:
+           pos1 = counter 
+           print ('    ',f_input_start, ' in line ', pos1,' :', line)        
+        counter+=1
+
+    #sys.exit(1)
+
+    print('UV field, identify end date')
+    counter=0
+    for line in u_files:
+        if f_input_end in line:
+           pos2 = counter 
+           print ('    ',f_input_end, ' in line ', pos2,' :', line)        
+        counter+=1
+
+    #sys.exit(1)
+    # clear up paths to previous dayly outputs  from list:
+    del(u_files[pos2+1:])
+    del(u_files[:pos1])
+
+    del(v_files[pos2+1:])
+    del(v_files[:pos1])
+
+
+    print('nb files in ulist = ', len(u_files))
+    print('nb files in vlist = ', len(v_files))
+    print('nb files in ssh list = ', len(ssh_files))
+
+    return u_files, v_files
+
+def DispDirAndLength(traj_lon, traj_lat):
+    nb_part   = traj_lon.shape[0]
+    nb_tsteps = traj_lon.shape[1]
+    
+    #2 Calculate particle displacement (for entire trajectory), direction of displacement and trajectory length
+    disp_lat, disp_lon =  np.zeros((nb_part,2)), np.zeros((nb_part,2))
+    disp_lat[:,0] = traj_lat[:,0]
+    disp_lat[:,1] = traj_lat[:,-1]
+    
+    disp_lon[:,0] = traj_lon[:,0]
+    disp_lon[:,1] = traj_lon[:,-1]
+    #print('disp_lat',disp_lat.shape) 
+    #print('    CALCULATE DISTANCE and ANGLE ')
+    displacement, direction = sw_dist(disp_lat, disp_lon)  # CALCULATE DIST
+    #print('displacement', displacement)
+    #print('direction', direction) 
+    #sys.exit(1)
+    
+    #print('    CALCULATE length of SPAGHETTI ')
+    
+    dist_spagAB=np.zeros(displacement.shape)
+    #print('dist_spagAB',dist_spagAB.shape)
+    for ii in range(nb_tsteps-1): # calculate distance completed in a day (take one datapoint per day)
+        #print("\ntstep=", ii)
+        #print "after day", ii+1
+    
+        disp_lat, disp_lon =  np.zeros((nb_part,2)), np.zeros((nb_part,2))
+        disp_lat[:,0] = traj_lat[:, ii]
+        disp_lat[:,1] = traj_lat[:, ii+1]
+    
+        disp_lon[:,0] = traj_lon[:,ii]
+        disp_lon[:,1] = traj_lon[:,ii+1]
+    
+        # Calculate distance and angle after each dayoutput_Drifter_Data_2010-14.txt
+        dist_spagAB_dayi, spag_angleAB = sw_dist(disp_lat, disp_lon)  # CALCULATE DIST & ANGLE
+        # add to master file
+        dist_spagAB=dist_spagAB+dist_spagAB_dayi
+        #print "drift after day", ii," : ", dist_spagAB
+        #angle_spagAB=angle_spagAB+angle_spagAB_dayi    
+    #print('dist_spagAB',dist_spagAB.shape)
+    return displacement, direction, dist_spagAB 
+
+def SeparationDistance(lon_grp1,lat_grp1, lon_grp2,lat_grp2):
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+    DEG2NM, NM2KM = 60., 1.8520
+    # Angle conversions.
+    deg2rad, rad2deg = pi / 180.0,  180.0 / pi
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+
+    #print(np.shape(lon_grp1), np.shape(lat_grp1),np.shape(lon_grp2),np.shape(lat_grp2))
+    if len(lon_grp1.shape) == 1:
+         lon_grp1=np.expand_dims(lon_grp1, axis=1)
+    if len(lat_grp1.shape) == 1:
+         lat_grp1=np.expand_dims(lat_grp1, axis=1)
+    if len(lon_grp2.shape) == 1:
+         lon_grp2=np.expand_dims(lon_grp2, axis=1)
+    if len(lat_grp2.shape) == 1:
+         lat_grp2=np.expand_dims(lat_grp2, axis=1)
+    #print(np.shape(lon_grp1), np.shape(lat_grp1),np.shape(lon_grp2),np.shape(lat_grp2))
+    #sys.exit(1)
+    # difference in lon/lat with above and below cells
+    dlon = lon_grp2 - lon_grp1
+    dlat = lat_grp2 - lat_grp1
+
+    if np.any(np.abs(dlon) > 180):
+        flag = abs(dlon) > 180
+        dlon[flag] = -np.sign(dlon[flag]) * (360 - np.abs(dlon[flag]))
+
+    #sizey, sizex = np.shape(lon_grp1)
+    mean_lat=(lat_grp2 + lat_grp1)/2.0
+    latrad = np.abs(mean_lat * deg2rad)
+    #print('\ndlon\n', dlon)
+    #print('\ndlat\n', dlat)
+    #print('\nmean_lat\n', mean_lat)
+
+    #print('\nlon_diff_top\n',lon_diff_top)
+    #print('\nlat_diff_top\n',lat_diff_top)
+
+    #print('\nCALCULATE DISTANCE TOP ')
+    dep = np.cos(latrad) * dlon
+    dist = DEG2NM * (dlat ** 2 + dep ** 2) ** 0.5
+    dist = dist*NM2KM
+    #print('\ndist[0,:]\n',dist[0,:])
+
+    return dist
+
+def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
+    print('SepDistanceEachTimestep...')
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+    DEG2NM, NM2KM = 60., 1.8520
+    # Angle conversions.
+    deg2rad, rad2deg = pi / 180.0,  180.0 / pi
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+    
+    #print('SVP:\n',np.shape(lon_grp1), np.shape(lat_grp1),'\nMODEL\n',np.shape(lon_grp2),np.shape(lat_grp2))
+    #sys.exit(1)
+    #if len(lon_grp1.shape) == 1:
+    #     lon_grp1=np.expand_dims(lon_grp1, axis=1)
+    #if len(lat_grp1.shape) == 1:
+    #     lat_grp1=np.expand_dims(lat_grp1, axis=1)
+    #if len(lon_grp2.shape) == 1:
+    #     lon_grp2=np.expand_dims(lon_grp2, axis=1)
+    #if len(lat_grp2.shape) == 1:
+    #     lat_grp2=np.expand_dims(lat_grp2, axis=1)
+    #print(np.shape(lon_grp1), np.shape(lat_grp1),np.shape(lon_grp2),np.shape(lat_grp2))
+    #sys.exit(1)
+    # difference in lon/lat with above and below cells
+    dlon = lon_grp1 - lon_grp2  #np.diff(lon_grp1)
+    dlat = lat_grp1 - lat_grp2  #np.diff(lat_grp1)
+    #print('dlon=', dlon.shape)
+    #print('dlat=', dlat.shape)
+    #sys.exit(1)
+
+
+    if np.any(np.abs(dlon) > 180):
+        flag = abs(dlon) > 180
+        dlon[flag] = -np.sign(dlon[flag]) * (360 - np.abs(dlon[flag]))
+
+    sizey, sizex = np.shape(lon_grp1)
+    mean_lat=(lat_grp2 + lat_grp1)/2.0
+    #print(mean_lat.shape)
+    latrad = np.abs(mean_lat * deg2rad)
+    #print('\ndlon\n', dlon)
+    #print('\ndlat\n', dlat)
+    #print('\nmean_lat\n', mean_lat)
+
+    #print('\nlon_diff_top\n',lon_diff_top)
+    #print('\nlat_diff_top\n',lat_diff_top)
+
+    #print('\nCALCULATE DISTANCE TOP ')
+    dep = np.cos(latrad) * dlon
+    dist = DEG2NM * (dlat ** 2 + dep ** 2) ** 0.5
+    dist = dist*NM2KM
+    #print('\nSVP_lon\n',lon_grp1[0,:])
+    #print('\nSVP_lat\n',lat_grp1[0,:])
+    #print('\nMOD_lon\n',lon_grp2[0,:])
+    #print('\nMOD_lat\n',lat_grp2[0,:])
+    #print('\ndist\n',dist[0,:])
+    
+    #sys.exit(1)
+    return dist
+
+
+def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
+    print('TrajDistBetweenTimesteps...')
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+    DEG2NM, NM2KM = 60., 1.8520
+    # Angle conversions.
+    deg2rad, rad2deg = pi / 180.0,  180.0 / pi
+    earth_radius = 6371000.
+    # 1 nm = 1.8520 km
+    
+    print(np.shape(lon_grp1), np.shape(lat_grp1))#,np.shape(lon_grp2),np.shape(lat_grp2))
+    #if len(lon_grp1.shape) == 1:
+    #     lon_grp1=np.expand_dims(lon_grp1, axis=1)
+    #if len(lat_grp1.shape) == 1:
+    #     lat_grp1=np.expand_dims(lat_grp1, axis=1)
+    #if len(lon_grp2.shape) == 1:
+    #     lon_grp2=np.expand_dims(lon_grp2, axis=1)
+    #if len(lat_grp2.shape) == 1:
+    #     lat_grp2=np.expand_dims(lat_grp2, axis=1)
+    #print(np.shape(lon_grp1), np.shape(lat_grp1),np.shape(lon_grp2),np.shape(lat_grp2))
+    #sys.exit(1)
+    # difference in lon/lat with above and below cells
+    dlon = np.diff(lon_grp1)
+    dlat = np.diff(lat_grp1)
+    print('dlon=', dlon.shape)
+    print('dlat=', dlat.shape)
+    #sys.exit(1)
+
+
+    if np.any(np.abs(dlon) > 180):
+        flag = abs(dlon) > 180
+        dlon[flag] = -np.sign(dlon[flag]) * (360 - np.abs(dlon[flag]))
+
+    sizey, sizex = np.shape(lon_grp1)
+    mean_lat=(lat_grp1[:,:-1] + lat_grp1[:,1:])/2.0
+    print(mean_lat.shape)
+    latrad = np.abs(mean_lat * deg2rad)
+    #print('\ndlon\n', dlon)
+    #print('\ndlat\n', dlat)
+    #print('\nmean_lat\n', mean_lat)
+
+    #print('\nlon_diff_top\n',lon_diff_top)
+    #print('\nlat_diff_top\n',lat_diff_top)
+
+    #print('\nCALCULATE DISTANCE TOP ')
+    dep = np.cos(latrad) * dlon
+    dist = DEG2NM * (dlat ** 2 + dep ** 2) ** 0.5
+    dist = dist*NM2KM
+    print('\ndist\n',dist[0,:])
+    #sys.exit(1)
+    return dist
+    
+def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
+    print('compute Liu Score')
+    #print('drifter 6hourly: SVP', traj_drifter_lon.shape,', MODEL:', traj_lon_mod.shape)
+    #Need to only take daily output:
+    ind_daily=np.arange(0,traj_drifter_lon.shape[1],4)
+    #print('select positions:', ind_daily)
+    
+    traj_drifter_lon_daily=traj_drifter_lon[:,ind_daily]
+    traj_drifter_lat_daily=traj_drifter_lat[:,ind_daily]
+    traj_lon_mod_daily=traj_lon_mod[:,ind_daily]
+    traj_lat_mod_daily=traj_lat_mod[:,ind_daily]
+    #print(traj_drifter_lon_daily.shape, traj_lon_mod_daily.shape)
+    #1. Calculate SVP distance completed between time steps
+    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon_daily, traj_drifter_lat_daily)
+
+    #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
+    di_SVP_MOD =SepDistanceEachTimestep(traj_drifter_lon_daily[:,1:], traj_drifter_lat_daily[:,1:], traj_lon_mod_daily[:,1:], traj_lat_mod_daily[:,1:])
+    #print('dli_drifters.shape, di_SVP_MOD.shape\n', dli_drifters.shape, di_SVP_MOD.shape)
+    #3. Compute Liu Score for 1, 3, 5 days
+    
+    #Compute S1 
+    S1=di_SVP_MOD[:,0]/dli_drifters[:,0]
+    
+    #Compute S3=(d1+d2+d3)/(I01 + I02 + I03) 
+    # with I01=dl1, I02=dl1+dl2, I03=dl1+dl2+dl3
+    I01 = dli_drifters[:,0]
+    I02 = np.sum(dli_drifters[:,:2], axis=1)
+    I03 = np.sum(dli_drifters[:,:3], axis=1)
+    #print(I01.shape)
+    #print(I02.shape)
+    #print(I03.shape)
+    num_S3   = np.sum(di_SVP_MOD[:,:3], axis=1)
+    denom_S3 = I01+I02+I03  
+    #print(num_S3.shape, denom_S3.shape)
+    S3=np.divide(num_S3, denom_S3)
+    #print(S3.shape)
+    #Same for S5:
+    I04 = np.sum(dli_drifters[:,:4], axis=1)
+    I05 = np.sum(dli_drifters[:,:5], axis=1)
+    num_S5 = np.sum(di_SVP_MOD[:,:5], axis=1)
+    denom_S5   = I01+I02+I03+I04+I05
+    S5=np.divide(num_S5,denom_S5)
+
+    #Same for S7:
+    I06 = np.sum(dli_drifters[:,:6], axis=1)
+    I07 = np.sum(dli_drifters[:,:7], axis=1)
+    num_S7 = np.sum(di_SVP_MOD[:,:7], axis=1)
+    denom_S7   = I01+I02+I03+I04+I05+I06+I07
+    S7=np.divide(num_S7,denom_S7)
+    #print('\nS1',S1.shape,S1,'\n\nS3', S3.shape, S3, '\n\nS5', S5.shape, S5, '\n\nS7', S7.shape, S7)
+    
+    
+    return S1, S3, S5, S7
+    #sys.exit(1)
+    
+def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
+
+    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+
+    #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
+    di_SVP_MOD =SepDistanceEachTimestep(traj_drifter_lon[:,1:], traj_drifter_lat[:,1:], traj_lon_mod[:,1:], traj_lat_mod[:,1:])
+    liu_index = []
+    den = np.zeros(di_SVP_MOD.shape[0])
+    for i in range(di_SVP_MOD.shape[1]):
+        den += np.sum(dli_drifters[:,:i], axis=1)
+        liu_index.append(np.sum(di_SVP_MOD[:,:i], axis=1)/den)   
+    return np.array(liu_index)
+
+
+def CalcCurlGlobC (u_files, zlevel, dir_out):
+    print('Calculate Curl GlobCurrent')
+    print('for level:', zlevel, ' (1=surface,  2=15m depth)')
+
+    dir_out2= dir_out+'/CURL/GLOBC/'
+    if not os.path.exists(dir_out2):
+        print('\ncreate temp folder : ', dir_out2)
+        # Create directory where to store results:
+        os.makedirs(dir_out2)    
+
+
+    #load list of Globcurrent file:
+    #nc_file = '/dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20190318T1200Z_P20200520T0000.nc'
+    
+    curl_files = []
+    for line in u_files:  #loop through each uv file
+        
+        nc_file = line.strip()  #need strip to remove '\n' newline
+        print(nc_file)
+        # Create outfile name:
+        fuv_name = os.path.basename(nc_file)  
+        
+        fcurl_name = fuv_name.replace("uv", "curl")
+        #print(fname_vor)
+        nc_out=dir_out2 + fcurl_name
+        curl_files.append(nc_out)
+        if not os.path.exists(nc_out):
+            
+            #read in UV file
+            fh = Dataset(nc_file, mode='r')
+            lat = fh.variables['latitude'][:]
+            lon = fh.variables['longitude'][:]
+            t = fh.variables['time']#[:]
+            t_val=t[:]
+            t_units = t.units
+            t_calendar = t.calendar 
+
+
+            U = fh.variables['uo'][0]
+            V = fh.variables['vo'][0]
+            fh.close()
+
+            #u = units.Quantity(np.ma.array(U, mask=U[U.mask]), units('m/s'))
+            u = units.Quantity(np.ma.array(U), units('m/s'))
+            v = units.Quantity(np.ma.array(V), units('m/s'))
+
+            #select surface values
+            u_surf = u[zlevel-1,:,:]
+            v_surf = v[zlevel-1,:,:]
+            #u_15 = u[1,:,:]
+            #v_15 = v[1,:,:]
+
+            
+            # Calcualte dx and dy for calculations
+            dx, dy = mpcalc.lat_lon_grid_deltas(lon, lat)
+
+
+            #print('calculate Relative Vorticity...')
+            # Planetary Vorticity
+            f = mpcalc.coriolis_parameter(np.deg2rad(lat)).to('1/s')
+            f1 = np.expand_dims(f, axis=1)
+
+            # Relative Vorticity
+            print("u_surf",u_surf.shape,"\nv_surf", v_surf.shape,'\ndx, dy', dx.shape, dy.shape )
+            vor = mpcalc.vorticity(u_surf, v_surf, dx = dx, dy = dy) #, dim_order='yx')
+            
+            # Abosolute Vorticity
+            avor = vor + f1
+
+            print('... save as ',nc_out)
+            foo = Dataset(nc_out, 'w')
+            # Global Attributes
+            foo.title = 'Vorticity GlobCurrent '
+            foo.institution = 'Mercator-Ocean International'
+            #foo.history = 'Created ' + time.ctime(time.time())
+
+            # Create dimensions
+            foo.createDimension('time', len(t_val))
+            foo.createDimension('y', len(lat))
+            foo.createDimension('x', len(lon))
+
+            # Create variables
+            nc_times = foo.createVariable('time', float, ('time',), zlib=True)
+            nc_latitudes = foo.createVariable('latitude', float, ('y'), zlib=True)
+            nc_longitudes = foo.createVariable('longitude', float, ( 'x'), zlib=True)
+            nc_vor = foo.createVariable('vor', float, ('y', 'x'), zlib=True, fill_value=0)  #, least_significant_digit=12,
+            nc_avor = foo.createVariable('avor', float, ('y', 'x'), zlib=True, fill_value=0)  #, least_significant_digit=12,
+
+            # Variable attributes
+            nc_latitudes.units = 'degree_north'
+            nc_longitudes.units = 'degree_east'
+            nc_vor.units = '1/s'
+            nc_avor.units = '1/s'
+            nc_times.units = t_units
+            nc_times.calendar = t_calendar
+
+            # Write to nc_Variable
+            nc_times[:] = t_val
+            nc_latitudes[:] = lat
+            nc_longitudes[:] = lon
+
+            nc_vor[:]=vor.magnitude
+            nc_avor[:]=avor.magnitude
+
+            foo.close()
+        
+
+        else:
+            print('...',nc_out, " already exists")
+                
+
+    print('done')
+    return curl_files
+
+
+def CalcRelVorticity(model,u_files, var_u,v_files, var_v, zlevel, overf, pos_grid, dir_out) :
+    print("Drift: Fonction CalcRelVorticity")
+
+    dir_work='/data/rd_exchange/pgouvenou/Tools/CDF_Tools/'+model+'/'
+    if not os.path.exists(dir_work):
+        print('\n script cannot compute curl for : ', model)
+        sys.exit(1)
+    else:
+        os.chdir(dir_work) 
+        print(os.getcwd())
+           
+
+    dir_out2= dir_out+'/CURL/'+model+'/'
+    if not os.path.exists(dir_out2):
+        print('\ncreate temp folder : ', dir_out2)
+        # Create directory where to store results:
+        os.makedirs(dir_out2)          
+    
+    #BIN='/home/cbricaud/OUTILS/CDFTOOLS/bin/'
+    #BIN='/home/qualif/CDFTOOLS/new_version/CDFTOOLS/bin/'
+    BIN='/homelocal-px/px-153/sauvegarde/rbourdal/PROGRAMS/CDFTOOLS_3/CDFTOOLS_3.0/bin/'
+    #BIN='/home/qualif/CDFTOOLS/bin_opr/'
+    #BIN='/homelocal-px/px-153/sauvegarde/rbourdal/PROGRAMS/CDFTOOLS_4/CDFTOOLS-master/bin/'
+    #PSY4V3R1_1dAV_20100101_20100102_gridU_R20100106.nc
+    
+    curl_files = []
+    for uline, vline in zip(u_files, v_files):  #loop through each uv file
+        
+
+        u_file = uline.strip()  #need strip to remove '\n' newline
+        v_file = vline.strip()  #need strip to remove '\n' newline
+        
+        print(u_file)
+        print(v_file)
+        # Create outfile name:
+        fu_name = os.path.basename(u_file)  
+        
+        fcurl_name = fu_name.replace("gridU", "curl")
+        nc_out=dir_out2 + fcurl_name
+        
+        #print('--->',nc_out)
+        curl_files.append(nc_out)
+        
+        #'''
+        #Recupere la namelist
+        if not os.path.exists(nc_out):
+            #e.g. '/home/cbricaud/OUTILS/CDFTOOLS/bin/cdfcurl -u $fu $var_u -v $fv $var_v -l "12" -surf -overf -o fout 
+            if pos_grid == 'F':
+                print('Calculate on F grid')
+                if overf==1:
+                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -surf -overf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
+                else:
+                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -surf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
+          
+            elif pos_grid == 'T':
+                print('Calculate on T grid')
+                if overf==1:
+                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -T -surf -overf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
+                else:
+                    #cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -T -surf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
+                    cmd_exe = '%s/cdfcurl %s %s %s %s %s' %(BIN, u_file, v_file, var_u, var_v, zlevel)
+
+
+            print(cmd_exe)   
+            os.system(cmd_exe)
+            #sys.exit(1)
+            os.rename(dir_work+'curl.nc', nc_out)
+            print('output=', nc_out,'\n')
+        else:
+            print('...',nc_out, " already exists")        
+            #'''
+        #sys.exit(1)
+    return curl_files  
+
+def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
+    print("Fonction ExtractLayer")
+
+    u_files_surf, v_files_surf  = [], []
+    for uline, vline in zip(u_files, v_files):  #loop through each uv file
+        u_file = uline.strip()  #need strip to remove '\n' newline
+        v_file = vline.strip()  #need strip to remove '\n' newline
+        uname = os.path.split(u_file)[1] #extract name of file
+        #print(uname)
+        if 'GLO12' in u_file:
+            year=uname[14:18]
+        elif 'PSY4V3' in u_file:
+            year=uname[14:18]
+        elif 'IBI36' in u_file:
+            year = uname[13:17]
+        elif model == 'GLOBC':
+            year = uname[21:25]
+
+        #print('year=', year)
+        print(u_file)
+        print(v_file)
+        print( 'year = ',year)
+        #sys.exit(1)
+        dir_out2= dir_out+'/'+ year +'/'
+        if not os.path.exists(dir_out2):
+            print('\ncreate temp folder : ', dir_out2)
+            # Create directory where to store results:
+            os.makedirs(dir_out2)          
+        #sys.exit(1)
+        # Create outfile name:
+        fu_name = os.path.basename(u_file)  
+        fv_name = os.path.basename(v_file)  
+        
+        u_file_surf=dir_out2 + fu_name
+        u_file_temp=dir_out2 + 'temp1.nc'
+        v_file_surf=dir_out2 + fv_name
+        v_file_temp=dir_out2 + 'temp2.nc'
+        
+        #print('--->',nc_out)
+        u_files_surf.append(u_file_surf)
+        v_files_surf.append(v_file_surf)
+        
+        
+        #'''
+        print('extract u_surf')
+        depth='deptht'
+        if 'IBI36' in u_file:
+            depth = 'depthu'
+        elif 'GLO12' in u_file:
+            depth = 'depthu'
+        elif 'GLOBC' in u_file:
+            depth = 'depth'
+        #if True : 
+        if not os.path.exists(u_file_surf):
+            # e.g. ncwa -a deptht -d deptht,10 infile.nc file-depth10.nc 
+            # Example to select only 10th level of depth dim (resulting file won't keep this dimension):
+            #  If no -a option is precised, ncwa is used to average data. By default all dimensions will be averaged to give only a float value.
+            
+            #cmd_exe1 = 'ncwa -F -a %s -d %s,%s %s %s ' %(depth,depth,z_level, u_file, u_file_surf)
+            #ncks -F -A -d deptht,${zlevel},${zlevel},1 -v $var_i $ff ${IDIR}/temp1.nc
+            #cmd_exe1 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_u, u_file, u_file_temp)
+            cmd_exe1 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_u, u_file, u_file_surf)
+            print(cmd_exe1)   
+            os.system(cmd_exe1)
+
+            #2  Remove degenerated dimension
+            #echo ncwa -F -a deptht,1  ${IDIR}/temp1.nc ${IDIR}/${fname2}
+            cmd_exe1b = 'ncwa -F -a %s,1 %s %s ' %(depth, u_file_temp, u_file_surf)
+            #print(cmd_exe1b)   
+            #os.system(cmd_exe1b)
+
+
+        else:
+            print('...',u_file_surf, " already exists")        
+            #'''
+        #sys.exit(1)
+        print('extract v_surf')
+        
+        if 'IBI36' in v_file:
+            depth = 'depthv'
+        elif 'GLO12' in v_file:
+            depth = 'depthv'
+        elif 'GLOBC' in v_file:
+            depth = 'depth'
+        if not os.path.exists(v_file_surf):
+        #if True:
+            #cmd_exe2 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_v, v_file, v_file_temp)
+            cmd_exe2 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_v, v_file, v_file_surf)
+            #cmd_exe2 = 'ncwa -F -a %s -d %s,%s %s %s ' %(depth,depth,z_level, v_file, v_file_surf)
+            print(cmd_exe2)   
+            os.system(cmd_exe2)
+           
+            #2  Remove degenerated dimension
+            #echo ncwa -F -a deptht,1  ${IDIR}/temp1.nc ${IDIR}/${fname2}
+            cmd_exe2b = 'ncwa -F -a %s,1 %s %s ' %(depth,  v_file_temp, v_file_surf)
+            #print(cmd_exe2b)   
+            #os.system(cmd_exe2b)
+        else:
+            print('...',v_file_surf, " already exists")        
+            #'''
+
+
+
+    return u_files_surf, v_files_surf  
+
+
