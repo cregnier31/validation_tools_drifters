@@ -12,6 +12,8 @@ In summary, the Validation Tools consist of two parts: one focusing on the Euler
 To install a working environment, please launch the following command line : 
 conda env create -f environment.yml
 
+Otherwise in intern you can activate my environment by launching the following command : conda activate  /data/rd_exchange/pgouvenou/env/env_py36_parcels_2022
+
 ## Usage
 Set your parameters into the config.in file : 
 You can choose the models to compare, the time period, the area and the drift time for the lagrangian perspective;
