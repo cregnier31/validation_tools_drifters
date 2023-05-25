@@ -169,7 +169,7 @@ print ("#    Retrieve SVP Drifters in area and within for temporal window   ")
 print ("#-------------------------------------------------------------------------------------------------------------------------")
 
 
-dir_in='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
+dir_in='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in+fname_in

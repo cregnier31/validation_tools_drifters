@@ -11,6 +11,8 @@ import cartopy.feature as cfeature
 import pandas as pd
 from configparser import ConfigParser
 
+
+
 config_object = ConfigParser()
 config_object.read("config.ini")
 config_info = config_object['CONFIG_BASE']
@@ -97,7 +99,7 @@ for MODEL in MODELS:
 
 
 # retrieve GDP drifters trajectories
-dir_in_svp='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
+dir_in_svp='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in_svp+fname_in

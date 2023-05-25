@@ -12,6 +12,8 @@ from netCDF4 import Dataset, date2num
 from scipy import stats
 from scipy import ndimage
 
+
+
 import matplotlib
 import argparse
 import time
@@ -144,7 +146,7 @@ traj_time = np.array(traj_time)
 
 
 
-dir_in='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
+dir_in='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in+fname_in
