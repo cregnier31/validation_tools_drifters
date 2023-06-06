@@ -14,7 +14,7 @@ import getpass
 
 
 config_object = ConfigParser()
-config_object.read("config_Taylor_Diagram.ini")
+config_object.read("config.ini")
 config_info = config_object['CONFIG_BASE']
 MODELS = config_info["MODELS"].split(',')
 lon_min = int(config_info["lon_min"])
