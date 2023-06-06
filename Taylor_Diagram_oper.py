@@ -137,7 +137,7 @@ elif remote == "False":
 
 
 # retrieve GDP drifters trajectories
-dir_in_svp='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
+dir_in_svp='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in_svp+fname_in

@@ -67,6 +67,7 @@ dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
 DRIFT_TIME = int(config_info["DRIFT_TIME"])
 cloud_stat = config_info["cloud_stat"]
+remote = config_info["remote"]
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
@@ -106,59 +107,96 @@ print(dir_out)
 
 #-------------------------------------------------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------------------------------------------------
-
-zlevel = 11
-config_object = ConfigParser()
-config_object.read(dir_in+"src/config_products.ini")
-path_UV = []
-fname_prefix = []
-var_u_mod = []
-var_v_mod = []
-meshmask = []
-dir_work_mod = []
-u_files_mod = []
-v_files_mod = []
-colors = []
-
+if remote == "True":
+    USERNAME = 'pgouvenou'
+    PASSWORD = getpass.getpass('Enter your password: ')
+    #! /usr/bin/env python3
+    # -*- coding: utf-8 -*-
+    __author__ = "Copernicus Marine User Support Team"
+    __copyright__ = "(C) 2022 E.U. Copernicus Marine Service Information"
+    __credits__ = ["E.U. Copernicus Marine Service Information"]
+    __license__ = "MIT License - You must cite this source"
+    __version__ = "202104"
+    __maintainer__ = "D. Bazin, E. DiMedio, C. Giordan"
+    __email__ = "servicedesk dot cmems at mercator hyphen ocean dot eu"
 
 
+    def copernicusmarine_datastore(dataset, username, password):
+        from pydap.client import open_url
+        from pydap.cas.get_cookies import setup_session
+        cas_url = 'https://cmems-cas.cls.fr/cas/login'
+        session = setup_session(cas_url, username, password)
+        session.cookies.set("CASTGC", session.cookies.get_dict()['CASTGC'])
+        database = ['my', 'nrt']
+        url = f'https://{database[0]}.cmems-du.eu/thredds/dodsC/{dataset}'
+        try:
+            data_store = xr.backends.PydapDataStore(open_url(url, session=session, user_charset='utf-8')) # needs PyDAP >= v3.3.0 see https://github.com/pydap/pydap/pull/223/commits 
+        except:
+            url = f'https://{database[1]}.cmems-du.eu/thredds/dodsC/{dataset}'
+            data_store = xr.backends.PydapDataStore(open_url(url, session=session, user_charset='utf-8')) # needs PyDAP >= v3.3.0 see https://github.com/pydap/pydap/pull/223/commits
+        return data_store
+    data = []
+    for dataset in MODELS:
+        data_store = xr.open_dataset(copernicusmarine_datastore(dataset, USERNAME, PASSWORD))
+        data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), longitude = slice(lon_min,lon_max),
+                                  latitude = slice(lat_min,lat_max)).sel(depth = 15,method = 'nearest'))
+        colors = np.array(['b','r','g','k'])[:len(MODELS)]
 
 
-print ("#-----------------------------------------------------------------------------------------")
-print ("#                      RETRIEVE U,V, SSH FIELDS")
-print ("#-----------------------------------------------------------------------------------------")
+elif remote == "False":
 
-for MODEL in MODELS:
-    if MODEL not in config_object.sections():
-        print(MODEL, "is either a typo or not yet tuned for this program")
-        print('model runs available: ',config_object.sections())
-        sys.exit(1)
-    run_info = config_object[MODEL]
-    path_UV.append(run_info["path"])
-    fname_prefix.append(run_info["fname_prefix"])
-    var_u_mod.append(run_info["var_u"])
-    var_v_mod.append(run_info["var_v"])
-    meshmask.append(run_info["meshmask"])
-    colors.append(run_info["color"])
-    dir_work_mod.append(dir_out+'/EXP/'+MODEL+'/')
-    if not os.path.exists(dir_work_mod[-1]):
-        print('\ncreate folder : ', dir_work_mod[-1])
-        # Create directory where to store results:
-        os.makedirs(dir_work_mod[-1])
-    
-    if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
-        u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
-        u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod, var_v_mod, dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
-        u_files_mod.append(u_files)
-        v_files_mod.append(v_files)
-    else : 
-        u_files, v_files = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
-        u_files_mod.append(u_files)
-        v_files_mod.append(v_files)
+    zlevel = 11
+    config_object = ConfigParser()
+    config_object.read(dir_in+"src/config_products.ini")
+    path_UV = []
+    fname_prefix = []
+    var_u_mod = []
+    var_v_mod = []
+    meshmask = []
+    dir_work_mod = []
+    u_files_mod = []
+    v_files_mod = []
+    colors = []
 
 
-print('path_UV: ', path_UV[0])
-print('fname_prefix: ', fname_prefix[0])
+
+
+
+    print ("#-----------------------------------------------------------------------------------------")
+    print ("#                      RETRIEVE U,V, SSH FIELDS")
+    print ("#-----------------------------------------------------------------------------------------")
+
+    for MODEL in MODELS:
+        if MODEL not in config_object.sections():
+            print(MODEL, "is either a typo or not yet tuned for this program")
+            print('model runs available: ',config_object.sections())
+            sys.exit(1)
+        run_info = config_object[MODEL]
+        path_UV.append(run_info["path"])
+        fname_prefix.append(run_info["fname_prefix"])
+        var_u_mod.append(run_info["var_u"])
+        var_v_mod.append(run_info["var_v"])
+        meshmask.append(run_info["meshmask"])
+        colors.append(run_info["color"])
+        dir_work_mod.append(dir_out+'/EXP/'+MODEL+'/')
+        if not os.path.exists(dir_work_mod[-1]):
+            print('\ncreate folder : ', dir_work_mod[-1])
+            # Create directory where to store results:
+            os.makedirs(dir_work_mod[-1])
+
+        if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
+            u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
+            u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod, var_v_mod, dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
+        else : 
+            u_files, v_files = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
+
+
+    print('path_UV: ', path_UV[0])
+    print('fname_prefix: ', fname_prefix[0])
 
 
 

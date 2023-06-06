@@ -170,7 +170,7 @@ for i in range(nb_drifters_temp):
 
 
 for i in range(len(spurious_drifters)):
-    print('rmove drifter ',spurious_drifters[i])
+    print('remove drifter ',spurious_drifters[i])
     ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
     drifters_zone_traj.drop(ind1, inplace=True) #remove data points
 
@@ -217,6 +217,13 @@ for i in range (traj_lon.shape[0]):
 sep_dist = SeparationDistance(drifter_lon,drifter_lat,traj_lon,traj_lat)
 liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
 skill_score = 1-liu_score
+nans = np.unique(np.where(np.isnan(traj_lon))[2])
+if len(nans)>0:
+    traj_lon = np.delete(traj_lon,nans,axis = 2)
+    traj_lat = np.delete(traj_lat,nans,axis = 2)
+    drifter_lon = np.delete(drifter_lon,nans,axis = 2)
+    drifter_lat = np.delete(drifter_lat,nans,axis = 2)
+
 corr_lon = np.array([[[pearsonr(drifter_lon[i,j,k],traj_lon[i,j,k])[0] for k in range(traj_lon.shape[2])] for j in range(traj_lon.shape[1])] for i in range(traj_lon.shape[0])])
 corr_lat = np.array([[[pearsonr(drifter_lat[i,j,k],traj_lat[i,j,k])[0] for k in range(traj_lat.shape[2])] for j in range(traj_lat.shape[1])] for i in range(traj_lat.shape[0])])
 
@@ -244,7 +251,7 @@ N = len(categories)
 
 
 
-colors_data = {'PSY4V3R1':'red','GLO12':'blue','IBI36':'green','GLOBC':'purple'}
+colors_data = {'PSY4V3R1':'red','GLO12':'blue','IBI36':'green','GLOBC':'purple','cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m':'orange'}
 
 
 

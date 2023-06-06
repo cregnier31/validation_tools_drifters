@@ -41,8 +41,213 @@ from numpy import pi
 def DeleteParticle(particle, fieldset, time):
     particle.delete()
 
+def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drifters_id,T_DRIFT,f_out1,
+                            radius_cloud = 0.25, seeding_resolution = 1/12,forback = 'FWD',time_period = False,
+                            K_smag = False):
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
+    
+    if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
+        k_forback = 1
+    elif forback == 'BWD':
+        k_forback=-1        
+
+    print('#-----------------------------------------------------------------------------------------')
+    print('#      START RUN_PARCEL_DRIFT: 1. FIELDSET1                 ')
+    print('#-----------------------------------------------------------------------------------------') 
+    dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
+                      'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
+    variables = {'U': var_u,
+                 'V': var_v}
+    
+    fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=False)
+    
+    if K_smag : 
+        print('# Random Walk SMAGORINSKY     ')
+        x = fieldset1.U.grid.lon
+        y = fieldset1.U.grid.lat
+        cell_areas = Field(name='cell_areas', data=fieldset1.U.cell_areas(), lon=x, lat=y)
+        fieldset1.add_field(cell_areas)
+        fieldset1.add_constant('Cs', 0.1)
+
+    print ("#-----------------------------------------------------------------------------------------")
+    print ("#                      Define ParticleSet ")
+    print ("#-----------------------------------------------------------------------------------------")
+
+    # Define a new Particle type including extra Variables
+    #compiler ="icc" #"icc" # gcc
+    #print('user set compiler = ', compiler)
+    #distinguish between two cases: seed at drifter location, seed in neighbourhood
+    if radius_cloud == 0:  #seed only at given location (not around)
+        print('\nradius_cloud:', radius_cloud)
+        lon_all=drifters_lon.ravel()
+        lat_all=drifters_lat.ravel()
+        label_all=drifters_id.ravel()
+        print('label_all,', label_all)
+    else:
+        # Seed around point of release dep on radius_cloud=0.25, seeding_resolution=1/12
+        #determine number of circles and their radius:
+        print('\nradius_cloud:', radius_cloud)
+        print('seeding_resolution',seeding_resolution)
+        nb_circles =  float(radius_cloud)/seeding_resolution
+        print(nb_circles)
+        radii =(np.arange(nb_circles)+1)*seeding_resolution
+        print('radius', radii)
+        #sys.exit(1)
+        #x=x[:-1]
+        #pos_i_all =drifters_lon.copy()     
+        #pos_j_all =drifters_lat.copy()     
+        pos_i_all =np.array([drifters_lon])     
+        pos_j_all =np.array([drifters_lat])     
+        dlon_all = [0]
+        dlat_all = [0] 
+        print('pos_i_all=',pos_i_all.shape)
+        for i in range(len(radii)):   # Generate noise dlon, dlat for each circle around original position
+            r=radii[i]
+            nb_pts_on_circle = 8+4*i   #Set nb of points as a function of the radius
+            print('    \nr=', r, ' => nb_pts_on_circle', nb_pts_on_circle)
+            #x=np.linspace(0, 2*pi, nb_pts_on_circle)#+1)
+            x=np.arange(0, 2*pi, 2*pi/nb_pts_on_circle)#+1)
+            #print('    x=', x)
+            #Calculate noise dlon, dlat to be added to drifter original position:
+            dlon=r*np.cos(x)
+            dlat=r*np.sin(x)
+            print('    dlon=', dlon)
+            dlon_all = np.append(dlon_all, dlon)
+            dlat_all = np.append(dlat_all, dlat) 
+            print('    dlon_all=', dlon_all.shape)
+        print('generate ', dlon_all.shape[0],' new positions around each drifter location')
+
+        #Add noise dlon, dlat to each drifter location:
+
+        print('   drifters_lon =', drifters_lon.shape)
+        #Expand drifter lons and lat array in y dim, with nb of drifters, to add spatial noise dx,dy
+            #   [ [dr_lon1, dr_lon1,....., dr_lon1]
+            #     [dr_lon2, dr_lon2,....., dr_lon2]
+            #     [dr_lon3, dr_lon3,....., dr_lon3]
+            #     [...,     ...    ,....., ...    ]
+            #     [dr_lon_n, dr_lon_n,....., dr_lon_n]]
+        
+        # and add noise
+        drifters_cloud_lon = np.matlib.repmat(drifters_lon, len(dlon_all), 1).transpose() + dlon_all 
+        drifters_cloud_lat = np.matlib.repmat(drifters_lat, len(dlon_all), 1).transpose() + dlat_all
+        drifters_cloud_id = np.matlib.repmat(drifters_id, len(dlon_all), 1).transpose()
+        print('drifters_cloud_lon = ',drifters_cloud_lon.shape) 
+        print('drifters_cloud_id = ',drifters_cloud_id.shape) 
+        #sys.exit(1)
+
+        lon_all=drifters_cloud_lon.ravel()
+        lat_all=drifters_cloud_lat.ravel()
+        label_all=drifters_cloud_id.ravel()
+
+    #lon_all = np.concatenate([lon_releases3,lon_releases4])#,lon_releases3,lon_releases4])
+    #lat_all = np.concatenate([lat_releases3,lat_releases4])#,lat_releases3,lat_releases4])
+    npart = len(lon_all)
+    #dep_all = np.array([15.0 for i in range(npart)])
+    time_pos = np.arange(0, npart) * 0
+    print('    total number of releases = ', lon_all.shape[0])
+    print('    lon releases = ', lon_all[:10])
+    print('    lat releases = ', lat_all[:10])
+    print('    label releases = ', label_all[:10])
+
+    def Age(fieldset, particle, time):
+        particle.age = particle.age + math.fabs(particle.dt)
+    
+    class SampleParticle(JITParticle):         # Define a new particle class
+        distcoast = Variable('distcoast', dtype=np.float32)  # set initialising to 0 (as can take too long)
+        age = Variable('age', initial = 0.)
+        label = Variable('label', to_write='once', initial=0.,dtype=np.float32)
+    
+    print("    #-----------------------------------------------------------------------------------------")
+    print('    #    Create ParticleSet')
+    print("    #-----------------------------------------------------------------------------------------")
+
+    #Sample Curl along traj
+    pset1 = ParticleSet(fieldset=fieldset1, pclass=SampleParticle,
+                       lon=lon_all, lat=lat_all, time=time_pos) #, depth=dep_all)
+    for i in range(len(label_all)): pset1[i].label = label_all[i]
+    # Plot the pset1 and print their pressure values p
+    #pset1.show(field='vector', savefile='/home/svangennip/DEV/LAVD/WORK/Position_field_curl' )
+    #print('curl values before execution:', [curl.curl for curl in pset1])
 
 
+
+    print ("    #-----------------------------------------------------------------------------------------")
+    print ("    #                      KERNELS for experiment")
+    print ("    #-----------------------------------------------------------------------------------------")
+
+    ## Create KERNELS
+    # Create a periodic boundary condition kernel
+    def periodicBC(particle, fieldSet1, time):
+        if particle.lon > 180:
+            particle.lon -= 360
+        elif particle.lon < -180:
+            particle.lon += 360
+
+    def smagdiff(particle, fieldset, time):
+        dx = 0.01
+        # gradients are computed by using a local central difference.
+        updx, vpdx = fieldset.UV[time, particle.depth, particle.lat, particle.lon+dx]
+        umdx, vmdx = fieldset.UV[time, particle.depth, particle.lat, particle.lon-dx]
+        updy, vpdy = fieldset.UV[time, particle.depth, particle.lat+dx, particle.lon]
+        umdy, vmdy = fieldset.UV[time, particle.depth, particle.lat-dx, particle.lon]
+
+        dudx = (updx - umdx) / (2*dx)
+        dudy = (updy - umdy) / (2*dx)
+        
+        dvdx = (vpdx - vmdx) / (2*dx)
+        dvdy = (vpdy - vmdy) / (2*dx)
+
+        A = fieldset.cell_areas[time, 0, particle.lat, particle.lon]
+        sq_deg_to_sq_m = (1852*60)**2*math.cos(particle.lat*math.pi/180)
+        A = A / sq_deg_to_sq_m
+        Kh = fieldset.Cs * A * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
+
+        dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
+        dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
+        particle.lat += dlat
+        particle.lon += dlon
+
+    k_age = pset1.Kernel(Age)
+    k_periodicBC = pset1.Kernel(periodicBC)
+    #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
+
+
+    sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+    #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
+
+    if K_smag:
+        print('add random walk to kernel')
+        k_dispersion = pset1.Kernel(smagdiff)
+        sum_kernels += k_dispersion
+
+    print ("    #-----------------------------------------------------------------------------------------")
+    print ("    #                      EXECUTE ")
+    print ("    #-----------------------------------------------------------------------------------------")
+
+    output_file1 = pset1.ParticleFile(name=f_out1, outputdt=timedelta(hours=6))
+
+    pset1.execute(sum_kernels,
+                 runtime=timedelta(days=T_DRIFT),
+                 dt=timedelta(minutes=30)*k_forback,
+                 output_file=output_file1,
+                 recovery = {ErrorCode.ErrorOutOfBounds: DeleteParticle})
+    #output_file1.export()
+
+    print('Check output:', f_out1)
+
+    #ds = xr.open_dataset(f_out1)
+    #print(ds)
+
+    #traj_lon=ds.lon.values
+    #traj_lat=ds.lat.values
+    #traj_time=ds.time.values
+
+    now = datetime.now()
+    print(' EXP1 FINISHED -----  ', now.strftime("%m/%d/%Y, %H:%M:%S"))
+
+    
+    
+    
 def run_parcels_Drift(PROD, data_u, var_u, \
                             data_v, var_v, \
                             meshmask,\
