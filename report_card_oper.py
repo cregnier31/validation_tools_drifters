@@ -97,16 +97,11 @@ date_end_plus1 = date_end+datetime.timedelta(days=1)
 
 
 traj_files = []
-traj_files_cloud = []
 for MODEL in MODELS:
     traj_files_int = []
-    traj_files_cloud_int = []
     traj_files_int += sorted(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr'))
-    traj_files_cloud_int += sorted(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc_and_around.zarr'))
     traj_files.append(traj_files_int)
-    traj_files_cloud.append(traj_files_cloud_int)
 traj_files = np.array(traj_files)
-traj_files_cloud = np.array(traj_files_cloud)
 
 
 
@@ -114,32 +109,21 @@ traj_files_cloud = np.array(traj_files_cloud)
 
 traj_lon = []
 traj_lat = []
-traj_lon_cloud = []
-traj_lat_cloud = []
 traj_time = []
 for i in range(len(MODELS)):
     traj_lon_int = []
     traj_lat_int = []
-    traj_lon_cloud_int = []
-    traj_lat_cloud_int = []
     traj_time_int = []
-    for file,file_cloud in zip(traj_files[i],traj_files_cloud[i]):
+    for file in traj_files[i]:
         ds = xr.open_dataset(file)
-        ds_cloud = xr.open_dataset(file_cloud)
         traj_time_int.append(ds.time.values)
         traj_lon_int.append(ds.lon.values)
         traj_lat_int.append(ds.lat.values)
-        traj_lon_cloud_int.append(ds_cloud.lon.values)
-        traj_lat_cloud_int.append(ds_cloud.lat.values)
     traj_lon.append(traj_lon_int)
     traj_lat.append(traj_lat_int)
-    traj_lon_cloud.append(traj_lon_cloud_int)
-    traj_lat_cloud.append(traj_lat_cloud_int)
     traj_time.append(traj_time_int)
 traj_lon = np.array(traj_lon)
 traj_lat = np.array(traj_lat)
-traj_lon_cloud = np.array(traj_lon_cloud)
-traj_lat_cloud = np.array(traj_lat_cloud)
 traj_time = np.array(traj_time)
 
 

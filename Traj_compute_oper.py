@@ -66,6 +66,7 @@ username = config_info["username"]
 dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
 DRIFT_TIME = int(config_info["DRIFT_TIME"])
+cloud_stat = config_info["cloud_stat"]
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
@@ -241,7 +242,11 @@ for i in range(len(MODELS)):
         f_traj2 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
 
         inc_seed=1/12
-        spatio_temp_ana=1
+        if cloud_stat== "True":
+            spatio_temp_ana=1
+        else : 
+            spatio_temp_ana=0
+
         if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
             print('#run parcels with just the SVP locations')
             print('\nu_files_mod[1:-1]=\n',u_files_mod[i][1:-1])

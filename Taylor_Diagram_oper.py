@@ -10,11 +10,11 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import pandas as pd
 from configparser import ConfigParser
-
+import getpass
 
 
 config_object = ConfigParser()
-config_object.read("config.ini")
+config_object.read("config_Taylor_Diagram.ini")
 config_info = config_object['CONFIG_BASE']
 MODELS = config_info["MODELS"].split(',')
 lon_min = int(config_info["lon_min"])
@@ -28,6 +28,7 @@ EXP_NAME = config_info["EXP_NAME"]
 username = config_info["username"]
 dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
+remote = config_info["remote"]
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
@@ -57,49 +58,86 @@ str_date2=date_end.strftime('%Y-%m-%d')
 date_end_plus1 = date_end+datetime.timedelta(days=1)
 T_DRIFT = (date_end-date_start).days
 
+if remote == "True":
+    USERNAME = 'pgouvenou'
+    PASSWORD = getpass.getpass('Enter your password: ')
+    #! /usr/bin/env python3
+    # -*- coding: utf-8 -*-
+    __author__ = "Copernicus Marine User Support Team"
+    __copyright__ = "(C) 2022 E.U. Copernicus Marine Service Information"
+    __credits__ = ["E.U. Copernicus Marine Service Information"]
+    __license__ = "MIT License - You must cite this source"
+    __version__ = "202104"
+    __maintainer__ = "D. Bazin, E. DiMedio, C. Giordan"
+    __email__ = "servicedesk dot cmems at mercator hyphen ocean dot eu"
 
-zlevel = 11
-config_object = ConfigParser()
-config_object.read(dir_in+"src/config_products.ini")
-path_UV = []
-fname_prefix = []
-var_u_mod = []
-var_v_mod = []
-meshmask = []
-dir_work_mod = []
-u_files_mod = []
-v_files_mod = []
-colors = []
 
-for MODEL in MODELS:
-    run_info = config_object[MODEL]
-    path_UV.append(run_info["path"])
-    fname_prefix.append(run_info["fname_prefix"])
-    var_u_mod.append(run_info["var_u"])
-    var_v_mod.append(run_info["var_v"])
-    meshmask.append(run_info["meshmask"])
-    colors.append(run_info["color"])
-    dir_work_mod.append(dir_out+'/EXP/'+MODEL+'/')
-    if not os.path.exists(dir_work_mod[-1]):
-        print('\ncreate folder : ', dir_work_mod[-1])
-        # Create directory where to store results:
-        os.makedirs(dir_work_mod[-1])
+    def copernicusmarine_datastore(dataset, username, password):
+        from pydap.client import open_url
+        from pydap.cas.get_cookies import setup_session
+        cas_url = 'https://cmems-cas.cls.fr/cas/login'
+        session = setup_session(cas_url, username, password)
+        session.cookies.set("CASTGC", session.cookies.get_dict()['CASTGC'])
+        database = ['my', 'nrt']
+        url = f'https://{database[0]}.cmems-du.eu/thredds/dodsC/{dataset}'
+        try:
+            data_store = xr.backends.PydapDataStore(open_url(url, session=session, user_charset='utf-8')) # needs PyDAP >= v3.3.0 see https://github.com/pydap/pydap/pull/223/commits 
+        except:
+            url = f'https://{database[1]}.cmems-du.eu/thredds/dodsC/{dataset}'
+            data_store = xr.backends.PydapDataStore(open_url(url, session=session, user_charset='utf-8')) # needs PyDAP >= v3.3.0 see https://github.com/pydap/pydap/pull/223/commits
+        return data_store
+    data = []
+    for dataset in MODELS:
+        data_store = xr.open_dataset(copernicusmarine_datastore(dataset, USERNAME, PASSWORD))
+        data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), longitude = slice(lon_min,lon_max),
+                                  latitude = slice(lat_min,lat_max)).sel(depth = 15,method = 'nearest'))
+        colors = np.array(['b','r','g','k'])[:len(MODELS)]
+        
+
+elif remote == "False":
     
-    if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
-        u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start_min1, date_end_plus1)
-        u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod, var_v_mod, dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
-        u_files_mod.append(u_files)
-        v_files_mod.append(v_files)
-    else : 
-        u_files, v_files = ReturnUVlist(MODEL, date_start_min1, date_end_plus1)
-        u_files_mod.append(u_files)
-        v_files_mod.append(v_files)
+    zlevel = 11
+    config_object = ConfigParser()
+    config_object.read(dir_in+"src/config_products.ini")
+    path_UV = []
+    fname_prefix = []
+    var_u_mod = []
+    var_v_mod = []
+    meshmask = []
+    dir_work_mod = []
+    u_files_mod = []
+    v_files_mod = []
+    colors = []
+
+    for MODEL in MODELS:
+        run_info = config_object[MODEL]
+        path_UV.append(run_info["path"])
+        fname_prefix.append(run_info["fname_prefix"])
+        var_u_mod.append(run_info["var_u"])
+        var_v_mod.append(run_info["var_v"])
+        meshmask.append(run_info["meshmask"])
+        colors.append(run_info["color"])
+        dir_work_mod.append(dir_out+'/EXP/'+MODEL+'/')
+        if not os.path.exists(dir_work_mod[-1]):
+            print('\ncreate folder : ', dir_work_mod[-1])
+            # Create directory where to store results:
+            os.makedirs(dir_work_mod[-1])
+
+        if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
+            u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start_min1, date_end_plus1)
+            u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod, var_v_mod, dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
+        else : 
+            u_files, v_files = ReturnUVlist(MODEL, date_start_min1, date_end_plus1)
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
 
 
 
 
 # retrieve GDP drifters trajectories
-dir_in_svp='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
+dir_in_svp='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in_svp+fname_in
@@ -169,81 +207,121 @@ u_svp = ((np.radians(lon_uv_svp[:,1:]-lon_uv_svp[:,:-1]))*np.cos(np.radians(lat_
 v_svp = ((np.radians(lat_uv_svp[:,1:]-lat_uv_svp[:,:-1] ))*R)*(1000/(24*3600))
 
 
-date_uv_svp = traj_drifter_date[:,::4][:,1:-1]
 
 
 
 
 # retrieve speed on svp location for the MODEL (method = nearest)
 
+if remote == "True":
+    date_uv_svp = traj_drifter_date[:,::4][:,1:-1] + " 12:00:00"
 
-U_model = []
-V_model = []
-indice_date = [77,73,116]
-for u_files,v_files,var_u,var_v,MODEL,ind_date  in zip(u_files_mod,v_files_mod,var_u_mod,var_v_mod,MODELS,indice_date):
-    u_mod= []
-    v_mod= []
-    for u_file,v_file in zip(u_files,v_files):
-        print(u_file[ind_date:ind_date+8])
-        str_date = u_file[ind_date:ind_date+8]
-        str_date = str_date[0:4]+'-'+str_date[4:6]+'-'+str_date[6:]
-        u = xr.open_dataset(u_file)
-        v = xr.open_dataset(v_file)
-        uo = u[var_u].values
-        vo = v[var_v].values
-
-        ind_svp = np.where(date_uv_svp==str_date)
-
-        if MODEL in ['PSY4V3R1','GLO12V4','IBI36']:
-            latu = u.nav_lat.values
-            lonu = u.nav_lon.values
-            latv = v.nav_lat.values
-            lonv = v.nav_lon.values
-            if ind_svp[0].shape[0] !=0:
-                lon_svp = lon_uv_svp[ind_svp]
-                lat_svp = lat_uv_svp[ind_svp]
-                ind_modu = []
-                ind_modv = []
-                for la,lo in zip(lat_svp,lon_svp):
-                    ind_modu.append(np.unravel_index(np.sqrt((np.radians(latu-la)*R)**2 + 
-                                                      ((np.radians(lonu-lo)*np.cos(np.radians(latu)))*R)**2).argmin(),latu.shape))
-                    ind_modv.append(np.unravel_index(np.sqrt((np.radians(latv-la)*R)**2 + 
-                                                      ((np.radians(lonv-lo)*np.cos(np.radians(latv)))*R)**2).argmin(),latv.shape))
-                ind_modu = np.array(ind_modu)
-                ind_modv = np.array(ind_modv)
+    uv_svp_loc = []
 
 
-                u_mod.append(uo[0,0][ind_modu[:,0],ind_modu[:,1]])
-                v_mod.append(vo[0,0][ind_modv[:,0],ind_modv[:,1]])
-        else:
-            latu = u.latitude.values
-            lonu = u.longitude.values
-            latv = v.latitude.values
-            lonv = v.longitude.values
-            if ind_svp[0].shape[0] !=0:
-                lon_svp = lon_uv_svp[ind_svp]
-                lat_svp = lat_uv_svp[ind_svp]
-                u_int = []
-                v_int = []
-                for la,lo in zip(lat_svp,lon_svp):
-                    u_int.append(u.interp(longitude = lo,latitude = la,method='nearest').uo.values[0][1])# zlevel = 15m
-                    v_int.append(v.interp(longitude = lo,latitude = la,method='nearest').vo.values[0][1])# zlevel = 15m
-                u_mod.append(u_int)
-                v_mod.append(v_int)
-    U_model.append(np.array(u_mod))
-    V_model.append(np.array(v_mod))
+    for da in data  :
+        uv_svp_loc.append(da.sel(longitude = lon_uv_svp[:,:-1].flatten(),latitude = lat_uv_svp[:,:-1].flatten(),time = date_uv_svp.flatten(),method = "nearest"))
 
-U_model = np.array(U_model)
-V_model = np.array(V_model)
+
+    # reshape
+    lon_model =[]
+    lat_model =[]
+    time_model =[]
+    U_model = []
+    V_model = []
+
+    for da in uv_svp_loc:
+        lon_model.append(da.longitude.values.reshape(date_uv_svp.shape))
+        lat_model.append(da.latitude.values.reshape(date_uv_svp.shape))
+        time_model.append(da.time.values.reshape(date_uv_svp.shape))
+        U_model.append(np.array([uv_svp_loc[0].uo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
+        V_model.append(np.array([uv_svp_loc[0].vo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
+
+    lon_model = np.array(lon_model)
+    lat_model = np.array(lat_model)
+    time_model =np.array(time_model)
+    U_model =np.array(U_model)
+    V_model = np.array(V_model)
+
+    # Calcul (norm std and corr coeff R) for the Taylor diagram
+    u_corrcoef = np.array([[np.corrcoef(U_model.T[:,i,j],u_svp[i])[0,1] for i in range(len(u_svp))] for j in range (len(MODELS))])
+    v_corrcoef = np.array([[np.corrcoef(V_model.T[:,i,j],v_svp[i])[0,1] for i in range(len(v_svp))] for j in range (len(MODELS))])
+
+    u_std = np.array([[np.std(U_model.T[:,i,j]) for i in range(len(u_svp))] for j in range (len(MODELS))])
+    v_std = np.array([[np.std(V_model.T[:,i,j]) for i in range(len(v_svp))] for j in range (len(MODELS))])
+
+elif remote == "False":
+    date_uv_svp = traj_drifter_date[:,::4][:,1:-1]
 
 
 
-# Calcul (norm std and corr coeff R) for the Taylor diagram
-u_corrcoef = np.array([[np.corrcoef(U_model.T[i,:,j],u_svp[i])[0,1] for i in range(len(u_svp))] for j in range (len(MODELS))])
-v_corrcoef = np.array([[np.corrcoef(V_model.T[i,:,j],v_svp[i])[0,1] for i in range(len(v_svp))] for j in range (len(MODELS))])
+    U_model = []
+    V_model = []
+    indice_date = [77,73,116]
+    for u_files,v_files,var_u,var_v,MODEL,ind_date  in zip(u_files_mod,v_files_mod,var_u_mod,var_v_mod,MODELS,indice_date):
+        u_mod= []
+        v_mod= []
+        for u_file,v_file in zip(u_files,v_files):
+            print(u_file[ind_date:ind_date+8])
+            str_date = u_file[ind_date:ind_date+8]
+            str_date = str_date[0:4]+'-'+str_date[4:6]+'-'+str_date[6:]
+            u = xr.open_dataset(u_file)
+            v = xr.open_dataset(v_file)
+            uo = u[var_u].values
+            vo = v[var_v].values
 
-u_std = np.array([[np.std(U_model.T[i,:,j]) for i in range(len(u_svp))] for j in range (len(MODELS))])
-v_std = np.array([[np.std(V_model.T[i,:,j]) for i in range(len(v_svp))] for j in range (len(MODELS))])
+            ind_svp = np.where(date_uv_svp==str_date)
+
+            if MODEL in ['PSY4V3R1','GLO12V4','IBI36']:
+                latu = u.nav_lat.values
+                lonu = u.nav_lon.values
+                latv = v.nav_lat.values
+                lonv = v.nav_lon.values
+                if ind_svp[0].shape[0] !=0:
+                    lon_svp = lon_uv_svp[ind_svp]
+                    lat_svp = lat_uv_svp[ind_svp]
+                    ind_modu = []
+                    ind_modv = []
+                    for la,lo in zip(lat_svp,lon_svp):
+                        ind_modu.append(np.unravel_index(np.sqrt((np.radians(latu-la)*R)**2 + 
+                                                          ((np.radians(lonu-lo)*np.cos(np.radians(latu)))*R)**2).argmin(),latu.shape))
+                        ind_modv.append(np.unravel_index(np.sqrt((np.radians(latv-la)*R)**2 + 
+                                                          ((np.radians(lonv-lo)*np.cos(np.radians(latv)))*R)**2).argmin(),latv.shape))
+                    ind_modu = np.array(ind_modu)
+                    ind_modv = np.array(ind_modv)
+
+
+                    u_mod.append(uo[0,0][ind_modu[:,0],ind_modu[:,1]])
+                    v_mod.append(vo[0,0][ind_modv[:,0],ind_modv[:,1]])
+            else:
+                latu = u.latitude.values
+                lonu = u.longitude.values
+                latv = v.latitude.values
+                lonv = v.longitude.values
+                if ind_svp[0].shape[0] !=0:
+                    lon_svp = lon_uv_svp[ind_svp]
+                    lat_svp = lat_uv_svp[ind_svp]
+                    u_int = []
+                    v_int = []
+                    for la,lo in zip(lat_svp,lon_svp):
+                        u_int.append(u.interp(longitude = lo,latitude = la,method='nearest').uo.values[0][1])# zlevel = 15m
+                        v_int.append(v.interp(longitude = lo,latitude = la,method='nearest').vo.values[0][1])# zlevel = 15m
+                    u_mod.append(u_int)
+                    v_mod.append(v_int)
+        U_model.append(np.array(u_mod))
+        V_model.append(np.array(v_mod))
+
+    U_model = np.array(U_model)
+    V_model = np.array(V_model)
+
+
+
+    # Calcul (norm std and corr coeff R) for the Taylor diagram
+    u_corrcoef = np.array([[np.corrcoef(U_model.T[i,:,j],u_svp[i])[0,1] for i in range(len(u_svp))] for j in range (len(MODELS))])
+    v_corrcoef = np.array([[np.corrcoef(V_model.T[i,:,j],v_svp[i])[0,1] for i in range(len(v_svp))] for j in range (len(MODELS))])
+
+    u_std = np.array([[np.std(U_model.T[i,:,j]) for i in range(len(u_svp))] for j in range (len(MODELS))])
+    v_std = np.array([[np.std(V_model.T[i,:,j]) for i in range(len(v_svp))] for j in range (len(MODELS))])
 print(u_std.shape)
 print(u_corrcoef.shape)
 
