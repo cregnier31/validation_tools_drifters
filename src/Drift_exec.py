@@ -35,6 +35,9 @@ from datetime import datetime, timedelta
 import seawater as sw
 #sys.path.append("/home/svangennip/DEV/LAVD/src/")
 from numpy import pi
+from parcels import ParcelsRandom
+from datetime import timedelta as delta
+
 
 
 
@@ -43,7 +46,7 @@ def DeleteParticle(particle, fieldset, time):
 
 def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drifters_id,T_DRIFT,f_out1,
                             radius_cloud = 0.25, seeding_resolution = 1/12,forback = 'FWD',time_period = False,
-                            K_smag = False):
+                            K_smag = False,hour = 0):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
@@ -59,7 +62,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     variables = {'U': var_u,
                  'V': var_v}
     
-    fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=False)
+    fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
     
     if K_smag : 
         print('# Random Walk SMAGORINSKY     ')
@@ -143,7 +146,10 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     #lat_all = np.concatenate([lat_releases3,lat_releases4])#,lat_releases3,lat_releases4])
     npart = len(lon_all)
     #dep_all = np.array([15.0 for i in range(npart)])
-    time_pos = np.arange(0, npart) * 0
+    if hour==12:
+        time_pos = (np.arange(1, npart+1)/np.arange(1, npart+1)) * delta(hours=12).total_seconds()
+    elif hour==0:
+        time_pos = np.arange(0, npart)*0
     print('    total number of releases = ', lon_all.shape[0])
     print('    lon releases = ', lon_all[:10])
     print('    lat releases = ', lat_all[:10])
@@ -254,7 +260,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                       drifters_lon, drifters_lat,drifters_id, T_DRIFT,\
                        f_out1,
                       radius_cloud=0.25, seeding_resolution=1/12, 
-                      forback='FWD', time_period=False,K_smag = False):
+                      forback='FWD', time_period=False,K_smag = False,hour = 0):
     import gc
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
     
@@ -382,7 +388,10 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     #lat_all = np.concatenate([lat_releases3,lat_releases4])#,lat_releases3,lat_releases4])
     npart = len(lon_all)
     #dep_all = np.array([15.0 for i in range(npart)])
-    time_pos = np.arange(0, npart) * 0
+    if hour==12:
+        time_pos = (np.arange(1, npart+1)/np.arange(1, npart+1)) * delta(hours=12).total_seconds()
+    elif hour==0:
+        time_pos = np.arange(0, npart)*0
     print('    total number of releases = ', lon_all.shape[0])
     print('    lon releases = ', lon_all[:10])
     print('    lat releases = ', lat_all[:10])
@@ -495,8 +504,6 @@ def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
                              dt_output=24 , repeatdt=None, nb_repeats=None, K_disp=None, time_period=False):
     import gc
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field, DiffusionUniformKh, AdvectionDiffusionM1, AdvectionDiffusionEM
-    #from parcels import rng as random
-    from parcels import ParcelsRandom
     import math
 
     forback='FWD'
