@@ -17,6 +17,7 @@ Otherwise in intern you can activate my environment by launching the following c
 ## Usage
 Set your parameters into the config.in file : 
 You can choose the models to compare, the time period, the area and the drift time for the lagrangian perspective;
+The time period corresponds to the launch of a set of particles at the drifters' position for each day during the drift time, for the report card.
 
 You can launch the program with the following command line :
 
