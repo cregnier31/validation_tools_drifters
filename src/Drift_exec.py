@@ -291,6 +291,9 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     if PROD == 'GLOBC' or PROD == 'SMOC':
         dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
+    elif PROD == 'IBI36':
+        dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time_counter'},
+                      'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time_counter'}}
     else:             
         dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
                       'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}#,
@@ -298,7 +301,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
     period=1  # set length of dataset (in days), for cycling through data set, e.g. period =2, dataset= [JD1,JD2,JD1,JD2,...]
     #if only one timestep:
-    if PROD == 'GLOBC' or PROD == 'IBI36':
+    if PROD == 'GLOBC':
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
     else:
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,

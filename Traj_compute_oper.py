@@ -30,7 +30,7 @@ from configparser import ConfigParser
 sys.path.append("src/")
 #from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface
 from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index
-from Drift_exec import run_parcels_Drift
+from Drift_exec import run_parcels_Drift, run_parcels_Drift_remote
 
 import os, glob,sys
 from operator import attrgetter
@@ -265,10 +265,45 @@ traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_poi
 print ("#-----------------------------------------------------------------------------------------")
 print ("#                      CALCULATE MODEl DRIFTERS TRAJECTORIES")
 print ("#-----------------------------------------------------------------------------------------")
+if remote == "True":
+    for i in range(len(MODELS)):
+        dir_work_mod = dir_out+'/EXP/'+MODELS[i]+'/'
+
+        for j in np.arange(0,nb_points-8,4): # one sim per day
+            traj_drifter_lon_start = traj_drifter_lon[:,j]
+            traj_drifter_lat_start = traj_drifter_lat[:,j]
+            traj_drifter_id_start = traj_drifter_id[:,j]
+            date_sim = date_start + datetime.timedelta(days=int(j//4))
+            str_date_sim = date_sim.strftime('%Y-%m-%d')
+            f_traj1 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
+            f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
+            f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
+
+            inc_seed = 1/12
+            if cloud_stat== "True":
+                spatio_temp_ana=1
+            else : 
+                spatio_temp_ana=0
+            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
+                print('#run parcels with just the SVP locations')
+                var_u = 'uo'
+                var_v = 'vo'
+                run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj1, radius_cloud=0, seeding_resolution=0, \
+                                 time_period=False)
+                if spatio_temp_ana:
+                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
+                                 time_period=False)
+                if K_smag :
+                    
+                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj2, radius_cloud=0, seeding_resolution=0, \
+                                 time_period=False,K_smag=K_smag)
 
 
 
-print(nb_points)
+
 for i in range(len(MODELS)):
     for j in np.arange(0,nb_points-8,4): # one sim per day
         traj_drifter_lon_start = traj_drifter_lon[:,j]
