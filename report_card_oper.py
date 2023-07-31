@@ -42,7 +42,7 @@ import os, glob, sys, pprint, shlex,subprocess
 from configparser import ConfigParser
 
 config_object = ConfigParser()
-config_object.read("config.ini")
+config_object.read("config_base.ini")
 config_info = config_object['CONFIG_BASE']
 MODELS = config_info["MODELS"].split(',')
 lon_min = int(config_info["lon_min"])
@@ -56,7 +56,9 @@ EXP_NAME = config_info["EXP_NAME"]
 username = config_info["username"]
 dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
-DRIFT_TIME = config_info['DRIFT_TIME']
+DRIFT_TIME = int(config_info['DRIFT_TIME'])
+remote =  config_info['remote']
+
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
@@ -129,27 +131,21 @@ traj_time = np.array(traj_time)
 
 
 
-
-dir_in='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
+#dir_in='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
+dir_in = '/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram/YEAR/'
 
 fname_in='Drifters_'+str(YYYY1)+'.csv'
 f_drifters_all=dir_in+fname_in
-date_end_bis = datetime.date(YYYY2, MM2, DD2)+datetime.timedelta(days=3)
+date_end_bis = datetime.date(YYYY2, MM2, DD2)+datetime.timedelta(days=DRIFT_TIME)
 str_date3 = date_end_bis.strftime('%Y-%m-%d')
 T_DRIFT = (date_end_bis -date_start).days
-fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date3+'.csv'
+fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
 dir_drifters = dir_out+'/DRIFTERS/'
 
-if not os.path.exists(dir_drifters):
-    print('\ncreate folder : ', dir_drifters)
-    # Create directory where to store results:
-    os.makedirs(dir_drifters)
+
 outfile2 = dir_drifters+fout_driftersZone
 
-if not os.path.isfile(outfile2):
-    DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start, date_end_bis, f_drifters_all, outfile2)
-else:
-    print(outfile2, 'already exists')
+
 
 print('loading ',outfile2)
 drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
@@ -158,37 +154,42 @@ print(drifters_zone_traj.dtypes)
 
     
 nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
-#remove drifters with missing entries (should be nb_days*4+1)
-#Check each drifter has n days * 4 entries
-drifter_ids = pd.unique(drifters_zone_traj['id'])
-spurious_drifters=[]
-for i in range(nb_drifters_temp):
-    nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
-    if not nb_entries >= (T_DRIFT*4+1):
-        print(drifter_ids[i],': not enough entries, only ', nb_entries)
-        spurious_drifters.append(drifter_ids[i])
 
-
-for i in range(len(spurious_drifters)):
-    print('remove drifter ',spurious_drifters[i])
-    ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
-    drifters_zone_traj.drop(ind1, inplace=True) #remove data points
-
-nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
-        
-print('total nb of drifters in zone at start that reach end:',nb_drifters2)
 #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
-nb_points = T_DRIFT*4+1 
-traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
-traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
-traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
-traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
-traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+if remote == "True":
+    nb_points = T_DRIFT*24 +24   # hourly
+else :
+    nb_points = T_DRIFT*4 + 1    # hourly
+
+traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters_temp, nb_points) )
+traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters_temp, nb_points) )
+traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters_temp, nb_points) )
+traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters_temp, nb_points) )
+traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters_temp, nb_points) )
 
 
 
+dir_plot = dir_out+'PLOT/'
 
 
+if not os.path.exists(dir_plot):
+    print('\ncreate folder : ', dir_plot)
+    # Create directory where to store results:
+    os.makedirs(dir_plot)
+
+fig = plt.figure(figsize = (9,5))
+axs=plt.axes(projection=ccrs.PlateCarree())
+axs.coastlines()
+axs.add_feature(cfeature.LAND)
+gl = axs.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
+gl.xlabels_top = False
+gl.ylabels_right = False
+fig.suptitle('Trajectory of the SVP drifters',fontsize = 12)
+
+axs.plot(traj_drifter_lon.T,traj_drifter_lat.T,transform=ccrs.PlateCarree())
+axs.set_xlim([lon_min,lon_max])
+axs.set_ylim([lat_min,lat_max])
+plt.savefig(dir_plot+'Traj_drifters'+str_date1+'_'+str_date2+'.png',dpi = 600)
 
 
 
@@ -196,20 +197,39 @@ drifter_lon = np.zeros(traj_lon.shape)
 drifter_lat = np.zeros(traj_lat.shape)
 
 
+if remote == "True":
+    drifter_lon[0,0,:,0] = traj_drifter_lon[:,:int(DRIFT_TIME)*24+24][:,0]
+    drifter_lat[0,0,:,0] = traj_drifter_lat[:,:int(DRIFT_TIME)*24+24][:,0]
+    
+    drifter_lon[0,0,:,1:] = np.array([np.mean(traj_drifter_lon[:,1+i*6:12+i*6],axis = 1) for i in range (traj_lon.shape[-1]-1)]).T
+    drifter_lat[0,0,:,1:] = np.array([np.mean(traj_drifter_lat[:,1+i*6:12+i*6],axis = 1) for i in range (traj_lat.shape[-1]-1)]).T
 
 
 
-drifter_lon[0,0] = traj_drifter_lon[:,:int(DRIFT_TIME)*4+1]
-drifter_lat[0,0] = traj_drifter_lat[:,:int(DRIFT_TIME)*4+1]
+
+    for i in range (traj_lon.shape[0]):
+        for j in range(traj_lon.shape[1]):
+            drifter_lon[i,j,:,0] = traj_drifter_lon[:,j*24:j*24+int(DRIFT_TIME)*24+24][:,0]
+            drifter_lat[i,j,:,0] = traj_drifter_lat[:,j*24:j*24+int(DRIFT_TIME)*24+24][:,0]
+            
+            drifter_lon[i,j,:,1:] = np.array([np.mean(traj_drifter_lon[:,j*24+1+i*6:j*24+12+i*6],axis = 1) for i in range (traj_lon.shape[-1]-1)]).T
+            drifter_lat[i,j,:,1:] = np.array([np.mean(traj_drifter_lat[:,j*24+1+i*6:j*24+12+i*6],axis = 1) for i in range (traj_lat.shape[-1]-1)]).T
+            
+
+
+
+else : 
+    drifter_lon[0,0] = traj_drifter_lon[:,:int(DRIFT_TIME)*4+1]
+    drifter_lat[0,0] = traj_drifter_lat[:,:int(DRIFT_TIME)*4+1]
 
 
 
 
 
-for i in range (traj_lon.shape[0]):
-    for j in range(traj_lon.shape[1]):
-        drifter_lon[i,j] = traj_drifter_lon[:,j*4:int(DRIFT_TIME)*4+1+j*4]
-        drifter_lat[i,j] = traj_drifter_lat[:,j*4:int(DRIFT_TIME)*4+1+j*4]
+    for i in range (traj_lon.shape[0]):
+        for j in range(traj_lon.shape[1]):
+            drifter_lon[i,j] = traj_drifter_lon[:,j*4:int(DRIFT_TIME)*4+1+j*4]
+            drifter_lat[i,j] = traj_drifter_lat[:,j*4:int(DRIFT_TIME)*4+1+j*4]
 
 
 
@@ -251,7 +271,7 @@ N = len(categories)
 
 
 
-colors_data = {'PSY4V3R1':'red','GLO12':'blue','IBI36':'green','GLOBC':'purple','cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m':'orange'}
+colors_data = {'PSY44':'lightcoral','PSY4V3R1':'red','GLO12V4':'blue','IBI36':'green','GLOBC':'purple','cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m':'orange', 'dataset-uv-nrt-daily':'cyan'}
 
 
 
@@ -260,15 +280,12 @@ colors_list = [colors_data[MODELS[i]] for i in range(len(MODELS))]
 
 
 
-dir_plot = dir_out+'PLOT/'
-if not os.path.exists(dir_plot):
-    print('\ncreate folder : ', dir_plot)
-    # Create directory where to store results:
-    os.makedirs(dir_plot)
 
 df.T[1:].plot.bar(rot = 0,title = "Lagrangian statistics from " + str_date1+' to '+str_date2,ylabel = 'Proportion',xlabel = 'Scores',color = colors_list)
 plt.legend(labels = df.MODELS.values)
 plt.savefig(dir_plot+'Lag_stats_'+str_date1+'_'+str_date2+'.png',dpi = 600)
+
+print("Save fig : ", dir_plot+'Lag_stats_'+str_date1+'_'+str_date2+'.png')
 
 
 

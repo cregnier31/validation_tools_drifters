@@ -13,6 +13,11 @@ import argparse
 import os, glob,sys
 import time
 import shutil
+import json
+import ftputil
+
+from tqdm import tqdm
+
 
 #Plot packages
 matplotlib.use('Agg')
@@ -29,7 +34,7 @@ from configparser import ConfigParser
 #sys.path.append("/home/svangennip/DEV/LAVD/src/")
 sys.path.append("src/")
 #from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface
-from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index
+from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index, DriftersInZoneInPeriod_remote
 from Drift_exec import run_parcels_Drift, run_parcels_Drift_remote
 
 import os, glob,sys
@@ -51,7 +56,7 @@ print('username: ',username)
 
 
 config_object = ConfigParser()
-config_object.read("config.ini")
+config_object.read("config_base.ini")
 config_info = config_object['CONFIG_BASE']
 MODELS = config_info["MODELS"].split(',')
 lon_min = int(config_info["lon_min"])
@@ -68,6 +73,8 @@ dir_in = config_info["dir_in"]
 DRIFT_TIME = int(config_info["DRIFT_TIME"])
 cloud_stat = config_info["cloud_stat"]
 remote = config_info["remote"]
+K_smag = config_info["K_smag"]
+nb_repeats = int(config_info["nb_repeats"])
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
@@ -91,10 +98,10 @@ date_end = datetime.date(YYYY2, MM2, DD2)
 str_date2=date_end.strftime('%Y-%m-%d')
 date_end_plus1 = date_end+datetime.timedelta(days=1)
 date_end_plus_DRIFT_TIME = date_end+datetime.timedelta(days=DRIFT_TIME+1)
+str_date_end_plus_DRIFT_TIME=date_end_plus_DRIFT_TIME.strftime('%Y-%m-%d')
 
 
-
-T_DRIFT=(date_end-date_start).days
+T_DRIFT=(date_end_plus_DRIFT_TIME-date_start).days
 
 
 #-------------------------------------------------------------------------------------------------------------------------
@@ -138,7 +145,7 @@ if remote == "True":
     data = []
     for dataset in MODELS:
         data_store = xr.open_dataset(copernicusmarine_datastore(dataset, USERNAME, PASSWORD))
-        data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), longitude = slice(lon_min,lon_max),
+        data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00"), longitude = slice(lon_min,lon_max),
                                   latitude = slice(lat_min,lat_max)).sel(depth = 15,method = 'nearest'))
         colors = np.array(['b','r','g','k'])[:len(MODELS)]
 
@@ -184,13 +191,13 @@ elif remote == "False":
             # Create directory where to store results:
             os.makedirs(dir_work_mod[-1])
 
-        if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
-            u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
+        if MODEL in ['PSY4V3R1','IBI36','GLO12V4','PSY44']:
+            u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME)
             u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod, var_v_mod, dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
             u_files_mod.append(u_files)
             v_files_mod.append(v_files)
         else : 
-            u_files, v_files = ReturnUVlist(MODEL, date_start_min1, date_end_plus_DRIFT_TIME)
+            u_files, v_files = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME)
             u_files_mod.append(u_files)
             v_files_mod.append(v_files)
 
@@ -208,58 +215,180 @@ print ("#    Retrieve SVP Drifters in area and within for temporal window   ")
 print ("#-------------------------------------------------------------------------------------------------------------------------")
 
 
-dir_in='/data/rd_exchange/pgouvenou/DATA/GlobalDriftingProgram//YEAR/'
+if remote == "True":
+    user = 'pgouvenou' #type CMEMS user name
+    password =  PASSWORD #type CMEMS password
 
-fname_in='Drifters_'+str(YYYY1)+'.csv'
-f_drifters_all=dir_in+fname_in
+    product_name = 'INSITU_GLO_PHY_UV_DISCRETE_NRT_013_048' #type aimed In Situ product
+    dataset_name = 'cmems_obs-ins_glo_phy-cur_nrt_drifter_irr'
+    host = 'nrt.cmems-du.eu' #type aimed host (nrt.cmems-du.eu or my.cmems-du)
+    index_file = 'index_history.txt' #type aimed index file 
 
-fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
-dir_drifters = dir_out+'/DRIFTERS/'
+    output_directory = '/data/rd_exchange/pgouvenou/DATA/DRIFTER48/' #path
 
-if not os.path.exists(dir_drifters):
-    print('\ncreate folder : ', dir_drifters)
-    # Create directory where to store results:
-    os.makedirs(dir_drifters)
-outfile2 = dir_drifters+fout_driftersZone
+    date_format = "%Y-%m-%dT%H:%M:%SZ" 
+    ini = datetime.datetime.strptime(str_date1+'T00:00:00Z', date_format)
+    end = datetime.datetime.strptime(str_date2+'T23:59:59Z', date_format)
 
-if not os.path.isfile(outfile2):
-    DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start_min1, date_end_plus1, f_drifters_all, outfile2)
-else:
-    print(outfile2, 'already exists')
+    #connect to CMEMS FTP
+    with ftputil.FTPHost(host, user, password) as ftp_host: 
 
-print('loading ',outfile2)
-drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
-print(drifters_zone_traj.head(5))
-print(drifters_zone_traj.dtypes)
+        #open the index file to read
+        with ftp_host.open("Core"+'/'+product_name+'/'+ dataset_name + '/' + index_file, "r") as indexfile:
 
-    
-nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
-#remove drifters with missing entries (should be nb_days*4+1)
-#Check each drifter has n days * 4 entries
-drifter_ids = pd.unique(drifters_zone_traj['id'])
-spurious_drifters=[]
-for i in range(nb_drifters_temp):
-    nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
-    if not nb_entries >= (T_DRIFT*4+1):
-        print(drifter_ids[i],': not enough entries, only ', nb_entries)
-        spurious_drifters.append(drifter_ids[i])
+            #read the index file as a comma-separate-value file
+            index = np.genfromtxt(indexfile, skip_header=6, unpack=False, delimiter=',', dtype=None, names=['catalog_id', 'file_name','geospatial_lat_min', 'geospatial_lat_max', 'geospatial_lon_min','geospatial_lon_max','time_coverage_start', 'time_coverage_end', 'provider', 'date_update', 'data_mode', 'parameters'])
 
-#ind1 = drifters_zone_traj['id']==spurious_drifters).index
-for i in range(len(spurious_drifters)):
-    print('rmove drifter ',spurious_drifters[i])
-    ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
-    drifters_zone_traj.drop(ind1, inplace=True) #remove data points
-#drifters_zone_traj=drifters_zone_traj.reset_index()  
-nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+            #loop over the lines/netCDFs and download the most sutable ones for you
+            new = 0
+            for netCDF in index:
+
+                #getting ftplink, filepath and filename
+                ftplink = netCDF['file_name']
+                filepath = '/'.join(ftplink.decode().split('/')[3:len(ftplink.decode().split('/'))])
+                ncdf_file_name = ftplink[ftplink.decode().rfind('/')+1:]
+
+                #download netCDF if meeting selection criteria
+                time_start = datetime.datetime.strptime(netCDF['time_coverage_start'].decode(), date_format)
+                time_end = datetime.datetime.strptime(netCDF['time_coverage_end'].decode(), date_format)
+
+                #download netCDF if meeting selection criteria
+                if time_end > ini and time_start < end:
+                    if ftp_host.path.isfile(filepath):
+                        if not os.path.exists(output_directory+filepath.split('/')[-1]):
+                            cwd = os.getcwd()
+                            os.chdir(output_directory)
+                            ftp_host.download(filepath, ncdf_file_name)  # remote, local
+                            os.chdir(cwd)
+                            new = 1
+                        else:
+                            print(output_directory+filepath.split('/')[-1],' already exist')
+    file_list = sorted(glob.glob(output_directory+'*.nc'))
+    dico_name = output_directory+'metadata_drifters.txt'
+    print(dico_name)
+    if new == 1 or not os.path.exists(dico_name):
+        dico = {}
+        for file in tqdm(file_list): 
+            ds = xr.open_dataset(file)
+            t_start = ds.time_coverage_start
+            t_end = ds.time_coverage_end
+            dico[file] = t_start, t_end
+            
+        with open(dico_name, 'w') as file:
+            print("Write dictionnary")
+            file.write(json.dumps(dico)) # use `json.loads` to do the reverse
         
-print('total nb of drifters in zone at start that reach end:',nb_drifters2)
-#Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
-nb_points = T_DRIFT*4+1 + 8
-traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
-traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
-traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
-traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
-traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+        
+
+
+    fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
+    dir_drifters = dir_out+'/DRIFTERS/'
+
+    if not os.path.exists(dir_drifters):
+        print('\ncreate folder : ', dir_drifters)
+        # Create directory where to store results:
+        os.makedirs(dir_drifters)
+    outfile2 = dir_drifters+fout_driftersZone
+
+    if not os.path.isfile(outfile2):
+        DriftersInZoneInPeriod_remote(lon_min, lon_max, lat_min, lat_max, date_start, date_end_plus_DRIFT_TIME, dico_name, outfile2)
+    else:
+        print(outfile2, 'already exists')
+    
+    
+    print('loading ',outfile2)
+    drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
+    print(drifters_zone_traj.head(5))
+    print(drifters_zone_traj.dtypes)
+
+
+    nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
+    #remove drifters with missing entries (should be nb_days*4+1)
+    #Check each drifter has n days * 4 entries
+    drifter_ids = pd.unique(drifters_zone_traj['id'])
+    spurious_drifters=[]
+    for i in range(nb_drifters_temp):
+        nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
+        if not nb_entries >= (T_DRIFT*24):
+            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            spurious_drifters.append(drifter_ids[i])
+
+    #ind1 = drifters_zone_traj['id']==spurious_drifters).index
+    for i in range(len(spurious_drifters)):
+        print('remove drifter ',spurious_drifters[i])
+        ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
+        drifters_zone_traj.drop(ind1, inplace=True) #remove data points
+    #drifters_zone_traj=drifters_zone_traj.reset_index()  
+    nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+
+    print('total nb of drifters in zone at start that reach end:',nb_drifters2)
+    #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
+    nb_points = T_DRIFT*24    # hourly
+    traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
+    traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
+    traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
+    traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
+    traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+
+        
+        
+        
+        
+elif remote == "False":
+    dir_in='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
+
+    fname_in='Drifters_'+str(YYYY1)+'.csv'
+    f_drifters_all=dir_in+fname_in
+
+    fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
+    dir_drifters = dir_out+'/DRIFTERS/'
+
+    if not os.path.exists(dir_drifters):
+        print('\ncreate folder : ', dir_drifters)
+        # Create directory where to store results:
+        os.makedirs(dir_drifters)
+    outfile2 = dir_drifters+fout_driftersZone
+
+    if not os.path.isfile(outfile2):
+        DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start, date_end_plus_DRIFT_TIME, f_drifters_all, outfile2)
+    else:
+        print(outfile2, 'already exists')
+
+    print('loading ',outfile2)
+    drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
+    print(drifters_zone_traj.head(5))
+    print(drifters_zone_traj.dtypes)
+
+
+    nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
+    #remove drifters with missing entries (should be nb_days*4+1)
+    #Check each drifter has n days * 4 entries
+    drifter_ids = pd.unique(drifters_zone_traj['id'])
+    spurious_drifters=[]
+    for i in range(nb_drifters_temp):
+        nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
+        if not nb_entries >= (T_DRIFT*4+1):
+            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            spurious_drifters.append(drifter_ids[i])
+
+    #ind1 = drifters_zone_traj['id']==spurious_drifters).index
+    for i in range(len(spurious_drifters)):
+        print('rmove drifter ',spurious_drifters[i])
+        ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
+        drifters_zone_traj.drop(ind1, inplace=True) #remove data points
+    #drifters_zone_traj=drifters_zone_traj.reset_index()  
+    nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+
+    print('total nb of drifters in zone at start that reach end:',nb_drifters2)
+    #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
+    nb_points = T_DRIFT*4+1 
+    traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
+    traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
+    traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
+    traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
+    traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+    print(traj_drifter_date)
+    print(traj_drifter_time)
 
 
 print ("#-----------------------------------------------------------------------------------------")
@@ -268,78 +397,78 @@ print ("#-----------------------------------------------------------------------
 if remote == "True":
     for i in range(len(MODELS)):
         dir_work_mod = dir_out+'/EXP/'+MODELS[i]+'/'
+        print('nb points : ',nb_points)
+        for j in tqdm(np.arange(0,nb_points-DRIFT_TIME*24,24)): # one sim per day
+            traj_drifter_lon_start = traj_drifter_lon[:,j]
+            traj_drifter_lat_start = traj_drifter_lat[:,j]
+            traj_drifter_id_start = traj_drifter_id[:,j]
+            date_sim = date_start + datetime.timedelta(days=int(j//24))
+            str_date_sim = date_sim.strftime('%Y-%m-%d')
+            f_traj1 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
+            f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
+            f_traj3 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
 
-        for j in np.arange(0,nb_points-8,4): # one sim per day
+            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
+                print('#run parcels with just the SVP locations')
+                var_u = 'uo'
+                var_v = 'vo'
+
+                if cloud_stat== "True":
+                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
+                                 time_period=False)
+                elif K_smag == "True" :
+                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj3, radius_cloud=0, seeding_resolution=0, \
+                                 time_period=False,K_smag=K_smag,nb_repeats = nb_repeats)
+                else:
+                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
+                                 f_traj1, radius_cloud=0, seeding_resolution=0, \
+                                 time_period=False)
+
+
+else:
+
+    for i in range(len(MODELS)):
+        for j in tqdm(np.arange(0,nb_points-DRIFT_TIME*4,4)): # one sim per day
             traj_drifter_lon_start = traj_drifter_lon[:,j]
             traj_drifter_lat_start = traj_drifter_lat[:,j]
             traj_drifter_id_start = traj_drifter_id[:,j]
             date_sim = date_start + datetime.timedelta(days=int(j//4))
             str_date_sim = date_sim.strftime('%Y-%m-%d')
-            f_traj1 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
-            f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
-            f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
+            f_traj1 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
+            f_traj2 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
+            f_traj3 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
 
-            inc_seed = 1/12
-            if cloud_stat== "True":
-                spatio_temp_ana=1
-            else : 
-                spatio_temp_ana=0
+
             if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
                 print('#run parcels with just the SVP locations')
-                var_u = 'uo'
-                var_v = 'vo'
-                run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
-                                 f_traj1, radius_cloud=0, seeding_resolution=0, \
-                                 time_period=False)
-                if spatio_temp_ana:
-                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
-                                 f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
-                                 time_period=False)
-                if K_smag :
-                    
-                    run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_plus_DRIFT_TIME+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
-                                 f_traj2, radius_cloud=0, seeding_resolution=0, \
-                                 time_period=False,K_smag=K_smag)
+                print('\nu_files_mod[1:-1]=\n',u_files_mod[i][1:-1])
+                print('\nu_files_mod[:-2]=\n',u_files_mod[i][:-2])
+                print('\nu_files_mod[2:]=\n',u_files_mod[i][2:])
+                print('\nFLAGGGG\n',u_files_mod[i][j//4:-1])
 
 
+                if cloud_stat== "True":
+                    print('#run parcels with at SVP neigbouring locations')
+                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//4:-1], var_u_mod[i], v_files_mod[i][j//4:-1], var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
+                                      time_period=False)
+                elif K_smag == "True" :
+                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//4:-1], var_u_mod[i], v_files_mod[i][j//4:-1], var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj3, radius_cloud=0, seeding_resolution=0,time_period=False,\
+                                      K_smag=K_smag,nb_repeats = nb_repeats)
+                else :
+                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//4:-1], var_u_mod[i], v_files_mod[i][j//4:-1], var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, \
+                                      DRIFT_TIME,f_traj1, radius_cloud=0, seeding_resolution=0, \
+                                      time_period=False)
 
-
-for i in range(len(MODELS)):
-    for j in np.arange(0,nb_points-8,4): # one sim per day
-        traj_drifter_lon_start = traj_drifter_lon[:,j]
-        traj_drifter_lat_start = traj_drifter_lat[:,j]
-        traj_drifter_id_start = traj_drifter_id[:,j]
-        date_sim = date_start + datetime.timedelta(days=int(j//4))
-        str_date_sim = date_sim.strftime('%Y-%m-%d')
-        f_traj1 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
-        f_traj2 = dir_work_mod[i] + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
-
-        inc_seed=1/12
-        if cloud_stat== "True":
-            spatio_temp_ana=1
-        else : 
-            spatio_temp_ana=0
-
-        if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
-            print('#run parcels with just the SVP locations')
-            print('\nu_files_mod[1:-1]=\n',u_files_mod[i][1:-1])
-            print('\nu_files_mod[:-2]=\n',u_files_mod[i][:-2])
-            print('\nu_files_mod[2:]=\n',u_files_mod[i][2:])
-            run_parcels_Drift(MODELS[i], u_files_mod[i][1+j//4:-1], var_u_mod[i], v_files_mod[i][1+j//4:-1], var_v_mod[i], meshmask[i],\
-                             traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
-                             f_traj1, radius_cloud=0, seeding_resolution=0, \
-                             time_period=False)
-
-            if spatio_temp_ana==1:
-                print('#run parcels with at SVP neigbouring locations')
-                run_parcels_Drift(MODELS[i], u_files_mod[i][1+j//4:-1], var_u_mod[i], v_files_mod[i][1+j//4:-1], var_v_mod[i], meshmask[i],\
-                                 traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
-                                 f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
-                                 time_period=False)
-
-            print(' done...')
-        else:
-            print(f_traj1,'\nand ', f_traj2,' already exists' )
+                print(' done...')
+            else:
+                print(f_traj1,'\nand ', f_traj2,' already exists' )
 
 
 
