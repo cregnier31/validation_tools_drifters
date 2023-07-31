@@ -9,10 +9,11 @@ from netCDF4 import Dataset, date2num
 from datetime import datetime, timedelta
 import matplotlib
 matplotlib.use('Agg')
+import json
 import matplotlib.pyplot as plt
 import time
 import netCDF4 as nc
-
+from tqdm import tqdm
 import os, glob,sys
 import sys, pprint
 sys.displayhook = pprint.pprint  # Improves print of variables (e.g. locals(), globals(), dir())) to screen
@@ -250,6 +251,82 @@ def match_elements(list_a, list_b):
             match.append(i)
     return match
 
+
+
+
+def DriftersInZoneInPeriod_remote(lon_min, lon_max, lat_min, lat_max, date_start, date_end, dico_name, outfile):
+    import datetime 
+    import xarray as xr
+ 
+    date_format = '%Y-%m-%dT%H:%M:%SZ'
+
+    str_date1=date_start.strftime('%Y-%m-%d')
+    str_date2=date_end.strftime('%Y-%m-%d')
+    print("date1 : ",str_date1)
+    str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
+    date_start = datetime.datetime.strptime(str_date1+"T12:00:00Z", date_format)
+    date_end = datetime.datetime.strptime(str_date2+"T12:00:00Z", date_format)
+
+    T_DRIFT = (date_end-date_start).days
+
+    #Check output dir exists:
+    dir_out = os.path.dirname(outfile)
+    if not os.path.exists(dir_out):
+        print('\ncreate folder : ', dir_out)
+        # Create directory where to store results:
+        os.makedirs(dir_out)    
+    
+    
+
+    f = open(dico_name,)
+    metadata_drifters = json.load(f)
+    print('loading ',dico_name)
+    
+    list_drifter_in_time_zone = []
+    for dft_id in tqdm(metadata_drifters):
+        t_start = datetime.datetime.strptime(metadata_drifters[dft_id][0], date_format)
+        t_end = datetime.datetime.strptime(metadata_drifters[dft_id][1], date_format)
+        if date_start >= t_start and date_end <= t_end :
+            list_drifter_in_time_zone.append(dft_id)
+    
+    print('nb drifter in the time period : ',len(list_drifter_in_time_zone))
+    df = pd.DataFrame()
+    k = 0
+    nb = 0
+    diff_nb_hours = int((date_end-date_start).days*24)
+    for dft_file in tqdm(list_drifter_in_time_zone):
+        data = xr.open_dataset(dft_file)
+        ind_start = np.where(data.TIME == np.datetime64(date_start))[0]
+        ind_end = np.where(data.TIME == np.datetime64(date_end))[0]
+        if (ind_end-ind_start) == diff_nb_hours : 
+            if ind_start.shape[0] == 1 and ind_end.shape[0] == 1:
+                lon_start = data.LONGITUDE[ind_start]
+                lon_end = data.LONGITUDE[ind_end]
+                lat_start = data.LATITUDE[ind_start]
+                lat_end = data.LATITUDE[ind_end] 
+                if (lon_min <= lon_start)*(lon_max >= lon_start)*(lat_min <= lat_start)*(lat_max >= lat_start):
+                    if (lon_min <= lon_end)*(lon_max >= lon_end)*(lat_min <= lat_end)*(lat_max >= lat_end):
+                        id = int(data.platform_code)
+                        date = pd.to_datetime(data.TIME.values[ind_start[0]:ind_end[0]]).date
+                        time = pd.to_datetime(data.TIME.values[ind_start[0]:ind_end[0]]).time
+                        latitude = data.LATITUDE.values[ind_start[0]:ind_end[0]]
+                        longitude = data.LONGITUDE.values[ind_start[0]:ind_end[0]]
+                        dic = {'id': id,'date':date,'time':time,'lat':latitude,'lon':longitude}
+                        if k ==0:
+                            df = pd.DataFrame(dic,index = nb*np.ones(longitude.shape))
+                            k=1
+                        else : 
+                            df = pd.concat([df,pd.DataFrame(dic,index = nb*np.ones(longitude.shape))])
+                        nb+=1
+    df.to_csv(outfile)
+
+        
+    
+    
+    
+
+
+
 def DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start, date_end, f_drifters_all, outfile):
     str_date1=date_start.strftime('%Y-%m-%d')
     str_date2=date_end.strftime('%Y-%m-%d')
@@ -404,7 +481,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     YYYY2=date_end.year
 
     config_object = ConfigParser()
-    config_object.read("/home/pgouvenou/drifter_comparison/src/config_products.ini")
+    config_object.read("/home/pgouvenou/validation_tools_drifters/src/config_products.ini")
     #config_object.read("/config_products.ini")
 
 
@@ -505,6 +582,22 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
             f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
             f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
 
+        elif MODEL == 'IBI4' or MODEL == 'IBI12':
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+
+        elif MODEL == "PSY44":
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+
         else :
             # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
             u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
@@ -520,7 +613,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
 
     #ssh_files=ssh_files.sort() 
 
-    
+
     #sys.exit(1)
     print('f_input_start',f_input_start)
     print('f_input_end',f_input_end)

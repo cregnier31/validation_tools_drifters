@@ -11,6 +11,7 @@ import numpy as np
 # vstack
 from numpy import vstack
 import numpy.matlib
+import random
 
 import matplotlib as mpl
 mpl.use('Agg')
@@ -37,6 +38,7 @@ import seawater as sw
 from numpy import pi
 from parcels import ParcelsRandom
 from datetime import timedelta as delta
+import random 
 
 
 
@@ -46,7 +48,7 @@ def DeleteParticle(particle, fieldset, time):
 
 def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drifters_id,T_DRIFT,f_out1,
                             radius_cloud = 0.25, seeding_resolution = 1/12,forback = 'FWD',time_period = False,
-                            K_smag = False,hour = 0):
+                            K_smag = False,hour = 0, nb_repeats=None):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
@@ -64,7 +66,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     
     fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
     
-    if K_smag : 
+    if K_smag == "True" : 
         print('# Random Walk SMAGORINSKY     ')
         x = fieldset1.U.grid.lon
         y = fieldset1.U.grid.lat
@@ -166,8 +168,23 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     print("    #-----------------------------------------------------------------------------------------")
     print('    #    Create ParticleSet')
     print("    #-----------------------------------------------------------------------------------------")
-
+    lon_1 = lon_all
+    lat_1 = lat_all
+    time_1 = time_pos
+    label_1 = label_all
     #Sample Curl along traj
+    if nb_repeats!= None:
+        for i in range (nb_repeats):
+            lon_all = np.concatenate((lon_all, lon_1), axis=None) 
+            lat_all = np.concatenate((lat_all, lat_1), axis=None)
+            label_all = np.concatenate((label_all, label_1), axis=None)
+            time_pos=np.concatenate((time_pos, time_1), axis=None)
+            print('shape lon:',np.shape(lon_all))
+            print('shape lat:',np.shape(lat_all))
+            print('shape labl:',np.shape(label_all))
+            print('shape time:',np.shape(time_pos))
+
+
     pset1 = ParticleSet(fieldset=fieldset1, pclass=SampleParticle,
                        lon=lon_all, lat=lat_all, time=time_pos) #, depth=dep_all)
     for i in range(len(label_all)): pset1[i].label = label_all[i]
@@ -183,7 +200,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
 
     ## Create KERNELS
     # Create a periodic boundary condition kernel
-    def periodicBC(particle, fieldSet1, time):
+    def periodicBC(particle, fieldset, time):
         if particle.lon > 180:
             particle.lon -= 360
         elif particle.lon < -180:
@@ -207,7 +224,6 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
         sq_deg_to_sq_m = (1852*60)**2*math.cos(particle.lat*math.pi/180)
         A = A / sq_deg_to_sq_m
         Kh = fieldset.Cs * A * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
-
         dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         particle.lat += dlat
@@ -221,7 +237,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
 
-    if K_smag:
+    if K_smag == "True":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
         sum_kernels += k_dispersion
@@ -231,6 +247,8 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     print ("    #-----------------------------------------------------------------------------------------")
 
     output_file1 = pset1.ParticleFile(name=f_out1, outputdt=timedelta(hours=6))
+
+    ParcelsRandom.seed(random.randint(0,3000))  # Random seed for reproducibility
 
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
@@ -260,7 +278,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                       drifters_lon, drifters_lat,drifters_id, T_DRIFT,\
                        f_out1,
                       radius_cloud=0.25, seeding_resolution=1/12, 
-                      forback='FWD', time_period=False,K_smag = False,hour = 0):
+                      forback='FWD', time_period=False,K_smag = False,hour = 0, nb_repeats=None):
     import gc
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
     
@@ -291,22 +309,22 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     if PROD == 'GLOBC' or PROD == 'SMOC':
         dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
-    elif PROD == 'IBI36':
-        dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time_counter'},
-                      'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time_counter'}}
-    else:             
-        dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
-                      'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}#,
+    else:
+        dimensions = {'U': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'},
+                      'V': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'}}
+    #else:             
+    #    dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
+    #                  'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}#,
     gc.collect()
 
     period=1  # set length of dataset (in days), for cycling through data set, e.g. period =2, dataset= [JD1,JD2,JD1,JD2,...]
     #if only one timestep:
-    if PROD == 'GLOBC':
+    if PROD == 'GLOBC' or PROD == 'PSY44':
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
     else:
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
 
-    if K_smag : 
+    if K_smag == "True" : 
         print('# Random Walk SMAGORINSKY     ')
         x = fieldset1.U.grid.lon
         y = fieldset1.U.grid.lat
@@ -330,6 +348,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         lon_all=drifters_lon.ravel()
         lat_all=drifters_lat.ravel()
         label_all=drifters_id.ravel()
+
         print('label_all,', label_all)
     else:
         # Seed around point of release dep on radius_cloud=0.25, seeding_resolution=1/12
@@ -413,6 +432,22 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print("    #-----------------------------------------------------------------------------------------")
 
     #Sample Curl along traj
+    lon_1 = lon_all
+    lat_1 = lat_all
+    time_1 = time_pos
+    label_1 = label_all
+    if nb_repeats!= None:
+        for i in range (nb_repeats):
+            lon_all = np.concatenate((lon_all, lon_1), axis=None) 
+            lat_all = np.concatenate((lat_all, lat_1), axis=None)
+            label_all = np.concatenate((label_all, label_1), axis=None)
+            time_pos=np.concatenate((time_pos, time_1), axis=None)
+            print('shape lon:',np.shape(lon_all))
+            print('shape lat:',np.shape(lat_all))
+            print('shape labl:',np.shape(label_all))
+            print('shape time:',np.shape(time_pos))
+
+
     pset1 = ParticleSet(fieldset=fieldset1, pclass=SampleParticle,
                        lon=lon_all, lat=lat_all, time=time_pos) #, depth=dep_all)
     for i in range(len(label_all)): pset1[i].label = label_all[i]
@@ -447,7 +482,6 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         
         dvdx = (vpdx - vmdx) / (2*dx)
         dvdy = (vpdy - vmdy) / (2*dx)
-
         A = fieldset.cell_areas[time, 0, particle.lat, particle.lon]
         sq_deg_to_sq_m = (1852*60)**2*math.cos(particle.lat*math.pi/180)
         A = A / sq_deg_to_sq_m
@@ -455,6 +489,10 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
         dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
+
+        #dlat = fieldset.rng[int(ParcelsRandom.normalvariate(0, 10))] * math.sqrt(2*math.fabs(particle.dt)* Kh) 
+        #dlon = fieldset.rng[int(ParcelsRandom.normalvariate(0, 10))] * math.sqrt(2*math.fabs(particle.dt)* Kh) 
+
         particle.lat += dlat
         particle.lon += dlon
 
@@ -466,7 +504,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
 
-    if K_smag:
+    if K_smag == "True":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
         sum_kernels += k_dispersion
@@ -476,6 +514,8 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print ("    #-----------------------------------------------------------------------------------------")
 
     output_file1 = pset1.ParticleFile(name=f_out1, outputdt=timedelta(hours=6))
+    
+    ParcelsRandom.seed(random.randint(0,3000))  # Random seed for reproducibility
 
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
@@ -497,6 +537,13 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print(' EXP1 FINISHED -----  ', now.strftime("%m/%d/%Y, %H:%M:%S"))
 
     #return traj_lon, traj_lat, traj_time
+    
+    
+    
+    
+    
+    
+    
     
 def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
                              data_v, var_v, meshmask,
