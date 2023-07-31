@@ -192,7 +192,10 @@ dependencies:
   - pip:
       - appdirs==1.4.4
       - asciitree==0.3.3
+      - basemap==1.3.7
+      - basemap-data==1.3.2
       - bokeh==2.4.3
+      - branca==0.6.0
       - cftime==1.6.2
       - cgen==2020.1
       - champ==2.1.1
@@ -202,9 +205,12 @@ dependencies:
       - dask==2023.2.0
       - datetime==5.0
       - distributed==2023.2.0
+      - docopt==0.6.2
       - fasteners==0.18
       - fastprogress==1.0.3
+      - folium==0.14.0
       - fsspec==2023.1.0
+      - ftputil==5.0.4
       - future==0.18.3
       - h5py==3.8.0
       - heapdict==1.0.1
@@ -229,6 +235,7 @@ dependencies:
       - proplot==0.9.5
       - protobuf==4.22.0rc3
       - pydantic==1.10.7
+      - pydap==3.4.1
       - pymbolic==2022.2
       - pyqt5-sip==12.11.0
       - pyshp==2.3.1
@@ -245,6 +252,7 @@ dependencies:
       - threadpoolctl==3.1.0
       - toolz==0.12.0
       - tqdm==4.64.1
+      - webob==1.8.7
       - xarray==2023.2.0
       - xlrd==2.0.1
       - zarr==2.14.1
