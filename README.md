@@ -18,7 +18,7 @@ Otherwise in intern you can activate my environment by launching the following c
 ## Basic Usage
 Set your parameters into the config_base.ini file : 
 You can choose the models to compare, the time period, the area and the drift time for the lagrangian perspective;
-The time period corresponds to the launch of a set of particles at the drifters' position for each day during the drift time, for the report card.
+The time period corresponds to the launch of a set of particles at the drifters' position for each day during the drift time, for the report card. If you want to understand each score in the report_card.py Plot, you can see the Report_card_more.ipynb. 
 
 You can launch the program with the following command line :
 
