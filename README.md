@@ -30,16 +30,20 @@ note : Before launching report_card_oper.py you have to launch Traj_compute_oper
 
 Then you will find your figures in the Folder name : PLOT
 
+Report_card_more.ipynb is a jupyter notebook that gives more information about the report_card_oper.py 
+
+Scores_Diffusion.ipynb is a jupyter notebook that show scores on diffusion cloud points
+
 ## Advanced Usage
 In the config_base.ini file :
 
 -"cloud_stat" : Not already set
 
--"remote" : If you want to use online data, accessible on "https://data.marine.copernicus.eu/products" (check if OPeNDAP is possible in Data access of the product)
+-"remote" : ['True' or ''] If you want to use online data, accessible on "https://data.marine.copernicus.eu/products" (check if OPeNDAP is possible in Data access of the product)
 
--"K_smag" : (In progress) If you want to do some ensemble statistics with Smagorinsky turbulence model "https://doi.org/10.1175/1520-0493(1963)091%3C0099:GCEWTP%3E2.3.CO;2"
+-"AdvectionDiffusion_type" : ['' or 'AdvectionDiffusionM1' or 'Smag'] If you want to put some Diffusion on particles trajectories (compute also without diffusion) 
 
--"nb_repeats" : is the number of particles that will be launch at the same point in the frame of Smagorinsky turbulence model
+-"nb_repeats" : Is the number of particles that will be launch at the same point in the frame of Diffusion
 
 
 ## Date range available for models
@@ -49,7 +53,7 @@ In the config_base.ini file :
 - cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m : GLOBAL, 1/12°, Daily, 01/11/2020 to Today
 - dataset-uv-nrt-daily : GLOBAL, 1/4°, Daily, 01/01/2020 to Today
 - cmems_mod_ibi_phy_anfc_0.027deg-3D_P1D-m : IBI Area, 1/36°, Daily, 01/12/2020 to Today
--
+- cmems_mod_med_phy-cur_anfc_4.2km_P1D-m : Mediterranean Area, 1/24, Daily, 01/03/2021 to Today
 -
 -
 
