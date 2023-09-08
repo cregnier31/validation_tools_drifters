@@ -57,7 +57,7 @@ username = config_info["username"]
 dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
 DRIFT_TIME = int(config_info['DRIFT_TIME'])
-remote =  config_info['remote']
+remote =  bool(config_info['remote'])
 
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
@@ -67,7 +67,7 @@ import datetime
 import getpass
 import sys
 sys.path.insert(0, dir_in+"src/")
-from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index
+from Drift_Tools import ReturnUVlist, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index
 
 str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
 dir_out=dir_work+"DRIFT/"+PROJECT+'/'+EXP_NAME+'/ZONE_'+str_region+'/'
@@ -156,7 +156,7 @@ print(drifters_zone_traj.dtypes)
 nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
 
 #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
-if remote == "True":
+if remote:
     nb_points = T_DRIFT*24 +24   # hourly
 else :
     nb_points = T_DRIFT*4 + 1    # hourly
@@ -197,7 +197,7 @@ drifter_lon = np.zeros(traj_lon.shape)
 drifter_lat = np.zeros(traj_lat.shape)
 
 
-if remote == "True":
+if remote:
     drifter_lon[0,0,:,0] = traj_drifter_lon[:,:int(DRIFT_TIME)*24+24][:,0]
     drifter_lat[0,0,:,0] = traj_drifter_lat[:,:int(DRIFT_TIME)*24+24][:,0]
     
@@ -271,7 +271,7 @@ N = len(categories)
 
 
 
-colors_data = {'PSY44':'lightcoral','PSY4V3R1':'red','GLO12V4':'blue','IBI36':'green','GLOBC':'purple','cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m':'orange', 'dataset-uv-nrt-daily':'cyan'}
+colors_data = {'PSY44':'lightcoral','PSY4V3R1':'red','GLO12V4':'blue','IBI36':'green','GLOBC':'purple','cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m':'orange', 'dataset-uv-nrt-daily':'cyan','cmems_mod_med_phy-cur_anfc_4.2km_P1D-m':'y'}
 
 
 

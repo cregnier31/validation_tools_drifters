@@ -3,7 +3,6 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
-from mpl_toolkits.basemap import Basemap
 import os
 import time
 import sys
@@ -52,32 +51,7 @@ def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim
         return (fig, ax)
 
 
-def plot_map(ax, lonmin, lonmax, latmin, latmax, lon_space=20, lat_space=10, res='l', proj='cyl', lines=True, fontsize=10):
-    """ 
-    Plot continents with basemap.
-        - lonmin/lonmax: in [0 - 360]
-        - lon_space/lat_space: space between 2 meridians/parallels in degrees
-        - res: map resolution ('c' for crude; 'l' for low'; 'i' for intermediate; 'h' for high; 'f' for full) 
-        - proj: projection ('cyl'; 'merc',...)
-        - lines: to plot meridians and parallels
-    """
-    # Keep lonmax > lonmin
-    if lonmax < lonmin:
-        lonmax += 360.
-    
-    # Map
-    map = Basemap(ax=ax, llcrnrlon=lonmin, llcrnrlat=latmin, urcrnrlon=lonmax, urcrnrlat=latmax, projection=proj, resolution=res)
-           
-    # Draw parallels & meridians
-    if lines:
-        map.drawparallels(np.arange(latmin+lat_space, latmax, lat_space), labels=[1,0,0,0], fontsize=fontsize, zorder= 1, linewidth=0.1)
-        map.drawmeridians(np.arange(lonmin+lon_space, lonmax, lon_space), labels=[0,0,0,1], fontsize=fontsize, zorder= 1, linewidth=0.1)
-    map.drawcountries(color='k',linewidth=0.05, zorder=1.2)
-    map.drawcoastlines(color='grey',linewidth=0.2, zorder=1.2)
-    map.fillcontinents(color='0.35', zorder = 1.1)
-    
-    return ax
-    
+
     
 def save_fig(fname, dpi=200, show=False):
     """

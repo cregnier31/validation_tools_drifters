@@ -21,17 +21,14 @@ import shutil
 import shlex,subprocess
 import time
 from configparser import ConfigParser
-
+import xarray as xr
+from scipy import interpolate
 import getpass
 username=getpass.getuser()
 print('username: ',username)
 import os, glob,sys
 from operator import attrgetter
-from metpy.units import units
 from scipy.ndimage import gaussian_filter
-from siphon.catalog import TDSCatalog
-from siphon.ncss import NCSS
-#import metpy.calc as mpcalc
 
 sys.path.append("/home/svangennip/DEV/Drift/LIU_SCORE/src/")
 from extras import dist as sw_dist
@@ -251,12 +248,67 @@ def match_elements(list_a, list_b):
             match.append(i)
     return match
 
+def resample_traj(file_name):
+    # resampling at regular 1h time step
+    spurious_drifter = False
+    data = xr.open_dataset(file_name)
+    t_start = pd.Timestamp(data.TIME.values[0])
+    t_end = pd.Timestamp(data.TIME.values[-1])
+    print(t_start)
+    print(t_end)
+    nb_hours = (t_end - t_start).total_seconds()/3600 + 1
+    #if True:
+    if (int(nb_hours) != len(data.TIME.values)) or  (len(data.TIME.values)!= len(data.LONGITUDE.values)):
+        if (int(nb_hours)-len(data.TIME.values)) < 1000: # if more than thousand points are missing, delete the drifter
+            print("Resampling...")
+            time_new = np.arange(t_start,t_end+np.timedelta64(1, "h"),np.timedelta64(1, "h")).astype('float')*1000
+            time = data.TIME.values.astype('float')
+            lon = data.LONGITUDE.values % 360 # values between 0 and 360 
+            lat = data.LATITUDE.values
+            d_lon = lon[1:] - lon[:-1]
+            d_lat = lat[1:] - lat[:-1]
+            if np.max(d_lon) < 2 or np.max(d_lat) < 2 : # if there is a jump of at least 5degrees, delete the drifter
+                f_lon = interpolate.interp1d(time, lon, kind = 'quadratic')
+                f_lat = interpolate.interp1d(time, lat, kind = 'quadratic')
+                lon_new = f_lon(time_new)
+                lon_new_new = []
+                for i in range (lon_new.shape[0]):
+                    if lon_new[i]<=180:
+                        lon_new_new.append(lon_new[i])
+                    else:
+                        lon_new_new.append(lon_new[i]-360)
+                lon_new_new = np.array(lon_new_new)
+                lat_new = f_lat(time_new)
+                data_res = xr.Dataset(
+                   coords=dict(
+                
+                        LONGITUDE=lon_new_new,
+                
+                        LATITUDE=lat_new,
+                
+                        TIME=time_new.astype(data.TIME.values.dtype),
+                
+                
+                    ),
+                
+                    attrs=dict(time_coverage_start = data.time_coverage_start,
+                              time_coverage_end = data.time_coverage_end,
+                              platform_code = data.platform_code  ),
+                
+                )
+                data.close()
+                data_res.to_netcdf(file_name,mode = 'w')
+            else:
+                spurious_drifter = True
+        else : 
+            spurious_drifter = True
+            
+    return spurious_drifter
 
 
 
 def DriftersInZoneInPeriod_remote(lon_min, lon_max, lat_min, lat_max, date_start, date_end, dico_name, outfile):
     import datetime 
-    import xarray as xr
  
     date_format = '%Y-%m-%dT%H:%M:%SZ'
 
@@ -544,7 +596,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
         elif MODEL == 'GLO12V4':
             # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
             u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ str(i)+ '*3DV-vo_*.nc'))
+            v_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DV-vo_*.nc'))
             
             #provide how file starts to identify it in list
             f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
@@ -920,194 +972,8 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
     return np.array(liu_index)
 
 
-def CalcCurlGlobC (u_files, zlevel, dir_out):
-    print('Calculate Curl GlobCurrent')
-    print('for level:', zlevel, ' (1=surface,  2=15m depth)')
-
-    dir_out2= dir_out+'/CURL/GLOBC/'
-    if not os.path.exists(dir_out2):
-        print('\ncreate temp folder : ', dir_out2)
-        # Create directory where to store results:
-        os.makedirs(dir_out2)    
 
 
-    #load list of Globcurrent file:
-    #nc_file = '/dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20190318T1200Z_P20200520T0000.nc'
-    
-    curl_files = []
-    for line in u_files:  #loop through each uv file
-        
-        nc_file = line.strip()  #need strip to remove '\n' newline
-        print(nc_file)
-        # Create outfile name:
-        fuv_name = os.path.basename(nc_file)  
-        
-        fcurl_name = fuv_name.replace("uv", "curl")
-        #print(fname_vor)
-        nc_out=dir_out2 + fcurl_name
-        curl_files.append(nc_out)
-        if not os.path.exists(nc_out):
-            
-            #read in UV file
-            fh = Dataset(nc_file, mode='r')
-            lat = fh.variables['latitude'][:]
-            lon = fh.variables['longitude'][:]
-            t = fh.variables['time']#[:]
-            t_val=t[:]
-            t_units = t.units
-            t_calendar = t.calendar 
-
-
-            U = fh.variables['uo'][0]
-            V = fh.variables['vo'][0]
-            fh.close()
-
-            #u = units.Quantity(np.ma.array(U, mask=U[U.mask]), units('m/s'))
-            u = units.Quantity(np.ma.array(U), units('m/s'))
-            v = units.Quantity(np.ma.array(V), units('m/s'))
-
-            #select surface values
-            u_surf = u[zlevel-1,:,:]
-            v_surf = v[zlevel-1,:,:]
-            #u_15 = u[1,:,:]
-            #v_15 = v[1,:,:]
-
-            
-            # Calcualte dx and dy for calculations
-            dx, dy = mpcalc.lat_lon_grid_deltas(lon, lat)
-
-
-            #print('calculate Relative Vorticity...')
-            # Planetary Vorticity
-            f = mpcalc.coriolis_parameter(np.deg2rad(lat)).to('1/s')
-            f1 = np.expand_dims(f, axis=1)
-
-            # Relative Vorticity
-            print("u_surf",u_surf.shape,"\nv_surf", v_surf.shape,'\ndx, dy', dx.shape, dy.shape )
-            vor = mpcalc.vorticity(u_surf, v_surf, dx = dx, dy = dy) #, dim_order='yx')
-            
-            # Abosolute Vorticity
-            avor = vor + f1
-
-            print('... save as ',nc_out)
-            foo = Dataset(nc_out, 'w')
-            # Global Attributes
-            foo.title = 'Vorticity GlobCurrent '
-            foo.institution = 'Mercator-Ocean International'
-            #foo.history = 'Created ' + time.ctime(time.time())
-
-            # Create dimensions
-            foo.createDimension('time', len(t_val))
-            foo.createDimension('y', len(lat))
-            foo.createDimension('x', len(lon))
-
-            # Create variables
-            nc_times = foo.createVariable('time', float, ('time',), zlib=True)
-            nc_latitudes = foo.createVariable('latitude', float, ('y'), zlib=True)
-            nc_longitudes = foo.createVariable('longitude', float, ( 'x'), zlib=True)
-            nc_vor = foo.createVariable('vor', float, ('y', 'x'), zlib=True, fill_value=0)  #, least_significant_digit=12,
-            nc_avor = foo.createVariable('avor', float, ('y', 'x'), zlib=True, fill_value=0)  #, least_significant_digit=12,
-
-            # Variable attributes
-            nc_latitudes.units = 'degree_north'
-            nc_longitudes.units = 'degree_east'
-            nc_vor.units = '1/s'
-            nc_avor.units = '1/s'
-            nc_times.units = t_units
-            nc_times.calendar = t_calendar
-
-            # Write to nc_Variable
-            nc_times[:] = t_val
-            nc_latitudes[:] = lat
-            nc_longitudes[:] = lon
-
-            nc_vor[:]=vor.magnitude
-            nc_avor[:]=avor.magnitude
-
-            foo.close()
-        
-
-        else:
-            print('...',nc_out, " already exists")
-                
-
-    print('done')
-    return curl_files
-
-
-def CalcRelVorticity(model,u_files, var_u,v_files, var_v, zlevel, overf, pos_grid, dir_out) :
-    print("Drift: Fonction CalcRelVorticity")
-
-    dir_work='/data/rd_exchange/pgouvenou/Tools/CDF_Tools/'+model+'/'
-    if not os.path.exists(dir_work):
-        print('\n script cannot compute curl for : ', model)
-        sys.exit(1)
-    else:
-        os.chdir(dir_work) 
-        print(os.getcwd())
-           
-
-    dir_out2= dir_out+'/CURL/'+model+'/'
-    if not os.path.exists(dir_out2):
-        print('\ncreate temp folder : ', dir_out2)
-        # Create directory where to store results:
-        os.makedirs(dir_out2)          
-    
-    #BIN='/home/cbricaud/OUTILS/CDFTOOLS/bin/'
-    #BIN='/home/qualif/CDFTOOLS/new_version/CDFTOOLS/bin/'
-    BIN='/homelocal-px/px-153/sauvegarde/rbourdal/PROGRAMS/CDFTOOLS_3/CDFTOOLS_3.0/bin/'
-    #BIN='/home/qualif/CDFTOOLS/bin_opr/'
-    #BIN='/homelocal-px/px-153/sauvegarde/rbourdal/PROGRAMS/CDFTOOLS_4/CDFTOOLS-master/bin/'
-    #PSY4V3R1_1dAV_20100101_20100102_gridU_R20100106.nc
-    
-    curl_files = []
-    for uline, vline in zip(u_files, v_files):  #loop through each uv file
-        
-
-        u_file = uline.strip()  #need strip to remove '\n' newline
-        v_file = vline.strip()  #need strip to remove '\n' newline
-        
-        print(u_file)
-        print(v_file)
-        # Create outfile name:
-        fu_name = os.path.basename(u_file)  
-        
-        fcurl_name = fu_name.replace("gridU", "curl")
-        nc_out=dir_out2 + fcurl_name
-        
-        #print('--->',nc_out)
-        curl_files.append(nc_out)
-        
-        #'''
-        #Recupere la namelist
-        if not os.path.exists(nc_out):
-            #e.g. '/home/cbricaud/OUTILS/CDFTOOLS/bin/cdfcurl -u $fu $var_u -v $fv $var_v -l "12" -surf -overf -o fout 
-            if pos_grid == 'F':
-                print('Calculate on F grid')
-                if overf==1:
-                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -surf -overf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
-                else:
-                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -surf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
-          
-            elif pos_grid == 'T':
-                print('Calculate on T grid')
-                if overf==1:
-                    cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -T -surf -overf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
-                else:
-                    #cmd_exe = '%s/cdfcurl -u %s %s -v %s %s -l "%s" -T -surf -o %s' %(BIN, u_file, var_u, v_file, var_v,zlevel, nc_out)
-                    cmd_exe = '%s/cdfcurl %s %s %s %s %s' %(BIN, u_file, v_file, var_u, var_v, zlevel)
-
-
-            print(cmd_exe)   
-            os.system(cmd_exe)
-            #sys.exit(1)
-            os.rename(dir_work+'curl.nc', nc_out)
-            print('output=', nc_out,'\n')
-        else:
-            print('...',nc_out, " already exists")        
-            #'''
-        #sys.exit(1)
-    return curl_files  
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
     print("Fonction ExtractLayer")

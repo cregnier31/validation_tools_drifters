@@ -25,9 +25,9 @@ from scipy import stats
 #sns.set_style("darkgrid", {"axes.facecolor": ".9"})
 from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field, SummedField, plotTrajectoriesFile
 import xarray as xr
-sys.path.append("/home/svangennip/PYTHON/Modules/LIB_PYT/")
-sys.path.append("/home/svangennip/PYTHON/Modules/LIB_SI/")
-sys.path.append("/home/svangennip/PYTHON/Modules/")
+#sys.path.append("/home/svangennip/PYTHON/Modules/LIB_PYT/")
+#sys.path.append("/home/svangennip/PYTHON/Modules/LIB_SI/")
+#sys.path.append("/home/svangennip/PYTHON/Modules/")
 #from discrete_cmap import discrete_cmap
 from netCDF4 import Dataset
 import netCDF4 as nc
@@ -48,8 +48,8 @@ def DeleteParticle(particle, fieldset, time):
 
 def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drifters_id,T_DRIFT,f_out1,
                             radius_cloud = 0.25, seeding_resolution = 1/12,forback = 'FWD',time_period = False,
-                            K_smag = False,hour = 0, nb_repeats=None):
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
+                            hour = 0, nb_repeats=None, AdvectionDiffusion_type = "AdvectionRK4"):
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4,AdvectionDiffusionM1, ErrorCode, Variable, Field
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
         k_forback = 1
@@ -63,16 +63,36 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
     variables = {'U': var_u,
                  'V': var_v}
-    
-    fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
-    
-    if K_smag == "True" : 
+    try : 
+        fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
+    except KeyError:
+        dimensions = {'U': {'lon': 'lon', 'lat': 'lat', 'time': 'time'},
+                        'V': {'lon': 'lon', 'lat': 'lat', 'time': 'time'}}
+        fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
+
+    if AdvectionDiffusion_type == "Smag": 
         print('# Random Walk SMAGORINSKY     ')
         x = fieldset1.U.grid.lon
         y = fieldset1.U.grid.lat
         cell_areas = Field(name='cell_areas', data=fieldset1.U.cell_areas(), lon=x, lat=y)
         fieldset1.add_field(cell_areas)
         fieldset1.add_constant('Cs', 0.1)
+    if AdvectionDiffusion_type == "AdvectionDiffusionM1":
+        print("# Diffusion Markov1  ")
+        #fieldset1.add_constant("dres", 0.5)
+        x = fieldset1.U.grid.lon
+        y = fieldset1.U.grid.lat
+        print(abs(x[0]-x[1]))
+        fieldset1.add_constant("dres",abs(x[0]-x[1]))
+        time = fieldset1.U.grid.time
+        #K_bar = 5.79*10**(-4)*(T_DRIFT/3)*24*3600 # m2.s 
+        K_bar = 200
+        Kh_zonal =  Field("Kh_zonal",data = np.meshgrid((K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)),x)[0].reshape((1,y.shape[0],x.shape[0])), lon = x , lat = y)
+        Kh_meridional = Field("Kh_meridional",data = np.meshgrid((K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)),x)[0].reshape((1,y.shape[0],x.shape[0])), lon = x , lat = y)
+
+        fieldset1.add_field(Kh_zonal)
+        fieldset1.add_field(Kh_meridional)
+
 
     print ("#-----------------------------------------------------------------------------------------")
     print ("#                      Define ParticleSet ")
@@ -83,20 +103,20 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     #print('user set compiler = ', compiler)
     #distinguish between two cases: seed at drifter location, seed in neighbourhood
     if radius_cloud == 0:  #seed only at given location (not around)
-        print('\nradius_cloud:', radius_cloud)
+        #print('\nradius_cloud:', radius_cloud)
         lon_all=drifters_lon.ravel()
         lat_all=drifters_lat.ravel()
         label_all=drifters_id.ravel()
-        print('label_all,', label_all)
+        #print('label_all,', label_all)
     else:
         # Seed around point of release dep on radius_cloud=0.25, seeding_resolution=1/12
         #determine number of circles and their radius:
-        print('\nradius_cloud:', radius_cloud)
-        print('seeding_resolution',seeding_resolution)
+        #print('\nradius_cloud:', radius_cloud)
+        #print('seeding_resolution',seeding_resolution)
         nb_circles =  float(radius_cloud)/seeding_resolution
         print(nb_circles)
         radii =(np.arange(nb_circles)+1)*seeding_resolution
-        print('radius', radii)
+        #print('radius', radii)
         #sys.exit(1)
         #x=x[:-1]
         #pos_i_all =drifters_lon.copy()     
@@ -105,21 +125,21 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
         pos_j_all =np.array([drifters_lat])     
         dlon_all = [0]
         dlat_all = [0] 
-        print('pos_i_all=',pos_i_all.shape)
+        #print('pos_i_all=',pos_i_all.shape)
         for i in range(len(radii)):   # Generate noise dlon, dlat for each circle around original position
             r=radii[i]
             nb_pts_on_circle = 8+4*i   #Set nb of points as a function of the radius
-            print('    \nr=', r, ' => nb_pts_on_circle', nb_pts_on_circle)
+            #print('    \nr=', r, ' => nb_pts_on_circle', nb_pts_on_circle)
             #x=np.linspace(0, 2*pi, nb_pts_on_circle)#+1)
             x=np.arange(0, 2*pi, 2*pi/nb_pts_on_circle)#+1)
             #print('    x=', x)
             #Calculate noise dlon, dlat to be added to drifter original position:
             dlon=r*np.cos(x)
             dlat=r*np.sin(x)
-            print('    dlon=', dlon)
+            #print('    dlon=', dlon)
             dlon_all = np.append(dlon_all, dlon)
             dlat_all = np.append(dlat_all, dlat) 
-            print('    dlon_all=', dlon_all.shape)
+            #print('    dlon_all=', dlon_all.shape)
         print('generate ', dlon_all.shape[0],' new positions around each drifter location')
 
         #Add noise dlon, dlat to each drifter location:
@@ -179,10 +199,10 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
             lat_all = np.concatenate((lat_all, lat_1), axis=None)
             label_all = np.concatenate((label_all, label_1), axis=None)
             time_pos=np.concatenate((time_pos, time_1), axis=None)
-            print('shape lon:',np.shape(lon_all))
-            print('shape lat:',np.shape(lat_all))
-            print('shape labl:',np.shape(label_all))
-            print('shape time:',np.shape(time_pos))
+            #print('shape lon:',np.shape(lon_all))
+            #print('shape lat:',np.shape(lat_all))
+            #print('shape labl:',np.shape(label_all))
+            #print('shape time:',np.shape(time_pos))
 
 
     pset1 = ParticleSet(fieldset=fieldset1, pclass=SampleParticle,
@@ -233,11 +253,12 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     k_periodicBC = pset1.Kernel(periodicBC)
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
 
-
-    sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+    if AdvectionDiffusion_type=="AdvectionRK4":
+        sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
-
-    if K_smag == "True":
+    if AdvectionDiffusion_type=="AdvectionDiffusionM1":
+        sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+    if AdvectionDiffusion_type=="Smag":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
         sum_kernels += k_dispersion
@@ -278,9 +299,9 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                       drifters_lon, drifters_lat,drifters_id, T_DRIFT,\
                        f_out1,
                       radius_cloud=0.25, seeding_resolution=1/12, 
-                      forback='FWD', time_period=False,K_smag = False,hour = 0, nb_repeats=None):
+                      forback='FWD', time_period=False,hour = 0, nb_repeats=None,AdvectionDiffusion_type = "AdvectionRK4"):
     import gc
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field,AdvectionDiffusionM1
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
         k_forback = 1
@@ -310,8 +331,8 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
     else:
-        dimensions = {'U': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'},
-                      'V': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'}}
+        dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
+                      'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}
     #else:             
     #    dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
     #                  'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}#,
@@ -322,15 +343,76 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     if PROD == 'GLOBC' or PROD == 'PSY44':
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
     else:
-        fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
+        fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) 
+        e1u = Field.from_netcdf(
+            filenames=meshmask,
+            variable="e1u",
+            dimensions={"lon": "glamu", "lat": "gphiu"},
+            interp_method="nearest",
+        )
+        e1v = Field.from_netcdf(
+            filenames=meshmask,
+            variable="e1v",
+            dimensions={"lon": "glamv", "lat": "gphiv"},
+            interp_method="nearest",
+        )
+        fieldset1.add_field(e1u)
+        fieldset1.add_field(e1v)
+    if AdvectionDiffusion_type=="Smag": 
+        if PROD == "GLOBC" :
+            print('# Random Walk SMAGORINSKY     ') 
+            x = fieldset1.U.grid.lon
+            y = fieldset1.U.grid.lat
+            cell_areas_u = Field(name='cell_areas', data=fieldset1.U.cell_areas(), lon=x, lat=y)
+            fieldset1.add_field(cell_areas_u)
+            fieldset1.add_constant('Cs', 0.1)
+        else : 
+            print('# Random Walk SMAGORINSKY     ')
+            x_u = fieldset1.e1u.grid.lon
+            y_u = fieldset1.e1u.grid.lat
+            cell_areas = Field(name='cell_areas', data=fieldset1.e1u.data*fieldset1.e1v.data, lon=x_u, lat=y_u)
+            fieldset1.add_field(cell_areas)
+            #x_v = fieldset1.e1v.grid.lon
+            #y_v = fieldset1.e1v.grid.lat
+            #cell_areas_v = Field(name='cell_areas_v', data=fieldset1.e1v.data, lon=x_v, lat=y_v)
+            #fieldset1.add_field(cell_areas_v)
+            fieldset1.add_constant('Cs', 0.1)
+    if AdvectionDiffusion_type == "AdvectionDiffusionM1":
+        if PROD == "GLOBC":
+            print("# Diffusion Markov1  ")
+            #fieldset1.add_constant("dres", 0.5)
+            x = fieldset1.U.grid.lon
+            y = fieldset1.U.grid.lat
+            fieldset1.add_constant("dres",abs(x[0]-x[1]))
+            print(x)
+            print(x.shape)
+            print(abs(x[0]-x[1]))
+            time = fieldset1.U.grid.time
+            K_bar = 200
+            Kh_zonal =  Field("Kh_zonal",data = np.meshgrid((K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)),x)[0].reshape((1,y.shape[0],x.shape[0])), lon = x , lat = y)
+            Kh_meridional = Field("Kh_meridional",data = np.meshgrid((K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)),x)[0].reshape((1,y.shape[0],x.shape[0])), lon = x , lat = y)
+            fieldset1.add_field(Kh_zonal)
+            fieldset1.add_field(Kh_meridional)
 
-    if K_smag == "True" : 
-        print('# Random Walk SMAGORINSKY     ')
-        x = fieldset1.U.grid.lon
-        y = fieldset1.U.grid.lat
-        cell_areas = Field(name='cell_areas', data=fieldset1.U.cell_areas(), lon=x, lat=y)
-        fieldset1.add_field(cell_areas)
-        fieldset1.add_constant('Cs', 0.1)
+        
+        else:
+            print("# Diffusion Markov1  ")
+            #fieldset1.add_constant("dres", 0.5)
+            x = fieldset1.e1u.grid.lon
+            y = fieldset1.e1u.grid.lat
+            fieldset1.add_constant("dres",abs(x[0,0]-x[0,1]))
+            print(x)
+            print(x.shape)
+            print(abs(x[0,0]-x[0,1]))
+            print(y)
+            time = fieldset1.U.grid.time
+            K_bar = 200
+            Kh_zonal =  Field("Kh_zonal",data = (K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)).reshape((1,y.shape[0],x.shape[1])), lon = x , lat = y)
+            Kh_meridional = Field("Kh_meridional",data = (K_bar/((1000*6378.137)**2) * (180/np.pi)**2 * np.cos(y*np.pi/180)).reshape((1,y.shape[0],x.shape[1])), lon = x , lat = y)
+            fieldset1.add_field(Kh_zonal)
+            fieldset1.add_field(Kh_meridional)
+
+    
     now = datetime.now()
     print(now.strftime("%m/%d/%Y, %H:%M:%S"))
 
@@ -442,11 +524,6 @@ def run_parcels_Drift(PROD, data_u, var_u, \
             lat_all = np.concatenate((lat_all, lat_1), axis=None)
             label_all = np.concatenate((label_all, label_1), axis=None)
             time_pos=np.concatenate((time_pos, time_1), axis=None)
-            print('shape lon:',np.shape(lon_all))
-            print('shape lat:',np.shape(lat_all))
-            print('shape labl:',np.shape(label_all))
-            print('shape time:',np.shape(time_pos))
-
 
     pset1 = ParticleSet(fieldset=fieldset1, pclass=SampleParticle,
                        lon=lon_all, lat=lat_all, time=time_pos) #, depth=dep_all)
@@ -470,6 +547,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
             particle.lon += 360
 
     def smagdiff(particle, fieldset, time):
+
         dx = 0.01
         # gradients are computed by using a local central difference.
         updx, vpdx = fieldset.UV[time, particle.depth, particle.lat, particle.lon+dx]
@@ -483,9 +561,14 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         dvdx = (vpdx - vmdx) / (2*dx)
         dvdy = (vpdy - vmdy) / (2*dx)
         A = fieldset.cell_areas[time, 0, particle.lat, particle.lon]
+        #A_v = fieldset.cell_areas_v[time, 0, particle.lat, particle.lon]
+
         sq_deg_to_sq_m = (1852*60)**2*math.cos(particle.lat*math.pi/180)
         A = A / sq_deg_to_sq_m
+        #A_v = A_v / sq_deg_to_sq_m
+
         Kh = fieldset.Cs * A * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
+        #Kh_v = fieldset.Cs * A_v * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
 
         dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
@@ -501,10 +584,15 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
 
 
-    sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+    
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
+    if AdvectionDiffusion_type=="AdvectionRK4":
+        sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+        #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
+    if AdvectionDiffusion_type=="AdvectionDiffusionM1":
+        sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
 
-    if K_smag == "True":
+    if AdvectionDiffusion_type=="Smag":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
         sum_kernels += k_dispersion

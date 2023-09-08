@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
-
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 import datetime
@@ -12,9 +12,9 @@ import pandas as pd
 from configparser import ConfigParser
 import getpass
 sys.path.append("src/")
-#from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface
 from Functions import current_rose
 import ftputil
+from tqdm import tqdm
 
 
 
@@ -34,13 +34,13 @@ EXP_NAME = config_info["EXP_NAME"]
 username = config_info["username"]
 dir_work = config_info["dir_work"]
 dir_in = config_info["dir_in"]
-remote = config_info["remote"]
+remote = bool(config_info["remote"])
 print("MODELS : ",MODELS)
 print("Region : ",lon_min,", ",lon_max,", ",lat_min,", ",lat_max)
 print("From : ",DATE1," to ",DATE2)
 
 sys.path.insert(0, dir_in+"src/")
-from Drift_Tools import ReturnUVlist, CalcCurlGlobC, CalcRelVorticity, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index, DriftersInZoneInPeriod_remote
+from Drift_Tools import ReturnUVlist, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index, DriftersInZoneInPeriod_remote
 
 str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
 dir_out=dir_work+"DRIFT/"+PROJECT+'/'+EXP_NAME+'/ZONE_'+str_region+'/'
@@ -65,8 +65,8 @@ date_end_plus1 = date_end+datetime.timedelta(days=1)
 T_DRIFT = (date_end-date_start).days
 
 
-if remote == "True":
-    USERNAME = 'pgouvenou'
+if remote:
+    USERNAME = username
     PASSWORD = getpass.getpass('Enter your password: ')
     #! /usr/bin/env python3
     # -*- coding: utf-8 -*-
@@ -96,12 +96,18 @@ if remote == "True":
     data = []
     for dataset in MODELS:
         data_store = xr.open_dataset(copernicusmarine_datastore(dataset, USERNAME, PASSWORD))
-        data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), longitude = slice(lon_min,lon_max),
+        
+        try :
+            data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), longitude = slice(lon_min,lon_max),
                                   latitude = slice(lat_min,lat_max)).sel(depth = 15,method = 'nearest'))
+        except KeyError:
+            data.append(data_store.sel(time = slice(str_date1+" 12:00:00",str_date2+" 12:00:00"), lon = slice(lon_min,lon_max),
+                                   lat = slice(lat_min,lat_max)).sel(depth = 15,method = 'nearest'))
+
         colors = np.array(['b','r','g','k'])[:len(MODELS)]
         
 
-elif remote == "False":
+elif not remote:
     
     zlevel = 11
     config_object = ConfigParser()
@@ -148,8 +154,8 @@ elif remote == "False":
 
 
 
-if remote == "True":
-    user = 'pgouvenou' #type CMEMS user name
+if remote:
+    user = username #type CMEMS user name
     password =  PASSWORD #type CMEMS password
 
     product_name = 'INSITU_GLO_PHY_UV_DISCRETE_NRT_013_048' #type aimed In Situ product
@@ -267,13 +273,13 @@ if remote == "True":
         
         
         
-elif remote == "False":
+elif not remote:
     dir_in='/data/rd_exchange/svangennip/DATA/GlobalDriftingProgram//YEAR/'
 
     fname_in='Drifters_'+str(YYYY1)+'.csv'
     f_drifters_all=dir_in+fname_in
 
-    fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
+    fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'_taylor_diag.csv'
     dir_drifters = dir_out+'/DRIFTERS/'
 
     if not os.path.exists(dir_drifters):
@@ -334,7 +340,7 @@ elif remote == "False":
 
 # Calc One day speed of SVP
 R = 6378.137
-if remote == "True":
+if remote:
     lon_uv_svp = np.array([np.mean(traj_drifter_lon[:,i*24:i*24+24],axis = 1) for i in range(int(len(traj_drifter_lon[0])/24))]).T
     lat_uv_svp = np.array([np.mean(traj_drifter_lat[:,i*24:i*24+24],axis = 1) for i in range(int(len(traj_drifter_lat[0])/24))]).T
     u_svp = ((np.radians(lon_uv_svp[:,1:]-lon_uv_svp[:,:-1]))*np.cos(np.radians(lat_uv_svp[:,:-1]))* R)*(1000/(24*3600))
@@ -353,14 +359,18 @@ else :
 
 # retrieve speed on svp location for the MODEL (method = nearest)
 
-if remote == "True":
+if remote:
     date_uv_svp = traj_drifter_date[:,::24][:,1:] + " 12:00:00"
 
     uv_svp_loc = []
 
 
     for da in data  :
-        uv_svp_loc.append(da.sel(longitude = lon_uv_svp[:,:-1].flatten(),latitude = lat_uv_svp[:,:-1].flatten(),time = date_uv_svp.flatten(),method = "nearest"))
+        
+        try:
+            uv_svp_loc.append(da.sel(longitude = lon_uv_svp[:,:-1].flatten(),latitude = lat_uv_svp[:,:-1].flatten(),time = date_uv_svp.flatten(),method = "nearest"))
+        except KeyError:
+            uv_svp_loc.append(da.sel(lon = lon_uv_svp[:,:-1].flatten(),lat = lat_uv_svp[:,:-1].flatten(),time = date_uv_svp.flatten(),method = "nearest"))
 
 
     # reshape
@@ -371,18 +381,27 @@ if remote == "True":
     V_model = []
 
     for da in uv_svp_loc:
-        lon_model.append(da.longitude.values.reshape(date_uv_svp.shape))
-        lat_model.append(da.latitude.values.reshape(date_uv_svp.shape))
+        try:
+            lon_model.append(da.longitude.values.reshape(date_uv_svp.shape))
+            lat_model.append(da.latitude.values.reshape(date_uv_svp.shape))
+            U_model.append(np.array([da.uo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
+            V_model.append(np.array([da.vo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
+
+        except AttributeError:
+             lon_model.append(da.lon.values.reshape(date_uv_svp.shape))
+             lat_model.append(da.lat.values.reshape(date_uv_svp.shape))
+             U_model.append(np.array([da.uo.values[i,i,i] for i in range (da.lon.values.shape[0])]).reshape(date_uv_svp.shape))
+             V_model.append(np.array([da.vo.values[i,i,i] for i in range (da.lon.values.shape[0])]).reshape(date_uv_svp.shape))
+
+
         time_model.append(da.time.values.reshape(date_uv_svp.shape))
-        U_model.append(np.array([da.uo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
-        V_model.append(np.array([da.vo.values[i,i,i] for i in range (da.longitude.values.shape[0])]).reshape(date_uv_svp.shape))
 
     lon_model = np.array(lon_model)
     lat_model = np.array(lat_model)
     time_model =np.array(time_model)
     U_model =np.array(U_model)
     V_model = np.array(V_model)
-
+    
     # Calcul (norm std and corr coeff R) for the Taylor diagram
     u_corrcoef = np.array([[np.corrcoef(U_model.T[:,i,j],u_svp[i])[0,1] for i in range(len(u_svp))] for j in range (len(MODELS))])
     v_corrcoef = np.array([[np.corrcoef(V_model.T[:,i,j],v_svp[i])[0,1] for i in range(len(v_svp))] for j in range (len(MODELS))])
@@ -390,7 +409,7 @@ if remote == "True":
     u_std = np.array([[np.std(U_model.T[:,i,j]) for i in range(len(u_svp))] for j in range (len(MODELS))])
     v_std = np.array([[np.std(V_model.T[:,i,j]) for i in range(len(v_svp))] for j in range (len(MODELS))])
 
-elif remote == "False":
+elif not remote:
     date_uv_svp = traj_drifter_date[:,::4][:,1:-1]
 
 
@@ -611,13 +630,15 @@ plt.savefig(dir_plot+'Taylor_diagram_V_SVP_15m_'+str_date1+'_'+str_date2+'.png',
 for i in range (len(MODELS)):
     u_mod = U_model[i]
     v_mod = V_model[i]
-
-    u_dft = u_svp
-    v_dft = v_svp
+    if remote:
+        u_dft = u_svp
+        v_dft = v_svp
+    else:
+        u_dft = u_svp.T
+        v_dft = v_svp.T
 
     current_rose(u_mod,v_mod,fname =dir_plot+ 'rose_mod'+str_date1+'_'+str_date2+'_'+MODELS[i],bins_classes=[0,0.05,0.1,0.15,0.2,0.25,0.3],title = MODELS[i],pmax = 8)
     current_rose(u_mod-u_dft,v_mod-v_dft,fname =dir_plot+ 'rose_mod'+str_date1+'_'+str_date2+'_Diff_'+MODELS[i]+'_svp',bins_classes=[0,0.05,0.1,0.15,0.2,0.25,0.3],title = 'Diff '+MODELS[i] + ' - SVP',diff = True,pmax = 8)
-
 current_rose(u_dft,v_dft,fname =dir_plot+ 'rose_dft'+str_date1+'_'+str_date2,bins_classes=[0,0.05,0.1,0.15,0.2,0.25,0.3],title = 'SVP drifters',pmax = 8 )
 
 
