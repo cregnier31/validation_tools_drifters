@@ -68,10 +68,10 @@ In the config_base.ini file :
 
 ## Some examples
 
-![Particles Dispersion](src/figure_particles_95_kde.png)
+![Particles Dispersion](validation_tools_drifters/src/figure_particles_95_kde.png)
 
-![Map of the success rate Ellipse 99%](src/map_proportion_ellipse.png)
+![Map of the success rate Ellipse 99%](validation_tools_drifters/src/map_proportion_ellipse.png)
 
-![Taylor Diagram of the drifter velovity and velocity field](src/Taylor_diagram_U_SVP_15m_2019-01-02_2019-03-14.png)
+![Taylor Diagram of the drifter velovity and velocity field](validation_tools_drifters/src/Taylor_diagram_U_SVP_15m_2019-01-02_2019-03-14.png)
 
 
