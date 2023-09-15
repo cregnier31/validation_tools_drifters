@@ -48,7 +48,7 @@ In the config_base.ini file :
 
 ## Date range available for models
 
-# Remote
+### Remote
 
 - cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m : GLOBAL, 1/12°, Daily, 01/11/2020 to Today
 - dataset-uv-nrt-daily : GLOBAL, 1/4°, Daily, 01/01/2020 to Today
@@ -58,11 +58,20 @@ In the config_base.ini file :
 -
 
 
-# Local (Mercator)
+### Local (Mercator)
 
 - GLO12V4 : GLOBAL, 1/12°, Daily, 25/12/2018 to 18/04/2019
 - PSY4V3R1 : GLOBAL, 1/12°, Daily, 01/01/2006 to Today
 - IBI36 : IBI Area, 1/36°, Daily, 26/12/2018 to 30/04/2019
 - GLOBC : GLOBAL, 1/4°, Daily, 01/01/1993 to 15/10/2019
 -
+
+## Some examples
+
+![Particles Dispersion](src/figure_particles_95_kde.png)
+
+![Map of the success rate Ellipse 99%](src/map_proportion_ellipse.png)
+
+![Taylor Diagram of the drifter velovity and velocity field](src/Taylor_diagram_U_SVP_15m_2019-01-02_2019-03-14.png)
+
 
