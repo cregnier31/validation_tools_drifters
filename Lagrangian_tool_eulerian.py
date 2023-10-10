@@ -20,7 +20,7 @@ from tqdm import tqdm
 # Read information from the configuration file
 
 config_object = ConfigParser()
-config_object.read("config_FCST.ini")
+config_object.read("config_base.ini")
 config_info = config_object['CONFIG_BASE']
 MODELS = config_info["MODELS"].split(',')
 LON_MIN = int(config_info["lon_min"])
@@ -53,7 +53,7 @@ sys.path.append("src/")
 
 from Drift_Tools import ReturnUVlist, ExtractSurface, match_elements, StringRegion, DispDirAndLength,  SeparationDistance, TrajDistBetweenTimesteps, SepDistanceEachTimestep, LiuScore, shift360, DriftersInZoneInPeriod, coord2index, DriftersInZoneInPeriod_remote
 
-from copernicus_functions import Retrieve_data_from_copernicusmarine_datastore,Retrieve_drifter_from_copernicusmarine_datastore
+from copernicus_functions import Retrieve_data_from_copernicusmarine_datastore,Retrieve_drifter_from_copernicusmarine_datastore,Calculate_speed_at_svp_location_remote
 from Functions import Retrieve_drifter_local,Calculate_speed_at_svp_location,Taylor_diagram,current_rose
 
 # Create an output directory path
@@ -74,7 +74,7 @@ DATE_START = datetime.date(YYYY1, MM1, DD1)
 STR_DATE_START= DATE_START.strftime('%Y-%m-%d')
 DATE_START_MIN1 = DATE_START-datetime.timedelta(days=1)
 DATE_END=datetime.date(YYYY2, MM2, DD2)
-STR_DATE_END=DATE_START.strftime('%Y-%m-%d')
+STR_DATE_END=DATE_END.strftime('%Y-%m-%d')
 DATE_END_PLUS1 = DATE_END+datetime.timedelta(days=1)
 T_DRIFT = (DATE_END-DATE_START).days
 
@@ -94,7 +94,7 @@ if REMOTE:
     # Retrieve current from MODELS at DEPTH for the time and area zone
 
     data,colors = Retrieve_data_from_copernicusmarine_datastore(MODELS,USERNAME,PASSWORD,DEPTH,LON_MIN,LON_MAX,
-                                                                LAT_MIN,LAT_MAX,STR_DATE1,STR_DATE2)
+                                                                LAT_MIN,LAT_MAX,STR_DATE_START,STR_DATE_END,tay_diag = True)
     
     # Retrieve drifters for the time and area zone
 
@@ -109,7 +109,7 @@ if REMOTE:
 
     # Calculate the velocity of the MODELS on drifters positions
 
-    U_model, V_model = Calculate_speed_at_svp_location_remote(traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id,data)
+    U_model, V_model = Calculate_speed_at_svp_location_remote(lon_uv_svp,lat_uv_svp,traj_drifter_date,traj_drifter_time,traj_drifter_id,data)
 
 
     # Calcul (norm std and corr coeff R) for the Taylor diagram
@@ -125,7 +125,7 @@ else:
     if COPERNICUS_DRIFTER:
         PASSWORD = getpass.getpass('Enter your CMEMS password: ')
 
-        traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id = Retrieve_drifter_from_copernicusmarine_datastore(USERNAME,PASSWORD,DIR_WORK,DIR_OUT,STR_DATE_START,STR_DATE_END,T_DRIFT,STR_REGION,LON_MIN,LON_MAX,LAT_MIN,LAT_MAX,DATE_START,DATE_END)
+        traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id = Retrieve_drifter_from_copernicusmarine_datastore(USERNAME,PASSWORD,DIR_WORK,DIR_OUT,STR_DATE_START,STR_DATE_END,T_DRIFT,STR_REGION,LON_MIN,LON_MAX,LAT_MIN,LAT_MAX,DATE_START,DATE_END,tay_diag = True)
         lon_uv_svp = np.array([np.mean(traj_drifter_lon[:,i*24:i*24+24],axis = 1) for i in range(int(len(traj_drifter_lon[0])/24))]).T
         lat_uv_svp = np.array([np.mean(traj_drifter_lat[:,i*24:i*24+24],axis = 1) for i in range(int(len(traj_drifter_lat[0])/24))]).T
        
