@@ -70,7 +70,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
                         'V': {'lon': 'lon', 'lat': 'lat', 'time': 'time'}}
         fieldset1 = FieldSet.from_xarray_dataset(ds,variables,dimensions,time_periodic=time_period,allow_time_extrapolation=None)
 
-    if AdvectionDiffusion_type == "Smag": 
+    if AdvectionDiffusion_type == "K_smag": 
         print('# Random Walk SMAGORINSKY     ')
         x = fieldset1.U.grid.lon
         y = fieldset1.U.grid.lat
@@ -244,6 +244,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
         sq_deg_to_sq_m = (1852*60)**2*math.cos(particle.lat*math.pi/180)
         A = A / sq_deg_to_sq_m
         Kh = fieldset.Cs * A * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
+
         dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         particle.lat += dlat
@@ -258,10 +259,10 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
     if AdvectionDiffusion_type=="AdvectionDiffusionM1":
         sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
-    if AdvectionDiffusion_type=="Smag":
+    if AdvectionDiffusion_type=="K_smag":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
-        sum_kernels += k_dispersion
+        sum_kernels = AdvectionRK4 + k_dispersion + k_periodicBC + k_age
 
     print ("    #-----------------------------------------------------------------------------------------")
     print ("    #                      EXECUTE ")
@@ -279,6 +280,7 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
     #output_file1.export()
 
     print('Check output:', f_out1)
+
 
     #ds = xr.open_dataset(f_out1)
     #print(ds)
@@ -327,7 +329,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     variables = {'U': var_u,
                  'V': var_v}#,
     
-    if PROD == 'GLOBC' or PROD == 'SMOC':
+    if PROD == 'GLOBC' or PROD == 'SMOC' or "FCST" in PROD:
         dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
     else:
@@ -340,7 +342,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
     period=1  # set length of dataset (in days), for cycling through data set, e.g. period =2, dataset= [JD1,JD2,JD1,JD2,...]
     #if only one timestep:
-    if PROD == 'GLOBC' or PROD == 'PSY44':
+    if PROD == 'GLOBC' or PROD == 'PSY44' or "FCST" in PROD:
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
     else:
         fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) 
@@ -358,8 +360,8 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         )
         fieldset1.add_field(e1u)
         fieldset1.add_field(e1v)
-    if AdvectionDiffusion_type=="Smag": 
-        if PROD == "GLOBC" :
+    if AdvectionDiffusion_type=="K_smag": 
+        if PROD == "GLOBC" or "FCST" in PROD:
             print('# Random Walk SMAGORINSKY     ') 
             x = fieldset1.U.grid.lon
             y = fieldset1.U.grid.lat
@@ -372,13 +374,15 @@ def run_parcels_Drift(PROD, data_u, var_u, \
             y_u = fieldset1.e1u.grid.lat
             cell_areas = Field(name='cell_areas', data=fieldset1.e1u.data*fieldset1.e1v.data, lon=x_u, lat=y_u)
             fieldset1.add_field(cell_areas)
+            Dispersion_field = Field(name='Dispersion_field',data = fieldset1.e1u.data*fieldset1.e1v.data*0,lon = x_u, lat = y_u)
+            fieldset1.add_field(Dispersion_field)
             #x_v = fieldset1.e1v.grid.lon
             #y_v = fieldset1.e1v.grid.lat
             #cell_areas_v = Field(name='cell_areas_v', data=fieldset1.e1v.data, lon=x_v, lat=y_v)
             #fieldset1.add_field(cell_areas_v)
             fieldset1.add_constant('Cs', 0.1)
     if AdvectionDiffusion_type == "AdvectionDiffusionM1":
-        if PROD == "GLOBC":
+        if PROD == "GLOBC" or "GLO12_FCST" in PROD:
             print("# Diffusion Markov1  ")
             #fieldset1.add_constant("dres", 0.5)
             x = fieldset1.U.grid.lon
@@ -508,6 +512,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         distcoast = Variable('distcoast', dtype=np.float32)  # set initialising to 0 (as can take too long)
         age = Variable('age', initial = 0.)
         label = Variable('label', to_write='once', initial=0.,dtype=np.float32)
+
     
     print("    #-----------------------------------------------------------------------------------------")
     print('    #    Create ParticleSet')
@@ -569,7 +574,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
         Kh = fieldset.Cs * A * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
         #Kh_v = fieldset.Cs * A_v * math.sqrt(dudx**2 + 0.5*(dudy + dvdx)**2 + dvdy**2)
-
+        #fieldset.Dispersion_field += K_h
         dlat = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
         dlon = ParcelsRandom.normalvariate(0., 1.) * math.sqrt(2*math.fabs(particle.dt)* Kh) 
 
@@ -592,10 +597,10 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     if AdvectionDiffusion_type=="AdvectionDiffusionM1":
         sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
 
-    if AdvectionDiffusion_type=="Smag":
+    if AdvectionDiffusion_type=="K_smag":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
-        sum_kernels += k_dispersion
+        sum_kernels = AdvectionRK4  + k_periodicBC + k_age + k_dispersion
 
     print ("    #-----------------------------------------------------------------------------------------")
     print ("    #                      EXECUTE ")
@@ -610,10 +615,10 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                  dt=timedelta(minutes=30)*k_forback,
                  output_file=output_file1,
                  recovery = {ErrorCode.ErrorOutOfBounds: DeleteParticle})
+
     #output_file1.export()
 
     print('Check output:', f_out1)
-
     #ds = xr.open_dataset(f_out1)
     #print(ds)
 

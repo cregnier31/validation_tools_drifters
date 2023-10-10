@@ -270,7 +270,11 @@ def resample_traj(file_name):
             if np.max(d_lon) < 2 or np.max(d_lat) < 2 : # if there is a jump of at least 5degrees, delete the drifter
                 f_lon = interpolate.interp1d(time, lon, kind = 'quadratic')
                 f_lat = interpolate.interp1d(time, lat, kind = 'quadratic')
-                lon_new = f_lon(time_new)
+                try:
+                    lon_new = f_lon(time_new)
+                except ValueError:
+                    spurious_drifter = True
+                    return spurious_drifter
                 lon_new_new = []
                 for i in range (lon_new.shape[0]):
                     if lon_new[i]<=180:
@@ -649,6 +653,14 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
             print(u_files)
             f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
             f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+        
+        elif "GLO12_FCST" in MODEL:
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3D*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3D*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
 
         else :
             # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
@@ -861,7 +873,7 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
     earth_radius = 6371000.
     # 1 nm = 1.8520 km
     
-    print(np.shape(lon_grp1), np.shape(lat_grp1))#,np.shape(lon_grp2),np.shape(lat_grp2))
+    #print(np.shape(lon_grp1), np.shape(lat_grp1))#,np.shape(lon_grp2),np.shape(lat_grp2))
     #if len(lon_grp1.shape) == 1:
     #     lon_grp1=np.expand_dims(lon_grp1, axis=1)
     #if len(lat_grp1.shape) == 1:
@@ -875,8 +887,8 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
     # difference in lon/lat with above and below cells
     dlon = np.diff(lon_grp1)
     dlat = np.diff(lat_grp1)
-    print('dlon=', dlon.shape)
-    print('dlat=', dlat.shape)
+    #print('dlon=', dlon.shape)
+    #print('dlat=', dlat.shape)
     #sys.exit(1)
 
 
@@ -886,7 +898,7 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
 
     sizey, sizex = np.shape(lon_grp1)
     mean_lat=(lat_grp1[:,:-1] + lat_grp1[:,1:])/2.0
-    print(mean_lat.shape)
+    #print(mean_lat.shape)
     latrad = np.abs(mean_lat * deg2rad)
     #print('\ndlon\n', dlon)
     #print('\ndlat\n', dlat)
@@ -899,7 +911,7 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
     dep = np.cos(latrad) * dlon
     dist = DEG2NM * (dlat ** 2 + dep ** 2) ** 0.5
     dist = dist*NM2KM
-    print('\ndist\n',dist[0,:])
+    #print('\ndist\n',dist[0,:])
     #sys.exit(1)
     return dist
     
@@ -1027,6 +1039,8 @@ def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
             depth = 'depthu'
         elif 'GLOBC' in u_file:
             depth = 'depth'
+        elif 'PSY4V3R1' in u_file:
+            depth = 'deptht'
         #if True : 
         if not os.path.exists(u_file_surf):
             # e.g. ncwa -a deptht -d deptht,10 infile.nc file-depth10.nc 
@@ -1059,6 +1073,8 @@ def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
             depth = 'depthv'
         elif 'GLOBC' in v_file:
             depth = 'depth'
+        elif 'PSY4V3R1' in v_file:
+            depth = 'deptht'
         if not os.path.exists(v_file_surf):
         #if True:
             #cmd_exe2 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_v, v_file, v_file_temp)
