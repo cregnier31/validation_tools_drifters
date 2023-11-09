@@ -24,15 +24,15 @@ You can launch the program with the following command line :
 
 python program.py 
 
-example : python Taylor_Diagram_oper.py
+example : python Lagrangian_tool_eulerian.py
 
-note : Before launching report_card_oper.py you have to launch Traj_compute_oper.py
+note : Before launching Lagrangian_tool_lagrangian_scores.py, Lagrangian_tool_lagrangian_scores_more.ipynb or Lagrangian_tool_lagrangian_diffusion_scores.ipynb you have to launch Lagrangian_tool_traj_compute.py
 
 Then you will find your figures in the Folder name : PLOT
 
-Report_card_more.ipynb is a jupyter notebook that gives more information about the report_card_oper.py 
+Lagrangian_tool_lagrangian_scores_more.ipynb is a jupyter notebook that gives more information about the Lagrangian_tool_lagrangian_scores.py, 
 
-Scores_Diffusion.ipynb is a jupyter notebook that show scores on diffusion cloud points
+Lagrangian_tool_lagrangian_diffusion_scores.ipynb is a jupyter notebook that show scores on diffusion cloud points
 
 ## Advanced Usage
 In the config_base.ini file :
@@ -41,10 +41,13 @@ In the config_base.ini file :
 
 -"remote" : ['True' or ''] If you want to use online data, accessible on "https://data.marine.copernicus.eu/products" (check if OPeNDAP is possible in Data access of the product)
 
--"AdvectionDiffusion_type" : ['' or 'AdvectionDiffusionM1' or 'Smag'] If you want to put some Diffusion on particles trajectories (compute also without diffusion) 
+-"AdvectionDiffusion_type" : ['' or 'AdvectionDiffusionM1' or 'K_smag'] If you want to put some Diffusion on particles trajectories (compute also without diffusion) 
 
--"nb_repeats" : Is the number of particles that will be launch at the same point in the frame of Diffusion
+-"nb_repeats" : [int] Is the number of particles that will be launch at the same point in the frame of Diffusion
 
+-"Forecast" : ['True' or '']
+
+-"copernicus_drifter" : ['True' or ''] respectively use copernicus drifter (download automaticaly) or local drifters trajectories  
 
 ## Date range available for models
 
@@ -67,6 +70,8 @@ In the config_base.ini file :
 -
 
 ## Some examples
+
+![Codes Diagram](src/figures/MicrosoftTeams-image.png)
 
 ![Particles Dispersion](src/figures/figure_particles_95_kde.png)
 
