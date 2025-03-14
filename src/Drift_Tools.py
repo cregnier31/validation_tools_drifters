@@ -526,7 +526,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     print('date_start :', date_start)
     print('date_end :', date_end)
     print('dir_in :', dir_in)
-
+    
     #reconstruct date1
     DD1=date_start.day
     MM1=date_start.month
@@ -537,7 +537,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     YYYY2=date_end.year
 
     config_object = ConfigParser()
-    config_object.read("/home/pgouvenou/validation_tools_drifters/src/config_products.ini")
+    config_object.read(dir_in+"src/config_products_fidji.ini")
     #config_object.read("/config_products.ini")
 
 
@@ -549,16 +549,12 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     run_info = config_object[MODEL]
     fname_prefix=run_info["fname_prefix"]
     #path to files 
-    if dir_in:
-        print(dir_in)
-        path_UV=dir_in
-    else:    
-        path_UV=run_info["path"]
+    path_UV=run_info["path"]
 
     print('path_UV: ', path_UV)
     print('fname_prefix: ', fname_prefix)
     #sys.exit(1)
-
+    
     #e.g.       /sortref/opr/pgn/PSY4/psy4v3r1/2009/07/PSY4V3R1_1dAV_20090703_20090704_gridU_R20090708.nc
     #e.g.     /sortref/reanalyse/glorys/phy/GLORYS12V1/RUN5free/PGN/1991/12/GLORYS12V1_1dAV_19911204_19911205_gridU_R19911211.nc
     # create list of files:
@@ -566,12 +562,13 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
 
     list_years = range (YYYY1, YYYY2+1, 1)
     print('years=', list_years)
+    
     u_files,v_files, ssh_files= [],[],[]  # initialise arryas
     for i in list_years:
         print (i)
         #pathA = data_path2+'*/*/PSY4V3R1_1dAV_'+str(i)+'*gridU*.nc'
         #print(pathA)
-
+        
         if MODEL == 'GLOBC':
             # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
             # nrt_global_allsat_phy_l4_20181224_20181230.nc
@@ -646,7 +643,7 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
             f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
             f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
 
-        elif MODEL == "PSY44":
+        elif MODEL == "PSY4":
             print(path_UV+fname_prefix)
             u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
             v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
@@ -656,13 +653,40 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
         
         elif "GLO12_FCST" in MODEL:
             print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3D*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3D*.nc'))
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
+            print(u_files)
+            #f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            #f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+            f_input_start = 'fcst-1_R' + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d') + '.nc'
+            f_input_end = 'fcst-1_R' + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d') + '.nc'
+            
+        elif "GLO12_NWCT" in MODEL:
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+
+        elif "PSY4_FCST" in MODEL:
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+            print(u_files)
+            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+
+        elif "PSY4_NWCT" in MODEL:
+            print(path_UV+fname_prefix)
+            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
             print(u_files)
             f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
             f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
 
         else :
+
             # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
             u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
             v_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridV_*.nc'))
@@ -687,8 +711,8 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     counter=0
     for line in u_files:
         if f_input_start in line:
-           pos1 = counter 
-           print ('    ',f_input_start, ' in line ', pos1,' :', line)        
+           pos1u = counter 
+           print ('    ',f_input_start, ' in line ', pos1u,' :', line)        
         counter+=1
 
     #sys.exit(1)
@@ -696,18 +720,42 @@ def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
     print('UV field, identify end date')
     counter=0
     for line in u_files:
+        print(line)
+        print(f_input_end)
         if f_input_end in line:
-           pos2 = counter 
-           print ('    ',f_input_end, ' in line ', pos2,' :', line)        
+           pos2u = counter 
+           print ('    ',f_input_end, ' in line ', pos2u,' :', line)        
+        counter+=1
+
+    counter=0
+    for line in v_files:
+        if f_input_start in line:
+           pos1v = counter
+           print ('    ',f_input_start, ' in line ', pos1v,' :', line)
         counter+=1
 
     #sys.exit(1)
-    # clear up paths to previous dayly outputs  from list:
-    del(u_files[pos2+1:])
-    del(u_files[:pos1])
 
-    del(v_files[pos2+1:])
-    del(v_files[:pos1])
+    print('UV field, identify end date')
+    counter=0
+    for line in v_files:
+        if f_input_end in line:
+           pos2v = counter 
+           print ('    ',f_input_end, ' in line ', pos2v,' :', line) 
+        counter+=1
+
+
+    #sys.exit(1)
+    # clear up paths to previous dayly outputs  from list:
+    if 'pos2u' in locals():
+        del(u_files[pos2u+1:])
+    if 'pos1u' in locals():
+        del(u_files[:pos1u])
+
+    if 'pos2v' in locals():
+        del(v_files[pos2v+1:])
+    if 'pos1v' in locals():
+        del(v_files[:pos1v])
 
 
     print('nb files in ulist = ', len(u_files))

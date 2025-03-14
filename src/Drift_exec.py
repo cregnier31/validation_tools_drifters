@@ -23,7 +23,7 @@ from matplotlib.colors import ListedColormap, BoundaryNorm
 from scipy import stats
 #import seaborn as sns
 #sns.set_style("darkgrid", {"axes.facecolor": ".9"})
-from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field, SummedField, plotTrajectoriesFile
+from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, StatusCode, Variable, Field#, SummedField, plotTrajectoriesFile
 import xarray as xr
 #sys.path.append("/home/svangennip/PYTHON/Modules/LIB_PYT/")
 #sys.path.append("/home/svangennip/PYTHON/Modules/LIB_SI/")
@@ -49,7 +49,7 @@ def DeleteParticle(particle, fieldset, time):
 def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drifters_id,T_DRIFT,f_out1,
                             radius_cloud = 0.25, seeding_resolution = 1/12,forback = 'FWD',time_period = False,
                             hour = 0, nb_repeats=None, AdvectionDiffusion_type = "AdvectionRK4"):
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4,AdvectionDiffusionM1, ErrorCode, Variable, Field
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4,AdvectionDiffusionM1, StatusCode, Variable, Field
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
         k_forback = 1
@@ -274,9 +274,9 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
 
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
-                 dt=timedelta(minutes=30)*k_forback,
+                 dt=timedelta(minutes=10)*k_forback,
                  output_file=output_file1,
-                 recovery = {ErrorCode.ErrorOutOfBounds: DeleteParticle})
+                 recovery = {StatusCode.ErrorOutOfBounds: DeleteParticle})
     #output_file1.export()
 
     print('Check output:', f_out1)
@@ -303,7 +303,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                       radius_cloud=0.25, seeding_resolution=1/12, 
                       forback='FWD', time_period=False,hour = 0, nb_repeats=None,AdvectionDiffusion_type = "AdvectionRK4"):
     import gc
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field,AdvectionDiffusionM1
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, StatusCode, Variable, Field,AdvectionDiffusionM1
     
     if forback=='FWD':   #coef to x to dt to tell parcels to run in forward (+ve dt), or bwd mode (-ve dt)
         k_forback = 1
@@ -316,11 +316,11 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     filenames = {'U': {'lon': meshmask,
                        'lat': meshmask,
                        'depth': meshmask,
-                       'data': data_u},
+                       'data': list(data_u)},
                  'V': {'lon': meshmask,
                        'lat': meshmask,
                        'depth': meshmask,
-                       'data': data_v}}#,
+                       'data': list(data_v)}}#,
 
     print ('filenames[U][data]', filenames['U']['data'])
     print ('filenames[V][data]', filenames['V']['data'])
@@ -328,10 +328,14 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print('var_v=',var_v)
     variables = {'U': var_u,
                  'V': var_v}#,
-    
-    if PROD == 'GLOBC' or PROD == 'SMOC' or "FCST" in PROD:
+   
+    if PROD == 'GLOBC' or PROD == 'SMOC' :
         dimensions = {'U': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'},
                       'V': {'lon': 'longitude', 'lat': 'latitude', 'time': 'time'}}
+    elif "FCST" in PROD or "NWCT" in PROD :
+        dimensions = {'U': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'},
+                      'V': {'lon': 'nav_lon', 'lat': 'nav_lat', 'time': 'time_counter'}}
+
     else:
         dimensions = {'U': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'},
                       'V': {'lon': 'glamf', 'lat': 'gphif', 'time': 'time_counter'}}
@@ -342,10 +346,37 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
     period=1  # set length of dataset (in days), for cycling through data set, e.g. period =2, dataset= [JD1,JD2,JD1,JD2,...]
     #if only one timestep:
-    if PROD == 'GLOBC' or PROD == 'PSY44' or "FCST" in PROD:
+    if PROD == 'GLOBC' or PROD == 'PSY4' :
         fieldset1 = FieldSet.from_netcdf(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) allow_time_extrapolation=True,
+    elif "FCST" in PROD  or "NWCT" in PROD :
+        print(f'{filenames=}')
+        print(f'{variables=}')
+        print(f'{dimensions=}')
+        print(time_period)
+        fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions,
+                                       allow_time_extrapolation=True,
+                                       time_periodic=time_period
+                                       )#,deferred_load=True)#,field_chunksize=400 ) 
+        print('Create fieldset OK')
+        e1u = Field.from_netcdf(
+            filenames=meshmask,
+            variable="e1u",
+            dimensions={"lon": "nav_lon", "lat": "nav_lat"},
+            interp_method="nearest",
+        )
+        e1v = Field.from_netcdf(
+            filenames=meshmask,
+            variable="e1v",
+            dimensions={"lon": "nav_lon", "lat": "nav_lat"},
+            interp_method="nearest",
+        )
+        fieldset1.add_field(e1u)
+        fieldset1.add_field(e1v)
     else:
-        fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions, allow_time_extrapolation=True, time_periodic=time_period)#,deferred_load=True,field_chunksize=400 ) 
+        fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions,
+                                       allow_time_extrapolation=True,
+                                       time_periodic=time_period,
+                                       )#,deferred_load=True,field_chunksize=400 ) 
         e1u = Field.from_netcdf(
             filenames=meshmask,
             variable="e1u",
@@ -361,7 +392,7 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         fieldset1.add_field(e1u)
         fieldset1.add_field(e1v)
     if AdvectionDiffusion_type=="K_smag": 
-        if PROD == "GLOBC" or "FCST" in PROD:
+        if PROD == "GLOBC" :
             print('# Random Walk SMAGORINSKY     ') 
             x = fieldset1.U.grid.lon
             y = fieldset1.U.grid.lat
@@ -583,24 +614,28 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
         particle.lat += dlat
         particle.lon += dlon
+    def DeleteParticle(particle, fieldset, time):
+        if particle.state == StatusCode.ErrorOutOfBounds:
+            particle.delete()
 
     k_age = pset1.Kernel(Age)
     k_periodicBC = pset1.Kernel(periodicBC)
+    k_delete = pset1.Kernel(DeleteParticle)
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
 
 
     
     #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
     if AdvectionDiffusion_type=="AdvectionRK4":
-        sum_kernels = AdvectionRK4  + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+        sum_kernels = AdvectionRK4  + k_periodicBC + k_age + k_delete#+ k_dispersion#+ k_WestVel
         #kernels = AdvectionRK4 + pset1.Kernel(DeleteParticle) #+ periodicBC
     if AdvectionDiffusion_type=="AdvectionDiffusionM1":
-        sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age #+ k_dispersion#+ k_WestVel
+        sum_kernels = AdvectionDiffusionM1 + k_periodicBC + k_age + k_delete#+ k_dispersion#+ k_WestVel
 
     if AdvectionDiffusion_type=="K_smag":
         print('add random walk to kernel')
         k_dispersion = pset1.Kernel(smagdiff)
-        sum_kernels = AdvectionRK4  + k_periodicBC + k_age + k_dispersion
+        sum_kernels = AdvectionRK4  + k_periodicBC + k_age + k_dispersion+ k_delete
 
     print ("    #-----------------------------------------------------------------------------------------")
     print ("    #                      EXECUTE ")
@@ -612,9 +647,8 @@ def run_parcels_Drift(PROD, data_u, var_u, \
 
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
-                 dt=timedelta(minutes=30)*k_forback,
-                 output_file=output_file1,
-                 recovery = {ErrorCode.ErrorOutOfBounds: DeleteParticle})
+                 dt=timedelta(minutes=10)*k_forback,
+                 output_file=output_file1)
 
     #output_file1.export()
 
@@ -646,7 +680,7 @@ def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
                              radius_cloud=0.25, seeding_resolution=1/12,
                              dt_output=24 , repeatdt=None, nb_repeats=None, K_disp=None, time_period=False):
     import gc
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, ErrorCode, Variable, Field, DiffusionUniformKh, AdvectionDiffusionM1, AdvectionDiffusionEM
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, StatusCode, Variable, Field, DiffusionUniformKh, AdvectionDiffusionM1, AdvectionDiffusionEM
     import math
 
     forback='FWD'
@@ -932,9 +966,9 @@ def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
 
     pset1.execute(sum_kernels,
                      runtime=timedelta(hours=runtime),
-                     dt=timedelta(minutes=30),
+                     dt=timedelta(minutes=10),
                      output_file=output_file1,
-                     recovery = {ErrorCode.ErrorOutOfBounds: DeleteParticle})
+                     recovery = {StatusCode.ErrorOutOfBounds: DeleteParticle})
 
 
     output_file1.close()
@@ -948,7 +982,7 @@ def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
 #            pset1.add(pset_init)                       # add the newly released particles to the total particleset
 #        output_file1.write(pset1,time)                  # write the initialised particles and the advected particles
 #    
-#        pset1.execute(sum_kernels, runtime=timedelta(hours=runtime), dt=timedelta(minutes=30))
+#        pset1.execute(sum_kernels, runtime=timedelta(hours=runtime), dt=timedelta(minutes=10))
 #        print('Length of pset at time %d: %d' % (time, len(pset1)))
 #        
 #    output_file1.write(pset1, time+12) 

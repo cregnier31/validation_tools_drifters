@@ -134,7 +134,6 @@ def compute_directions(U, V, nb_directions, bins_classes):
         sp = speed[idx]
         h = np.histogram(sp, bins=bins_classes)
         rose[k, :] = h[0]
-    print(rose)
     directions = (hist[1][:-1] + hist[1][1:]) / 2
     return rose, directions
 
@@ -305,8 +304,7 @@ def Retrieve_drifter_local(dir_out,lon_min,lon_max,lat_min,lat_max,date_start,da
 
     print('loading ',outfile2)
     drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
-    print(drifters_zone_traj.head(5))
-    print(drifters_zone_traj.dtypes)
+
 
 
     nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
@@ -342,7 +340,7 @@ def Retrieve_drifter_local(dir_out,lon_min,lon_max,lat_min,lat_max,date_start,da
 def Retrieve_data_local(MODELS,date_start,date_end_plus_DRIFT_TIME,dir_out,dir_in,dir_work,depth):
     zlevel = 11
     config_object = ConfigParser()
-    config_object.read(dir_in+"src/config_products.ini")
+    config_object.read(dir_in+"src/config_products_fidji.ini")
     path_UV = []
     fname_prefix = []
     var_u_mod = []
@@ -386,7 +384,7 @@ def Retrieve_data_local(MODELS,date_start,date_end_plus_DRIFT_TIME,dir_out,dir_i
             u_files_mod.append(u_files)
             v_files_mod.append(v_files)
         else : 
-            u_files, v_files = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME)
+            u_files, v_files = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME,dir_in)
             u_files_mod.append(u_files)
             v_files_mod.append(v_files)
 
@@ -396,10 +394,8 @@ def Retrieve_data_local(MODELS,date_start,date_end_plus_DRIFT_TIME,dir_out,dir_i
     return u_files_mod,v_files_mod,var_u_mod,var_v_mod,fname_prefix,meshmask
 
 def Calculate_model_traj(MODELS,dir_out,nb_points,traj_drifter_lon,traj_drifter_lat,traj_drifter_id,date_start,DRIFT_TIME,copernicus_drifter,u_files_mod,v_files_mod,var_u_mod,var_v_mod,meshmask,AdvectionDiffusion_type,nb_repeats,cloud_stat = False):
-
     from Drift_exec import run_parcels_Drift, run_parcels_Drift_remote
     
-
     if copernicus_drifter and not MODELS[0]=='FCST':
         for i in range(len(MODELS)):
             dir_work_mod = dir_out+'/EXP/'+MODELS[i]+'/'
@@ -417,26 +413,40 @@ def Calculate_model_traj(MODELS,dir_out,nb_points,traj_drifter_lon,traj_drifter_
                 f_traj4 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_M1.zarr'
                 #            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
                 print('#run parcels with just the SVP locations')
-                print('\nModels Files : \n',u_files_mod[i][j//4:-1])
+                print(np.shape(u_files_mod)[0])
+                #print('\nModels Files : \n',u_files_mod[i][j//4:-1])
                 print('\Drift time  : ',DRIFT_TIME)
                 if cloud_stat:
                     print('#run parcels with at SVP neigbouring locations')
-                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],\
+                    print(f'RRRRR   #### {np.shape(u_files_mod)}')
+                    if np.size(u_files_mod) >1:
+                        uuu = u_files_mod[i][j//24:-1]
+                        vvv = v_files_mod[i][j//24:-1]
+
+                        run_parcels_Drift(MODELS[i], uuu, var_u_mod[i], vvv, var_v_mod[i],\
                                       meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
                                       DRIFT_TIME,f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
                                       time_period=False)
-                if AdvectionDiffusion_type == "K_smag":
-                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],\
+                if AdvectionDiffusion_type == "K_smag" and np.size(u_files_mod) >1:
+                    uuu = u_files_mod[i][j//24:-1]
+                    vvv = v_files_mod[i][j//24:-1]
+
+                    run_parcels_Drift(MODELS[i], uuu, var_u_mod[i], vvv, var_v_mod[i],\
                                       meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
                                       DRIFT_TIME,f_traj3, radius_cloud=0, seeding_resolution=0,time_period=False,\
                                       AdvectionDiffusion_type = AdvectionDiffusion_type,nb_repeats = nb_repeats)
-                if AdvectionDiffusion_type == "AdvectionDiffusionM1":
-                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],\
+                if AdvectionDiffusion_type == "AdvectionDiffusionM1" and np.size(u_files_mod) >1:
+                    uuu = u_files_mod[i][j//24:-1]
+                    vvv = v_files_mod[i][j//24:-1]
+                    run_parcels_Drift(MODELS[i], uuu, var_u_mod[i], vvv, var_v_mod[i],\
                                       meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
                                       DRIFT_TIME,f_traj4, radius_cloud=0, seeding_resolution=0,time_period=False,\
                                       AdvectionDiffusion_type = AdvectionDiffusion_type,nb_repeats = nb_repeats)
-                if True :
-                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],\
+                if np.size(u_files_mod) >1:
+                    uuu = u_files_mod[i][j//24:-1]
+                    vvv = v_files_mod[i][j//24:-1]
+
+                    run_parcels_Drift(MODELS[i], uuu, var_u_mod[i], vvv, var_v_mod[i],\
                                       meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, \
                                       DRIFT_TIME,f_traj1, radius_cloud=0, seeding_resolution=0, \
                                       time_period=False)
@@ -497,12 +507,6 @@ def Calculate_model_traj(MODELS,dir_out,nb_points,traj_drifter_lon,traj_drifter_
                 f_traj3 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
                 f_traj4 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_M1.zarr'
 
-
-    #            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
-                print('#run parcels with just the SVP locations')
-                print('\nModels Files : \n',u_files_mod[i][j//4:-1])
-                print('\Drift time  : ',DRIFT_TIME)
-
                 if cloud_stat:
                     print('#run parcels with at SVP neigbouring locations')
                     run_parcels_Drift(MODELS[i], u_files_mod[i][j//4:-1], var_u_mod[i], v_files_mod[i][j//4:-1], var_v_mod[i],\
@@ -528,6 +532,7 @@ def Calculate_model_traj(MODELS,dir_out,nb_points,traj_drifter_lon,traj_drifter_
                                       time_period=False)
 
                 print(' done...')
+
 
 
 def Calculate_speed_at_svp_location(MODELS,date_start_min1,date_end_plus1,dir_out,dir_in,lon_uv_svp,lat_uv_svp,traj_drifter_date,depth,copernicus_drifter):
@@ -574,7 +579,6 @@ def Calculate_speed_at_svp_location(MODELS,date_start_min1,date_end_plus1,dir_ou
         u_mod= []
         v_mod= []
         for u_file,v_file in zip(u_files,v_files):
-            print(u_file[ind_date:ind_date+8])
             str_date = u_file[ind_date:ind_date+8]
             str_date = str_date[0:4]+'-'+str_date[4:6]+'-'+str_date[6:]
             if MODEL == "IBI36" or MODEL== "IBI12": 
@@ -595,11 +599,7 @@ def Calculate_speed_at_svp_location(MODELS,date_start_min1,date_end_plus1,dir_ou
 
             uo = u[var_u].values
             vo = v[var_v].values
-
-            print(date_uv_svp)
-            print(str_date)
             ind_svp = np.where(date_uv_svp==str_date)
-            print(ind_svp)
             if MODEL in ['PSY4V3R1','GLO12V4','IBI36',"PSY44","IBI12"]:
                 latu = u.nav_lat.values
                 lonu = u.nav_lon.values
@@ -709,6 +709,68 @@ def Taylor_diagram(dir_plot,u_svp,u_corrcoef,u_std,colors,MODELS):
 
 
 def Retrieve_traj_files(MODELS,dir_out):
+    traj_files_temp = [] 
+    
+    for MODEL in MODELS:
+        print(MODEL)
+        traj_files_int = []
+        traj_files_int.append(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr'))
+        print(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr')
+        traj_files_temp.append(traj_files_int)
+        print('rtrtrt')
+        print(traj_files_temp)
+    traj_files =  np.sort([inner for outer in traj_files_temp for inner in outer])
+
+    traj_lon_temp = []
+    traj_lat_temp = []
+    traj_time_temp = []
+    traj_IDS_temp = []
+
+    #traj_lon1  = []
+    #traj_lat1  = []
+    #traj_time1 = []
+
+    for i in range(len(MODELS)):
+        traj_lon_int = []
+        traj_lat_int = []
+        traj_time_int = []
+        traj_IDS_int = []
+        #traj_date_int = []
+        for file in traj_files[i]:
+            print(file)
+            ds = xr.open_zarr(file)           
+            traj_time_int.append(ds.time.values)
+            traj_lon_int.append(ds.lon.values)
+            traj_lat_int.append(ds.lat.values)
+            traj_IDS_int.append(ds['label'].values)
+        traj_lon_temp.append(traj_lon_int)
+        traj_lat_temp.append(traj_lat_int)
+        traj_time_temp.append(traj_time_int)
+        traj_IDS_temp.append(traj_IDS_int)
+
+        #traj_lon1.append(traj_lon_int)
+        #traj_lat1.append(traj_lat_int)
+        #traj_time1.append(traj_time_int)
+
+    taille_max = max(len(x) for x in traj_lon_temp)
+    traj_lon = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_lon_temp])
+
+    taille_max = max(len(x) for x in traj_lat_temp)
+    traj_lat = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_lat_temp])
+    
+    taille_max = max(len(x) for x in traj_time_temp)
+    traj_time = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_time_temp])
+    
+
+    taille_max = max(len(x) for x in traj_IDS_temp)
+    traj_IDS = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_IDS_temp])
+
+
+    #return np.array(traj_lon1), np.array(traj_lat1),np.array(traj_time1)
+    return traj_lon,traj_lat,traj_time,traj_IDS
+
+
+def Retrieve_traj_files_no_ct(MODELS,dir_out):
     traj_files = []
     for MODEL in MODELS:
         traj_files_int = []
@@ -716,7 +778,6 @@ def Retrieve_traj_files(MODELS,dir_out):
         traj_files.append(traj_files_int)
 
     traj_files = np.array(traj_files)
-
 
 
 
@@ -729,26 +790,66 @@ def Retrieve_traj_files(MODELS,dir_out):
         traj_lat_int = []
         traj_time_int = []
         for file in traj_files[i]:
-            ds = xr.open_dataset(file)
+            ds = xr.open_zarr(file)
             traj_time_int.append(ds.time.values)
             traj_lon_int.append(ds.lon.values)
             traj_lat_int.append(ds.lat.values)
+
         traj_lon.append(traj_lon_int)
         traj_lat.append(traj_lat_int)
         traj_time.append(traj_time_int)
-    traj_lon = np.array(traj_lon)
-    traj_lat = np.array(traj_lat)
-    traj_time = np.array(traj_time)
-    return traj_lon,traj_lat,traj_time
 
-def Retrieve_drifters_traj(outfile2,T_DRIFT,remote,copernicus_drifter):
+        traj_lon = np.array(traj_lon)
+        traj_lat = np.array(traj_lat)
+        traj_time = np.array(traj_time)
+    return traj_lon,traj_lat,traj_time#,traj_date
+
+
+def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= False):
     print('loading ',outfile2)
     drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
     print(drifters_zone_traj.head(5))
     print(drifters_zone_traj.dtypes)
+    
 
 
     nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
+    #remove drifters with missing entries (should be nb_days*4+1)
+    #Check each drifter has n days * 4 entries
+    drifter_ids = pd.unique(drifters_zone_traj['id'])
+    spurious_drifters=[]
+
+    print(np.shape(drifter_ids))
+    print(nb_drifters_temp)
+    
+    for i in range(nb_drifters_temp):
+        nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
+        if not nb_entries >= (T_DRIFT*24):
+            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            spurious_drifters.append(drifter_ids[i])
+    
+
+
+    if False:
+        #drifters_zone_traj_old = drifters_zone_traj
+        #ind1 = drifters_zone_traj['id']==spurious_drifters).index
+        for i in range(len(spurious_drifters)):
+            print('remove drifter ',spurious_drifters[i])
+            ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
+            print(f'{ind1=}')
+            #print(drifters_zone_traj['id'] == np.array(spurious_drifters[i]))
+            drifters_zone_traj.drop(ind1, inplace=True) #remove data points
+        drifters_zone_traj=drifters_zone_traj.reset_index()
+        nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+                    
+        print(f'{nb_drifters_temp} - {nb_drifters2} = {nb_drifters_temp - nb_drifters2}'   )
+    else:
+        nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+    #print( f'{aa}  - {len( drifters_zone_traj)} =  {aa  - len( drifters_zone_traj)}')
+    
+
+
+    print('total nb of drifters in zone at start that reach end:',nb_drifters2)
 
     #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
     if remote or copernicus_drifter:
@@ -756,12 +857,131 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote,copernicus_drifter):
     else :
         nb_points = T_DRIFT*4 + 1    # hourly
 
-    traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters_temp, nb_points) )
-    traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters_temp, nb_points) )
-    traj_drifter_date = np.reshape(drifters_zone_traj.date.values,(nb_drifters_temp, nb_points) )
-    traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters_temp, nb_points) )
-    traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters_temp, nb_points) )
-    return traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id
+    print(nb_points)
+    print(np.shape(drifters_zone_traj))
+    print(drifters_zone_traj)
+    print(np.shape(drifters_zone_traj.date.values))
+    
+    print(np.shape(drifters_zone_traj.date.values))
+    print(nb_drifters2*nb_points)
+
+    for i in range(nb_points):
+        print(drifters_zone_traj.id.values[i])
+        print(drifters_zone_traj.date.values[i])
+        print(drifters_zone_traj.time.values[i])
+    
+    print(drifters_zone_traj.id.values[nb_points])
+    print(drifters_zone_traj.date.values[nb_points])
+    print(drifters_zone_traj.id.values[nb_points +24])
+    print(drifters_zone_traj.date.values[nb_points+24])
+    print(drifters_zone_traj.id.values[nb_points+72])
+    print(drifters_zone_traj.date.values[nb_points+72])
+    ll =0
+    while drifters_zone_traj.id.values[ll] == drifters_zone_traj.id.values[0]:
+        ll += 1
+    print(f'{ll=}')
+    print(f'{nb_points = }')
+    print(f'{ll*nb_drifters2}')
+    print(np.shape(drifters_zone_traj.date.values))
+    
+
+
+    
+
+
+    if False:
+        traj_drifter_lon   = np.array([drifters_zone_traj.lon.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
+        traj_drifter_lat   = np.array([drifters_zone_traj.lat.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
+        traj_drifter_date  = np.array([drifters_zone_traj.date.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
+        traj_drifter_time  = np.array([drifters_zone_traj.time.values[ll,0:nb_points] for ll in range(nb_drifters2)])#    np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
+        traj_drifter_id    = np.array([drifters_zone_traj.id.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+    elif False:
+        traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
+        traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
+        traj_drifter_date  = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
+        traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
+        traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
+    else:
+        list_lon_temp = []
+        list_lat_temp = []
+        list_date_temp = []
+        list_time_temp = []
+        list_id_temp = []
+        IDS = pd.unique(drifters_zone_traj['id'])    
+        for ll in range(len(IDS)):
+            indexx = np.where(drifters_zone_traj.id.values == IDS[ll])
+            #print(indexx[0])
+            print(indexx[0][0])
+
+            list_lon_temp.append(drifters_zone_traj.lon.values[indexx[0][0]:indexx[0][0]+nb_points])
+            list_lat_temp.append(drifters_zone_traj.lat.values[indexx[0][0]:indexx[0][0]+nb_points])
+            list_date_temp.append(drifters_zone_traj.date.values[indexx[0][0]:indexx[0][0]+nb_points])
+            list_time_temp.append(drifters_zone_traj.time.values[indexx[0][0]:indexx[0][0]+nb_points])
+            list_id_temp.append(drifters_zone_traj.id.values[indexx[0][0]:indexx[0][0]+nb_drifters2])
+        
+        taille_max = max(len(x) for x in list_lon_temp)
+        print(taille_max)
+        print([len(x) for x in list_lon_temp])
+
+        list_lon = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_lon_temp])
+        taille_max = max(len(x) for x in list_lat_temp)
+        list_lat = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_lat_temp])
+        taille_max = max(len(x) for x in list_date_temp)
+        list_date = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_date_temp])
+        taille_max = max(len(x) for x in list_time_temp)
+        list_time = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_time_temp])
+
+        taille_max = max(len(x) for x in list_id_temp)
+        list_id = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_id_temp])
+
+
+
+        traj_drifter_lon = np.array(list_lon)
+        traj_drifter_lat= np.array(list_lat)
+        traj_drifter_date = np.array(list_date)
+        traj_drifter_time = np.array(list_time)
+        traj_drifter_id = np.array( list_id)
+
+        
+    print('abc')
+    print(np.shape(drifters_zone_traj.date.values))
+    print(np.shape(traj_drifter_date))
+    print(f'{nb_drifters2=}')
+    print(f'{nb_points=}')
+    print(T_DRIFT)
+
+    return traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id,nb_drifters2
+
+
+
+def Traj_filter_fidji(DRIFT_TIME,traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time, traj_lon,traj_lat):
+    drifter_lon = np.zeros(traj_lon.shape)
+    drifter_lat = np.zeros(traj_lat.shape)
+    drifter_time = np.ones(traj_lat.shape).astype(str)
+    drifter_date = np.ones(traj_lat.shape).astype(str)
+    print(np.shape(traj_lon))
+    print(np.shape(traj_drifter_lon))
+    j = 12
+    i= 0
+    print(np.shape( np.array([np.mean(traj_drifter_lon[:,(j*7)*24+k*DRIFT_TIME:9+(j*7)*24+(k+1)*DRIFT_TIME],axis = 1) for k in range (traj_lon.shape[-1])]).T))
+    print(DRIFT_TIME)
+    print(traj_lon.shape)
+    print(np.shape(traj_drifter_lon))
+
+    for i in range (traj_lon.shape[0]):
+        for j in range(traj_lon.shape[1]): 
+            if True:
+                drifter_lon[i,j,:,:] =  np.array([np.mean(traj_drifter_lon[:,(j*7)*24+k*6:9+(j*7)*24+(k+1)*6],axis = 1) for k in range (traj_lon.shape[-1])]).T
+                #np.array([np.mean(traj_drifter_lon[:,9+(j*7)*24+k*6:9+(j*7)*24+(k+1)*6],axis = 1) for k in range (traj_lon.shape[-1])]).T
+                drifter_lat[i,j,:,:] = np.array([np.mean(traj_drifter_lat[:,(j*7)*24+k*6:9+(j*7)*24+(k+1)*6],axis = 1) for k in range (traj_lat.shape[-1])]).T
+                #print(np.array([np.mean(traj_drifter_lon[:,9+(j*7)*24+k*6:9+(j*7)*24+(k+1)*6],axis = 1) for k in range (traj_lon.shape[-1])]).T)
+                drifter_date[i,j,:,:] = np.array([traj_drifter_date[:,12+(j*7)*24+k*6] for k in range (traj_lon.shape[-1])]).T
+                drifter_time[i,j,:,:] = np.array([traj_drifter_time[:,12+(j*7)*24+k*6] for k in range (traj_lat.shape[-1])]).T
+                #drifter_date[i,j,:,:] = np.array([traj_drifter_date[:,12+(j*7)*24+k*6] for k in range (traj_lon.shape[-1])]).T
+            else: 
+                drifter_lon[i,j,:,:] = np.array([np.mean(traj_drifter_lon[:,9+(j*7)*24+k*6:9+(j*7)*24+(k+1)*6],axis = 1) for k in range (traj_lon.shape[-1])])
+    return drifter_lon,drifter_lat,drifter_date,drifter_time
+
 
 
 def Traj_filter(remote,copernicus_drifter, DRIFT_TIME,traj_drifter_lon,traj_drifter_lat, traj_lon,traj_lat):
@@ -776,9 +996,6 @@ def Traj_filter(remote,copernicus_drifter, DRIFT_TIME,traj_drifter_lon,traj_drif
         drifter_lon[0,0,:,1:] = np.array([np.mean(traj_drifter_lon[:,1+i*6:12+i*6],axis = 1) for i in range (traj_lon.shape[-1]-1)]).T
         drifter_lat[0,0,:,1:] = np.array([np.mean(traj_drifter_lat[:,1+i*6:12+i*6],axis = 1) for i in range (traj_lat.shape[-1]-1)]).T
 
-
-
-
         for i in range (traj_lon.shape[0]):
             for j in range(traj_lon.shape[1]):
                 drifter_lon[i,j,:,0] = traj_drifter_lon[:,j*24:j*24+int(DRIFT_TIME)*24+24][:,0]
@@ -787,15 +1004,9 @@ def Traj_filter(remote,copernicus_drifter, DRIFT_TIME,traj_drifter_lon,traj_drif
                 drifter_lon[i,j,:,1:] = np.array([np.mean(traj_drifter_lon[:,j*24+1+i*6:j*24+12+i*6],axis = 1) for i in range (traj_lon.shape[-1]-1)]).T
                 drifter_lat[i,j,:,1:] = np.array([np.mean(traj_drifter_lat[:,j*24+1+i*6:j*24+12+i*6],axis = 1) for i in range (traj_lat.shape[-1]-1)]).T
 
-
-
     else :
         drifter_lon[0,0] = traj_drifter_lon[:,:int(DRIFT_TIME)*4+1]
         drifter_lat[0,0] = traj_drifter_lat[:,:int(DRIFT_TIME)*4+1]
-
-
-
-
 
         for i in range (traj_lon.shape[0]):
             for j in range(traj_lon.shape[1]):
@@ -820,7 +1031,7 @@ def Report_card_plot(MODELS,prop_skill_score,prop_sep_dist,prop_corr_lon,prop_co
 
 
     config_object = ConfigParser()
-    config_object.read(dir_in+"src/config_products.ini")
+    config_object.read(dir_in+"src/config_products_fidji.ini")
     colors_list = []
     for MODEL in MODELS:
         run_info = config_object[MODEL]
@@ -850,6 +1061,209 @@ def Report_card_plot(MODELS,prop_skill_score,prop_sep_dist,prop_corr_lon,prop_co
 
 
 
+def Retrieve_data_local_FCST(MODELS,date_start,date_end_plus_DRIFT_TIME,dir_out,dir_in,dir_work,depth):
+    
+    zlevel = 11
+    config_object = ConfigParser()
+    print(dir_in+"src/config_products_fidji.ini")
+    config_object.read(dir_in+"src/config_products_fidji.ini")
+    path_UV = []
+    fname_prefix = []
+    var_u_mod = []
+    var_v_mod = []
+    meshmask = []
+    dir_work_mod = []
+    u_files_mod = []
+    v_files_mod = []
+    colors = []
+
+
+
+
+
+    print ("#-----------------------------------------------------------------------------------------")
+    print (f"#                      RETRIEVE U,V, SSH FIELDS for {MODELS}")
+    print ("#-----------------------------------------------------------------------------------------")
+    if True:
+        if MODELS == "GLO12" or MODELS == ["GLO12"] or MODELS == "GLO12_FCST" or MODELS == ["GLO12_FCST"] :
+            MODELS = ['GLO12_FCST0','GLO12_FCST1','GLO12_FCST2','GLO12_FCST3','GLO12_FCST4','GLO12_FCST5','GLO12_FCST6','GLO12_FCST7','GLO12_FCST8','GLO12_FCST9']
+        if MODELS == "PSY4" or MODELS == ["PSY4"] or  MODELS ==  "PSY4_FCST" or MODELS == ["PSY4_FCST"]     :
+            MODELS = ['PSY4_FCST0','PSY4_FCST1','PSY4_FCST2','PSY4_FCST3','PSY4_FCST4','PSY4_FCST5','PSY4_FCST6','PSY4_FCST7','PSY4_FCST8','PSY4_FCST9']
+    
+
+    for i in range(len(MODELS)):
+        MODEL = MODELS[i]
+        print(MODEL)
+        if MODEL  not in config_object.sections():
+            print(MODEL, "is either a typo or not yet tuned for this program")
+            print('model runs available: ',config_object.sections())
+            sys.exit(1)
+        run_info = config_object[MODEL]
+        path_UV.append(run_info["path"])
+        fname_prefix.append(run_info["fname_prefix"])
+        var_u_mod.append(run_info["var_u"])
+        var_v_mod.append(run_info["var_v"])
+        meshmask.append(run_info["meshmask"])
+        colors.append(run_info["color"])
+        dir_work_mod.append(dir_out+'/EXP/'+MODEL+'/')
+        if not os.path.exists(dir_work_mod[-1]):
+            print('\ncreate folder : ', dir_work_mod[-1])
+            # Create directory where to store results:
+            os.makedirs(dir_work_mod[-1])
+
+        if MODEL in ['PSY4V3R1','IBI36','GLO12V4','PSY44']:
+            u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME,dir_in = dir_in)
+            u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod[i], var_v_mod[i], dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
+        else : 
+            print(f'{date_start =}')
+            print(f'{MODEL =}')
+            #quit()
+            u_files, v_files = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME,dir_in = dir_in)
+            u_files_mod.append(u_files)
+            v_files_mod.append(v_files)
+
+
+    #print('path_UV: ', path_UV[0])
+    #print('fname_prefix: ', fname_prefix[0])
+    return u_files_mod,v_files_mod,var_u_mod,var_v_mod,fname_prefix,meshmask
+
+
+
+def Calculate_model_traj_FCST(MODELS,dir_out,nb_points,traj_drifter_lon,traj_drifter_lat,traj_drifter_id,date_start,DRIFT_TIME,copernicus_drifter,u_files_mod,v_files_mod,var_u_mod,var_v_mod,meshmask,AdvectionDiffusion_type,nb_repeats,cloud_stat = False):
+
+    from Drift_exec import run_parcels_Drift, run_parcels_Drift_remote
+    MODELS = [MODELS+'_FCST']
+    if copernicus_drifter :
+        for i in range(len(MODELS)):
+            dir_work_mod = dir_out+'/EXP/'+MODELS[i]+'/'
+            print(np.arange(0,nb_points-DRIFT_TIME*24,24))
+            for j in tqdm(np.arange(0,nb_points-DRIFT_TIME*24,24)): # one sim per day
+            
+                print(u_files_mod)
+                print(f'{DRIFT_TIME=}')
+                
+                print(nb_points)
+                print([k%9 for k in range(DRIFT_TIME+1)])
+                print([j//24+k for k in range(DRIFT_TIME+1)]) 
+                print(np.arange(0,nb_points-DRIFT_TIME*24,24))
+                print([u_files_mod[DRIFT_TIME%10][j//24+k] for k in range(DRIFT_TIME+1)])
+
+                u_files = [u_files_mod[0:DRIFT_TIME%10][j//24]]#  +k] for k in range(DRIFT_TIME+1)]
+                v_files = [v_files_mod[0:DRIFT_TIME%10][j//24]]#  +k] for k in range(DRIFT_TIME+1)]#[v_files_mod[k%9][j//24+k] for k in range(DRIFT_TIME+1)]             
+                #print(u_files)
+                #print(v_files)
+
+                
+                print('nb points : ',nb_points)
+                traj_drifter_lon_start = traj_drifter_lon[:,j]
+                traj_drifter_lat_start = traj_drifter_lat[:,j]
+                traj_drifter_id_start = traj_drifter_id[:,j]
+                date_sim = date_start + datetime.timedelta(days=int(j//24))
+                str_date_sim = date_sim.strftime('%Y-%m-%d')
+                f_traj1 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
+                f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
+                f_traj3 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
+                f_traj4 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_M1.zarr'
+    
+                #            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
+                print('#run parcels with just the SVP locations')
+                if cloud_stat:
+                    print('#run parcels with at SVP neigbouring locations')
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
+                                      time_period=False)
+                if AdvectionDiffusion_type == "K_smag":
+                    print('#run parcels with AdvectionDiffusion_type')
+                    print('CHECK POINT')
+                    print(MODELS[i])
+                    print(u_files)
+                    print('******************')
+                    print(var_u_mod[i])
+                    print('------------------')
+                    print(v_files)
+                    print('******************')
+                    print(var_v_mod[i])                    
+                    #run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                    ## Modifs CHR
+                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj3, radius_cloud=0, seeding_resolution=0,time_period=False,\
+                                      AdvectionDiffusion_type = AdvectionDiffusion_type,nb_repeats = nb_repeats)
+                if AdvectionDiffusion_type == "AdvectionDiffusionM1":
+                    print('#run parcels with AdvectionDiffusionM1')
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj4, radius_cloud=0, seeding_resolution=0,time_period=False,\
+                                      AdvectionDiffusion_type = AdvectionDiffusion_type,nb_repeats = nb_repeats)
+                if True :
+                    print(MODELS[i])
+                    print(u_files)
+                    print(var_u_mod[i])
+                    print(v_files)
+                    print(var_v_mod[i])
+                    print('#run parcels')
+                    #run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                    run_parcels_Drift(MODELS[i], u_files_mod[i][j//24:-1], var_u_mod[i], v_files_mod[i][j//24:-1], var_v_mod[i],
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, \
+                                      DRIFT_TIME,f_traj1, radius_cloud=0, seeding_resolution=0, \
+                                      time_period=False)
+                print(' done...')
+
+    else:
+
+        for i in range(len(MODELS)):
+            dir_work_mod = dir_out+'/EXP/'+MODELS[i]+'/'
+            for j in tqdm(np.arange(0,nb_points-DRIFT_TIME*4-4,4)): # one sim per day
+                print([u_files_mod[k%9][j//4+k] for k in range (DRIFT_TIME+1)])
+                u_files = [u_files_mod[k%9][j//4+k] for k in range (DRIFT_TIME+1)]
+                v_files = [v_files_mod[k%9][j//4+k] for k in range (DRIFT_TIME+1)]             
+
+                print('nb points : ',nb_points)
+
+                traj_drifter_lon_start = traj_drifter_lon[:,j]
+                traj_drifter_lat_start = traj_drifter_lat[:,j]
+                traj_drifter_id_start = traj_drifter_id[:,j]
+                date_sim = date_start + datetime.timedelta(days=int(j//4))
+                str_date_sim = date_sim.strftime('%Y-%m-%d')
+                f_traj1 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc.zarr'
+                f_traj2 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_and_around.zarr'
+                f_traj3 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_smag.zarr'
+                f_traj4 = dir_work_mod + "Trajectories_"+MODELS[i]+'_'+str_date_sim+'_'+str(DRIFT_TIME)+'_at_SVPloc_M1.zarr'
+
+
+    #            if not (os.path.isfile(f_traj1) & os.path.isfile(f_traj2)) :
+                print('#run parcels with just the SVP locations')
+                print('\nModels Files : \n',u_files)
+                print('\Drift time  : ',DRIFT_TIME)
+
+                if cloud_stat:
+                    print('#run parcels with at SVP neigbouring locations')
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj2, radius_cloud=0.25, seeding_resolution=1/12, \
+                                      time_period=False)
+                if AdvectionDiffusion_type=="Smag":
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj3, radius_cloud=0, seeding_resolution=0,time_period=False,\
+                                      AdvectionDiffusion_type=AdvectionDiffusion_type,nb_repeats = nb_repeats)
+                if AdvectionDiffusion_type=="AdvectionDiffusionM1":
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start,\
+                                      DRIFT_TIME,f_traj4, radius_cloud=0, seeding_resolution=0,time_period=False,\
+                                      AdvectionDiffusion_type=AdvectionDiffusion_type,nb_repeats = nb_repeats)
+
+
+                if True :
+                    run_parcels_Drift(MODELS[i], u_files, var_u_mod[i], v_files, var_v_mod[i],\
+                                      meshmask[i],traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, \
+                                      DRIFT_TIME,f_traj1, radius_cloud=0, seeding_resolution=0, \
+                                      time_period=False)
+
+    print(' done...')
 
 
 
@@ -865,5 +1279,57 @@ def Report_card_plot(MODELS,prop_skill_score,prop_sep_dist,prop_corr_lon,prop_co
 
 
 
+
+def Retrieve_traj_files_diff(MODELS,dir_out,AdvectionDiffusion_type):
+    traj_lon_temp = []
+    traj_lat_temp = []
+    traj_time_temp = []
+
+
+    for MODEL in MODELS:
+        if AdvectionDiffusion_type == "K_smag":
+            traj_files_int = sorted(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc_smag.zarr'))
+        elif AdvectionDiffusion_type == "AdvectionDiffusionM1":
+            traj_files_int = sorted(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc_M1.zarr'))
+
+
+
+
+        traj_lon_int = []
+        traj_lat_int = []
+        traj_time_int = []
+
+        for file in traj_files_int:
+            print(f'{MODEL=} ---- {file=}')
+
+            ds = xr.open_zarr(file)
+            print(ds)
+            traj_time_int.append(ds.time.values)
+            traj_lon_int.append(ds.lon.values)
+            traj_lat_int.append(ds.lat.values)
+
+
+        traj_lon_temp.append(traj_lon_int)
+        traj_lat_temp.append(traj_lat_int)
+        traj_time_temp.append(traj_time_int)
+    
+    if True:
+        taille_max = max(len(x) for x in traj_lon_temp)
+        traj_lon = [x + [x[-1]] * (taille_max - len(x)) for x in traj_lon_temp]
+
+
+        taille_max = max(len(x) for x in traj_lat_temp)
+        traj_lat = [x + [x[-1]] * (taille_max - len(x)) for x in traj_lat_temp]
+
+
+        taille_max = max(len(x) for x in traj_time_temp)
+        traj_time = [x + [x[-1]] * (taille_max - len(x)) for x in traj_time_temp]
+
+
+    traj_lon = np.array(traj_lon)
+    traj_lat = np.array(traj_lat)#_temp)
+    traj_time = np.array(traj_time)#_temp)
+
+    return traj_lon,traj_lat,traj_time
 
 

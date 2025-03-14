@@ -141,7 +141,6 @@ def Retrieve_drifter_from_copernicusmarine_datastore(user,password,DIR_WORK,dir_
 
     file_list = sorted(glob.glob(output_directory+'*.nc'))
     dico_name = output_directory+'metadata_drifters.txt'
-    print(dico_name)
     if new == 1 or not os.path.exists(dico_name):
         dico = {}
         for file in tqdm(file_list): 
@@ -168,7 +167,6 @@ def Retrieve_drifter_from_copernicusmarine_datastore(user,password,DIR_WORK,dir_
         # Create directory where to store results:
         os.makedirs(dir_drifters)
     outfile2 = dir_drifters+fout_driftersZone
-
     if not os.path.isfile(outfile2):
         DriftersInZoneInPeriod_remote(lon_min, lon_max, lat_min, lat_max, date_start, date_end, dico_name, outfile2)
     else:
@@ -177,8 +175,7 @@ def Retrieve_drifter_from_copernicusmarine_datastore(user,password,DIR_WORK,dir_
     
     print('loading ',outfile2)
     drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
-    print(drifters_zone_traj.head(5))
-    print(drifters_zone_traj.dtypes)
+
 
 
     nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
@@ -188,7 +185,6 @@ def Retrieve_drifter_from_copernicusmarine_datastore(user,password,DIR_WORK,dir_
     spurious_drifters=[]
     for i in range(nb_drifters_temp):
         nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
-        print(T_DRIFT)
         if not nb_entries >= (T_DRIFT*24):
             print(drifter_ids[i],': not enough entries, only ', nb_entries)
             spurious_drifters.append(drifter_ids[i])
@@ -250,6 +246,7 @@ def Calculate_model_traj_remote(MODELS,dir_out,nb_points,traj_drifter_lon,traj_d
                              time_period=False,AdvectionDiffusion_type=AdvectionDiffusion_type,nb_repeats = nb_repeats)
 
             if True:
+                print(data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_sim+" 12:00:00")))
                 run_parcels_Drift_remote(MODELS[i],data[i].sel(time = slice(str_date_sim+" 12:00:00",str_date_end_sim+" 12:00:00")),var_u,var_v,traj_drifter_lon_start, traj_drifter_lat_start,traj_drifter_id_start, DRIFT_TIME,\
                              f_traj1, radius_cloud=0, seeding_resolution=0, \
                              time_period=False)
@@ -322,3 +319,145 @@ def Calculate_speed_at_svp_location_remote(lon_uv_svp,lat_uv_svp,traj_drifter_da
 
 
 
+
+def Retrieve_drifter_from_copernicusmarine_datastore_fidji(user,password,DIR_WORK,dir_out,str_date1,str_date2,T_DRIFT,str_region,lon_min,lon_max,lat_min,lat_max,date_start,date_end,tay_diag= False):
+    """
+    """
+    yyear = str_date1[0:4]
+    index_file = 'index_history.txt' #type aimed index file 
+    new = 1
+    #output_directory = DIR_WORK+'DATA/DRIFTER48/' #path
+    output_directory = "/utmp/smer/regnierc/DATA/CURRENTS/NRT/INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/" + yyear + "/"
+
+
+
+    if tay_diag :
+        fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'_taylor_diag.csv'
+    else :
+        fout_driftersZone = 'Drifters_'+str_region+'_'+str_date1+'_'+str_date2+'.csv'
+    dir_drifters = dir_out+'/DRIFTERS/'
+
+    if not os.path.exists(dir_drifters):
+        print('\ncreate folder : ', dir_drifters)
+        # Create directory where to store results:
+        os.makedirs(dir_drifters)
+    outfile2 = dir_drifters+fout_driftersZone
+    
+    if True:#not os.path.isfile(outfile2):           
+        file_start = "/utmp/smer/regnierc/DATA/CURRENTS/NRT/INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/" + yyear + "/GL_TS_DC_"+str_date1[:4]+str_date1[5:7]+str_date1[8:10]+"_FILTR.nc"
+        file_end = "/utmp/smer/regnierc/DATA/CURRENTS/NRT/INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/" + yyear + "/GL_TS_DC_"+str_date2[:4]+str_date2[5:7]+str_date2[8:10]+"_FILTR.nc"
+        print(file_start)
+        print(file_end)
+        file_list = np.array(sorted(glob.glob(output_directory+'*.nc')))
+        files_in  = file_list[(file_list>= file_start)*(file_list<=file_end)]
+        print(f'{file_list=}')
+        print(f'{files_in=}')
+    
+        platform_code = []
+        platform_code_unique = []
+        TIME = []
+        LATITUDE = []
+        LONGITUDE = []
+        for file in files_in:
+            ds = xr.open_dataset(file)
+    
+            platform_code_unique.append(np.int32(pd.unique(ds.PLATFORM_CODE.values)))
+            platform_code.append(np.int32(ds.PLATFORM_CODE.values))
+            TIME.append(ds.TIME.values)
+            LATITUDE.append(ds.LATITUDE.values)
+            LONGITUDE.append(ds.LONGITUDE.values)
+        
+
+        ID = platform_code_unique[0]
+        ID_old = ID
+        for day_code in platform_code_unique[1:]:
+            for code in ID:
+                if code not in day_code:
+                    ID = np.delete(ID, np.where(ID == code))
+                    print("delete : ",code)    
+
+
+        df = pd.DataFrame()
+        k = 0
+        nb = 0
+
+
+        for id in ID:
+            for t in range (len(TIME)-1):
+                indice = np.where(platform_code[t]==id)
+    
+                lon_start = LONGITUDE[t][indice][0]
+                lon_end = LONGITUDE[t][indice][-1]
+                lat_start = LATITUDE[t][indice][0]
+                lat_end = LATITUDE[t][indice][-1]
+
+                if not (lon_min<=lon_start)*(lon_max>=lon_start)*(lat_min <= lat_start)*(lat_max >= lat_start)*(lon_min <= lon_end)*(lon_max >= lon_end)*(lat_min <= lat_end)*(lat_max >= lat_end):
+                    print("Not in the zone : ",id)
+                    #ID = np.delete(ID, np.where(ID == id))
+                    #break
+                else:
+                    if k ==0:
+                        dic = {'id':platform_code[t][indice],'date':pd.to_datetime(TIME[t][indice]).date,'time':pd.to_datetime(TIME[t][indice]).time,'lat':LATITUDE[t][indice],'lon':LONGITUDE[t][indice]}
+
+                        df = pd.DataFrame(dic,index = np.int32(nb*np.ones(LONGITUDE[t][indice].shape)))
+                        k=1
+                        
+                    else :
+                        dic = {'id':platform_code[t][indice],'date':pd.to_datetime(TIME[t][indice]).date,'time':pd.to_datetime(TIME[t][indice]).time,'lat':LATITUDE[t][indice],'lon':LONGITUDE[t][indice]}
+
+                        df = pd.concat([df,pd.DataFrame(dic,index = np.int32(nb*np.ones(LONGITUDE[t][indice].shape)))])
+                        nb+=1
+        df.to_csv(outfile2)
+        
+    else:
+        print(outfile2, 'already exists')
+        
+    
+    print('loading ',outfile2)
+    drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
+    print(drifters_zone_traj)
+    nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
+    #remove drifters with missing entries (should be nb_days*4+1)
+    #Check each drifter has n days * 4 entries
+    drifter_ids = pd.unique(drifters_zone_traj['id'])
+    spurious_drifters=[]
+    for i in range(nb_drifters_temp):
+        nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
+        print(nb_entries)
+        print(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
+
+        if not nb_entries >= (T_DRIFT*24):
+            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            spurious_drifters.append(drifter_ids[i])
+    
+    print(f'{drifters_zone_traj=}')
+    
+    for i in range(len(spurious_drifters)):
+        print('remove drifter ',spurious_drifters[i])
+        ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
+        drifters_zone_traj.drop(ind1, inplace=True) #remove data points
+    
+    drifters_zone_traj=drifters_zone_traj.reset_index()  
+    print(f'{drifters_zone_traj=}')
+    print(T_DRIFT)#drift)
+    
+    nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
+    print(f'{nb_drifters2=}')
+    #exit()
+    #print(np.nanmin(np.array(nb_drifters2['lat'])))
+    #print(np.nanmax(np.array(nb_drifters2['lat'])))
+    #print(np.nanmax(np.array(nb_drifters2['lon'])))
+    #print(np.nanmin(np.array(nb_drifters2['lon'])))
+
+    print('total nb of drifters in zone at start that reach end:',nb_drifters2)
+    #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
+    nb_points = T_DRIFT*24   # hourly
+
+    traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
+    traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
+    traj_drifter_date  = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
+    traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
+    traj_drifter_id    = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )   
+
+
+    return traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id

@@ -1,82 +1,72 @@
 # Validation_Tools_drifters
 
-## Description
-
-The first part takes an Eulerian perspective and involves comparing the velocity of drifters with the synthesized velocity fields of models. This comparison is visualized using a Taylor Diagram, which provides a comprehensive overview of the comparison.
-
-The second part takes a Lagrangian perspective and utilizes three different scores. The first score is the Liu Skill Score, which assesses the models' ability to accurately represent the overall trajectory. The second score is the Separation Distance, which measures how effectively the models can guide particles to positions closest to the drifter's location at the end of the drift time. Lastly, the correlation of Pearson is used to evaluate the directional accuracy of the scores in terms of latitude and longitude.
-
-In summary, the Validation Tools consist of two parts: one focusing on the Eulerian perspective with a Taylor Diagram, and the other on the Lagrangian perspective with three scores: Liu Skill Score, Separation Distance, and Pearson correlation for latitude and longitude.
-
 ## Installation
-To install a working environment, please launch the following command line : 
-conda env create -f environment.yml
+This code is adapted to work on Fidji. Brefore execution, the envirenment env_py311 should be launched following the command : 'conda activate env_py311'
 
-Otherwise in intern you can activate my environment by launching the following command : conda activate  /data/rd_exchange/pgouvenou/env/env_py36_parcels_2022
 
+## Description
+This study aims to compare the models and the trajecttories of the drifters for a period of three monthes with a Lagrangian perspective and so, three different scores are generated. 
+
+The first score is the Liu Skill Score, which assesses the models' ability to accurately represent the overall trajectory. The second score is the Separation Distance, which measures how effectively the models can guide particles to positions closest to the drifter's location at the end of the drift time. Lastly, the correlation of Pearson is used to evaluate the directional accuracy of the scores in terms of latitude and longitude.
+
+This code contains two main scripts to be launched consecutively:
+-the first script 'Lagrangian_tool_traj_compute_fidji.py' allows the calculation of the trajectories
+-the second one 'Lagrangian_tool_lagrangian_scores_more_fidji.py' calculates the scores and plot them.
+
+The first script is automated and it computes all the cases of study. 
+
+Thereby, there is three loops :
+-the first loop is on the models (for the moment we take only GLO12, but the code is adapted to contain more then one model).
+-the second loop is on the drift time (we take the values 1,3,5,7).
+-the third loop is on the mode ('FCT' : forecast, 'ANA' : analysis).
+However, for the second script, there is no automatization and the computing of scores will be made separately for each case of staudy. Then, the configuration file will be adapted for each of those cases. 
 
 ## Basic Usage
-Set your parameters into the config_base.ini file : 
-You can choose the models to compare, the time period, the area and the drift time for the lagrangian perspective;
-The time period corresponds to the launch of a set of particles at the drifters' position for each day during the drift time, for the report card. If you want to understand each score in the report_card.py Plot, you can see the Report_card_more.ipynb. 
+Set your parameters into the config_fidji.ini file.
+Those parameters define the case to be studied. And so, there is 2 different categpries of paramters :
+1- the paramaters which are constant for all the cases
+2- the parameters which are defined automatically with 'Lagrangian_tool_traj_compute_fidji.py' but the user have to define them within config_fidji.ini before applying 'Lagrangian_tool_lagrangian_scores_more_fidji.py'.
 
-You can launch the program with the following command line :
+### First category 
+-the area parameters: ('lon_min', 'lon_max', 'lat_min', 'lat_max'). In this bulletin, the staudy is made globally but the user can make tests over smaller zones.
+-the layer parameter 'depth'. Here, study is made at 15m below sea surface.
+-the number of monthes for which the evaluation is made 'N_MONTHES'. For this bulletin, the evalation is made for a complete trimester and then this paramter is always equal to 3. Of course, user can modify it for tests. 
+-there is also, the parameters of user ('username' and 'PASSWORD') and the pathes (prject path ' PROJECT', code path 'dir_in', path for stocking results 'dir_work')
+-and the advanced parameters : 'copernicus_drifter' (always = True), the diffusion parameter 'AdvectionDiffusion_type' (=k_smag), the number of repetions 'nb_repeats' (= 1000) and the boolean indicator 'remote' (= True).
 
-python program.py 
+### Second category
+-the model parmameter 'MODELS'. For the moment we study only the GLO12 model but code can be applied on more models like PSY4.
+-the number of days for drifting 'DRIFT_TIME' (=1,3,5,7). 
+-the starting date 'MONTH_YEAR' which contain the year of the trimester preceded by its first month (e.g. 012024 for winter 2024, 042024 for spring, 072024 for summer and 102024 for automn).
+-the boolean parmeter defining the mode 'Forecast' (= True for forecast and = False for analysis). 
+-the label of stay case 'EXP_NAME'. This value affected to this parameter may have this format (fidji_012024_3M_DT7_FCT, wherein the value _012024_ corresponds the parameter 'MONTH_YEAR', the value '_3M_' represents the length of the trimester, '_DT7_' indicates the drift time of 7 days, and _FCT indicates the forecast mode). For example, for spring 2024 with 3 monthes of drfiting in analysis mode, this parameter is equal to fidji_042024_3M_DT3_ANA.
 
-example : python Lagrangian_tool_eulerian.py
+## Trajects computing
+The function which calculates the trajectories is in traj_compute_fidji.py.
+This function is about the calculation of trajectory.
+The trajectory is calculated by this function. 
+ 
+## Scores computing
+This function calculates and plots the different scores.
+The scores are calculated and plotted by this function.
+For this reason, this function is used.
+To identify the difference between the different drifters, we apply this function.
+ 
+## Functions
+For this approach, there is two functions to implement:
+The first function is about conducting work about the computing of trajectories meanwhile the second one is more about.
 
-note : Before launching Lagrangian_tool_lagrangian_scores.py, Lagrangian_tool_lagrangian_scores_more.ipynb or Lagrangian_tool_lagrangian_diffusion_scores.ipynb you have to launch Lagrangian_tool_traj_compute.py
-
+## Outputs
 Then you will find your figures in the Folder name : PLOT
-
 Lagrangian_tool_lagrangian_scores_more.ipynb is a jupyter notebook that gives more information about the Lagrangian_tool_lagrangian_scores.py, 
 
-Lagrangian_tool_lagrangian_diffusion_scores.ipynb is a jupyter notebook that show scores on diffusion cloud points
-
-## Advanced Usage
-In the config_base.ini file :
-
--"cloud_stat" : Not already set
-
--"remote" : ['True' or ''] If you want to use online data, accessible on "https://data.marine.copernicus.eu/products" (check if OPeNDAP is possible in Data access of the product)
-
--"AdvectionDiffusion_type" : ['' or 'AdvectionDiffusionM1' or 'K_smag'] If you want to put some Diffusion on particles trajectories (compute also without diffusion) 
-
--"nb_repeats" : [int] Is the number of particles that will be launch at the same point in the frame of Diffusion
-
--"Forecast" : ['True' or '']
-
--"copernicus_drifter" : ['True' or ''] respectively use copernicus drifter (download automaticaly) or local drifters trajectories  
-
-## Date range available for models
-
-### Remote
-
-- cmems_mod_glo_phy-cur_anfc_0.083deg_P1D-m : GLOBAL, 1/12°, Daily, 01/11/2020 to Today
-- dataset-uv-nrt-daily : GLOBAL, 1/4°, Daily, 01/01/2020 to Today
-- cmems_mod_ibi_phy_anfc_0.027deg-3D_P1D-m : IBI Area, 1/36°, Daily, 01/12/2020 to Today
-- cmems_mod_med_phy-cur_anfc_4.2km_P1D-m : Mediterranean Area, 1/24, Daily, 01/03/2021 to Today
--
--
-
-
-### Local (Mercator)
-
-- GLO12V4 : GLOBAL, 1/12°, Daily, 25/12/2018 to 18/04/2019
-- PSY4V3R1 : GLOBAL, 1/12°, Daily, 01/01/2006 to Today
-- IBI36 : IBI Area, 1/36°, Daily, 26/12/2018 to 30/04/2019
-- GLOBC : GLOBAL, 1/4°, Daily, 01/01/1993 to 15/10/2019
--
 
 ## Some examples
-
-![Codes Diagram](src/figures/MicrosoftTeams-image.png)
-
 ![Particles Dispersion](src/figures/figure_particles_95_kde.png)
 
 ![Map of the success rate Ellipse 99%](src/figures/map_proportion_ellipse.png)
 
 ![Taylor Diagram of the drifter velovity and velocity field](src/figures/Taylor_diagram_U_SVP_15m_2019-01-02_2019-03-14.png)
+
 
 
