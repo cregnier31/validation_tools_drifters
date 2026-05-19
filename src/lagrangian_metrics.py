@@ -7,10 +7,7 @@ import pandas as pd
 import numpy.matlib
 from netCDF4 import Dataset, date2num
 from datetime import datetime, timedelta
-import matplotlib
-matplotlib.use('Agg')
 import json
-import matplotlib.pyplot as plt
 import time
 import netCDF4 as nc
 from tqdm import tqdm
@@ -20,7 +17,6 @@ sys.displayhook = pprint.pprint  # Improves print of variables (e.g. locals(), g
 import shutil
 import shlex,subprocess
 import time
-from configparser import ConfigParser
 import xarray as xr
 from scipy import interpolate
 import getpass
@@ -30,8 +26,9 @@ import os, glob,sys
 from operator import attrgetter
 from scipy.ndimage import gaussian_filter
 
-sys.path.append("/home/svangennip/DEV/Drift/LIU_SCORE/src/")
 from extras import dist as sw_dist
+
+
 def coord2index(lon1,lat1,z1, nav_lon, nav_lat, nb_zlevels, decimals=0, display=0):
     """
     Find closest gridcell for input point of coordinate: lon, lat, depth(m)
@@ -141,16 +138,6 @@ def coord2index(lon1,lat1,z1, nav_lon, nav_lat, nb_zlevels, decimals=0, display=
         print ("      nb levels =", str(nb_zlevels), ": unknown Z-grid \n")
         sys.exit(1)
 
-
-
-
-
-
-
-
-
-
-
 def retrieve_zone(str_zone):
     zone = str_zone.split('_')[1]
     if len(zone.split('W'))==3: 
@@ -195,9 +182,6 @@ def retrieve_zone(str_zone):
     return lon_min,lon_max,lat_min,lat_max
    
    
-
-
-
 def shift360( lon_2D, lat_2D, var ):
     '''This Script takes two arguments: nav_lon (ORCA grid) and a variable (VAR) that is function of nav_lon.
        It returns VAR reordered and shifted for a 0-360 lon range.
@@ -311,170 +295,6 @@ def resample_traj(file_name):
 
 
 
-def DriftersInZoneInPeriod_remote(lon_min, lon_max, lat_min, lat_max, date_start, date_end, dico_name, outfile):
-    import datetime 
- 
-    date_format = '%Y-%m-%dT%H:%M:%SZ'
-
-    str_date1=date_start.strftime('%Y-%m-%d')
-    str_date2=date_end.strftime('%Y-%m-%d')
-    print("date1 : ",str_date1)
-    str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
-    date_start = datetime.datetime.strptime(str_date1+"T12:00:00Z", date_format)
-    date_end = datetime.datetime.strptime(str_date2+"T12:00:00Z", date_format)
-
-    T_DRIFT = (date_end-date_start).days
-
-    #Check output dir exists:
-    dir_out = os.path.dirname(outfile)
-    if not os.path.exists(dir_out):
-        print('\ncreate folder : ', dir_out)
-        # Create directory where to store results:
-        os.makedirs(dir_out)    
-    
-    
-
-    f = open(dico_name,)
-    metadata_drifters = json.load(f)
-    print('loading ',dico_name)
-    
-    list_drifter_in_time_zone = []
-    for dft_id in tqdm(metadata_drifters):
-        t_start = datetime.datetime.strptime(metadata_drifters[dft_id][0], date_format)
-        t_end = datetime.datetime.strptime(metadata_drifters[dft_id][1], date_format)
-        if date_start >= t_start and date_end <= t_end :
-            list_drifter_in_time_zone.append(dft_id)
-    
-    print('nb drifter in the time period : ',len(list_drifter_in_time_zone))
-    df = pd.DataFrame()
-    k = 0
-    nb = 0
-    diff_nb_hours = int((date_end-date_start).days*24)
-    for dft_file in tqdm(list_drifter_in_time_zone):
-        data = xr.open_dataset(dft_file)
-        ind_start = np.where(data.TIME == np.datetime64(date_start))[0]
-        ind_end = np.where(data.TIME == np.datetime64(date_end))[0]
-        if (ind_end-ind_start) == diff_nb_hours : 
-            if ind_start.shape[0] == 1 and ind_end.shape[0] == 1:
-                lon_start = data.LONGITUDE[ind_start]
-                lon_end = data.LONGITUDE[ind_end]
-                lat_start = data.LATITUDE[ind_start]
-                lat_end = data.LATITUDE[ind_end] 
-                if (lon_min <= lon_start)*(lon_max >= lon_start)*(lat_min <= lat_start)*(lat_max >= lat_start):
-                    if (lon_min <= lon_end)*(lon_max >= lon_end)*(lat_min <= lat_end)*(lat_max >= lat_end):
-                        id = int(data.platform_code)
-                        date = pd.to_datetime(data.TIME.values[ind_start[0]:ind_end[0]]).date
-                        time = pd.to_datetime(data.TIME.values[ind_start[0]:ind_end[0]]).time
-                        latitude = data.LATITUDE.values[ind_start[0]:ind_end[0]]
-                        longitude = data.LONGITUDE.values[ind_start[0]:ind_end[0]]
-                        dic = {'id': id,'date':date,'time':time,'lat':latitude,'lon':longitude}
-                        if k ==0:
-                            df = pd.DataFrame(dic,index = nb*np.ones(longitude.shape))
-                            k=1
-                        else : 
-                            df = pd.concat([df,pd.DataFrame(dic,index = nb*np.ones(longitude.shape))])
-                        nb+=1
-    df.to_csv(outfile)
-
-        
-    
-    
-    
-
-
-
-def DriftersInZoneInPeriod(lon_min, lon_max, lat_min, lat_max, date_start, date_end, f_drifters_all, outfile):
-    str_date1=date_start.strftime('%Y-%m-%d')
-    str_date2=date_end.strftime('%Y-%m-%d')
-    str_region = StringRegion(lon_min,lon_max,lat_min,lat_max)
-    
-    T_DRIFT = (date_end-date_start).days
-
-    #Check output dir exists:
-    dir_out = os.path.dirname(outfile)
-    if not os.path.exists(dir_out):
-        print('\ncreate folder : ', dir_out)
-        # Create directory where to store results:
-        os.makedirs(dir_out)    
-    
-    print('loading ',f_drifters_all)
-    #drifters = pd.read_csv(f_drifters_all, sep='\s+') #when unknown number of spaces separating columns
-    drifters = pd.read_csv(f_drifters_all) #when unknown number of spaces separating columns
-    print(drifters.head(5))
-    #select all data within time frame
-    drifters_i = drifters[(drifters.date>=str_date1) & (drifters.date<=str_date2)]
-    print(drifters_i.head(5))
-    # print('save data on drifters within ', str_date1, ' and ', str_date1,':', outfile2)
-    # drifters_i.to_csv(outfile2, index=False)
-    if lon_max < lon_min :
-        drifters_zone_at_start_all1 = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
-                              (drifters_i.lon>lon_min)     & (drifters_i.lon<=180) &\
-                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
-        drifters_zone_at_start_all2 = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
-                              (drifters_i.lon>=-180)     & (drifters_i.lon<=lon_max) &\
-                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
-        print('drifters_zone_at_start_all2 : \n',drifters_zone_at_start_all2.head(3))
-        drifters_zone_at_start_all = pd.concat([drifters_zone_at_start_all1,drifters_zone_at_start_all2])
-        print('drifters_zone_at_start_all : \n', drifters_zone_at_start_all.head(3))
-
-    #identify all drifters within target zone on starting date at 12:00:00
-    else : 
-        drifters_zone_at_start_all = drifters_i[(drifters_i.date==str_date1) & (drifters_i.time=='12:00:00') & \
-                              (drifters_i.lon>lon_min)     & (drifters_i.lon<=lon_max) &\
-                              (drifters_i.lat>lat_min)     & (drifters_i.lat<=lat_max)]
-        print(drifters_zone_at_start_all.head(3))
-
-    list_drifters_at_start=drifters_zone_at_start_all['id'].values
-    #print('drifters inside zone on',str_date1,': \n',list_drifters_at_start)
-    nb_drifters=len(list_drifters_at_start)
-    print('total nb of drifters in zone at start:',nb_drifters)
-    #Select all traj points from identified drifters
-    drifters_i.set_index("id", inplace=True)  #need to set index to being id
-    drifters_zone_traj_at_start = drifters_i.loc[list_drifters_at_start] #select data along id column
-
-    drifters_i=drifters_i.reset_index()  #reset index for both spreadsheets
-    drifters_zone_traj_at_start=drifters_zone_traj_at_start.reset_index()
-
-    #Now identify drifters that reach end of period:
-    drifters_date_at_end = drifters_zone_traj_at_start[(drifters_zone_traj_at_start['date'] == str_date2) &  \
-                                                       (drifters_zone_traj_at_start['time'] == '12:00:00')]
-    print('nb drifters at end of period:',len(drifters_date_at_end['id'].values))
-    #find id's of drifters that finish
-    list_drifters_at_end=drifters_date_at_end['id'].values
-    #print('list_drifters_end=\n',list_drifters_at_end)
-
-    #identify id's in both lists
-    list_drifters_full_period = match_elements(list_drifters_at_start, list_drifters_at_end)
-    #print("match elements: \n", list_drifters_full_period)
-
-    #Select all traj points from identified drifters
-    drifters_i.set_index("id", inplace=True)  #need to set index to being id
-    drifters_zone_traj = drifters_i.loc[list_drifters_full_period] #select data along id column
-    drifters_i=drifters_i.reset_index()
-    drifters_zone_traj=drifters_zone_traj.reset_index()
-
-    #Now remove data points before/after 12:00:00 for start/end date
-    index = drifters_zone_traj[(drifters_zone_traj['date'] == str_date1) & ((drifters_zone_traj['time'] == '00:00:00') | (drifters_zone_traj['time'] == '06:00:00')) | \
-                                  (drifters_zone_traj['time'] == '18:00:00') & (drifters_zone_traj['date'] == str_date2) ].index
-    drifters_zone_traj.drop(index, inplace=True) #remove data points
-    drifters_zone_traj=drifters_zone_traj.reset_index()
-    #print(drifters_zone_traj.head(30))
-
-    #Select start points of drifters that reach end
-    drifters_zone_at_start_all.set_index("id", inplace=True)  #need to set index to being id
-    drifters_zone_at_start = drifters_zone_at_start_all.loc[list_drifters_full_period] #select data along id column
-    drifters_zone_at_start=drifters_zone_at_start.reset_index()
-    list_drifters_at_start2=drifters_zone_at_start['id'].values
-    #print('drifters inside zone on',str_date1,': \n',list_drifters_at_start)
-
-    print('\nlist drifters in area: \n', list_drifters_at_start2)
-    print('\n', drifters_zone_traj)
-    print('\n', drifters_zone_traj.shape)
-
-    #print('save data on drifters within [ ', str_date1, ' - ', str_date1,'] and for region ', str_region,' :', outfile2)
-    drifters_zone_traj.to_csv(outfile, index=False)
-
-
 def trapz(f,x):
     '''Approximate the integral of f(x) from a to b by the trapezoid rule.
 
@@ -513,256 +333,6 @@ def trapz(f,x):
     T = (dx/2) * np.nansum(y_right + y_left, axis=0)
     return T
 
-
-## return U, V files within date range:
-def ReturnUVlist(MODEL, date_start, date_end, dir_in=None ):
-
-    print ("#-----------------------------------------------------------------------------------------")
-    print ("#                      READ IN FIELDSET")
-    print ("#-----------------------------------------------------------------------------------------")
-
-    print('script ReturnUVlist')
-    print('model :', MODEL)
-    print('date_start :', date_start)
-    print('date_end :', date_end)
-    print('dir_in :', dir_in)
-    
-    #reconstruct date1
-    DD1=date_start.day
-    MM1=date_start.month
-    YYYY1=date_start.year 
-
-    DD2=date_end.day
-    MM2=date_end.month
-    YYYY2=date_end.year
-
-    config_object = ConfigParser()
-    config_object.read(dir_in+"src/config_products_fidji.ini")
-    #config_object.read("/config_products.ini")
-
-
-    if MODEL not in config_object.sections():
-        print(MODEL, "is either a typo or not yet tuned for this program")
-        print('model runs available: ',config_object.sections())
-        sys.exit(1)
-
-    run_info = config_object[MODEL]
-    fname_prefix=run_info["fname_prefix"]
-    #path to files 
-    path_UV=run_info["path"]
-
-    print('path_UV: ', path_UV)
-    print('fname_prefix: ', fname_prefix)
-    #sys.exit(1)
-    
-    #e.g.       /sortref/opr/pgn/PSY4/psy4v3r1/2009/07/PSY4V3R1_1dAV_20090703_20090704_gridU_R20090708.nc
-    #e.g.     /sortref/reanalyse/glorys/phy/GLORYS12V1/RUN5free/PGN/1991/12/GLORYS12V1_1dAV_19911204_19911205_gridU_R19911211.nc
-    # create list of files:
-    print('identify U,V :')
-
-    list_years = range (YYYY1, YYYY2+1, 1)
-    print('years=', list_years)
-    
-    u_files,v_files, ssh_files= [],[],[]  # initialise arryas
-    for i in list_years:
-        print (i)
-        #pathA = data_path2+'*/*/PSY4V3R1_1dAV_'+str(i)+'*gridU*.nc'
-        #print(pathA)
-        
-        if MODEL == 'GLOBC':
-            # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
-            # nrt_global_allsat_phy_l4_20181224_20181230.nc
-            u_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-            #sys.exit(1)
-        elif MODEL == 'ORCA12_RBB':
-            print('got here')
-            #e.g. /sortref/ose-2/btchonang/GLORYS12V1/GLO12OSSE/NatRun/ORCA12-TRBB36s003b_1d_grid_T_20141120-20141120.nc
-            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+'grid_U_'+str(i)+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ 'grid_V_'+str(i)+'*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-        elif MODEL == 'GLO12V4':
-            # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
-            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
-            v_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DV-vo_*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-        elif MODEL == 'IBI36':
-            print(path_UV+fname_prefix+'*gridU_R*.nc')
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*gridU_R*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*gridV_R*.nc'))
-            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d')
-
-        elif MODEL == 'SMOC' or MODEL == 'SMOC_GLO12':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) +format(MM2,'02d') + format(DD2,'02d')
-
-        elif MODEL == 'IBI8':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d')+ format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2)+format(MM2,'02d')+ format(DD2,'02d')
-
-        elif MODEL == 'GLO8':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif MODEL == 'IBI4' or MODEL == 'IBI12':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif MODEL == "PSY4":
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-        
-        elif "GLO12_FCST" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
-            print(u_files)
-            #f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            #f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-            f_input_start = 'fcst-1_R' + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d') + '.nc'
-            f_input_end = 'fcst-1_R' + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d') + '.nc'
-            
-        elif "GLO12_NWCT" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif "PSY4_FCST" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif "PSY4_NWCT" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        else :
-
-            # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
-            u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridV_*.nc'))
-            
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-
-    #ssh_files=ssh_files.sort() 
-
-
-    #sys.exit(1)
-    print('f_input_start',f_input_start)
-    print('f_input_end',f_input_end)
-
-    print('UV field, identify start date:')
-    print('nb files in Ulist = ', len(u_files))
-    counter=0
-    for line in u_files:
-        if f_input_start in line:
-           pos1u = counter 
-           print ('    ',f_input_start, ' in line ', pos1u,' :', line)        
-        counter+=1
-
-    #sys.exit(1)
-
-    print('UV field, identify end date')
-    counter=0
-    for line in u_files:
-        print(line)
-        print(f_input_end)
-        if f_input_end in line:
-           pos2u = counter 
-           print ('    ',f_input_end, ' in line ', pos2u,' :', line)        
-        counter+=1
-
-    counter=0
-    for line in v_files:
-        if f_input_start in line:
-           pos1v = counter
-           print ('    ',f_input_start, ' in line ', pos1v,' :', line)
-        counter+=1
-
-    #sys.exit(1)
-
-    print('UV field, identify end date')
-    counter=0
-    for line in v_files:
-        if f_input_end in line:
-           pos2v = counter 
-           print ('    ',f_input_end, ' in line ', pos2v,' :', line) 
-        counter+=1
-
-
-    #sys.exit(1)
-    # clear up paths to previous dayly outputs  from list:
-    if 'pos2u' in locals():
-        del(u_files[pos2u+1:])
-    if 'pos1u' in locals():
-        del(u_files[:pos1u])
-
-    if 'pos2v' in locals():
-        del(v_files[pos2v+1:])
-    if 'pos1v' in locals():
-        del(v_files[:pos1v])
-
-
-    print('nb files in ulist = ', len(u_files))
-    print('nb files in vlist = ', len(v_files))
-    print('nb files in ssh list = ', len(ssh_files))
-
-    return u_files, v_files
 
 def DispDirAndLength(traj_lon, traj_lat):
     nb_part   = traj_lon.shape[0]
@@ -851,6 +421,54 @@ def SeparationDistance(lon_grp1,lat_grp1, lon_grp2,lat_grp2):
     #print('\ndist[0,:]\n',dist[0,:])
 
     return dist
+
+
+def SeparationDistance_havers(lon_grp1, lat_grp1, lon_grp2, lat_grp2):
+
+    # Ensure arrays
+    lon_grp1 = np.asarray(lon_grp1)
+    lat_grp1 = np.asarray(lat_grp1)
+    lon_grp2 = np.asarray(lon_grp2)
+    lat_grp2 = np.asarray(lat_grp2)
+
+    # Expand dims if needed
+    if lon_grp1.ndim == 1:
+        lon_grp1 = lon_grp1[:, np.newaxis]
+    if lat_grp1.ndim == 1:
+        lat_grp1 = lat_grp1[:, np.newaxis]
+    if lon_grp2.ndim == 1:
+        lon_grp2 = lon_grp2[:, np.newaxis]
+    if lat_grp2.ndim == 1:
+        lat_grp2 = lat_grp2[:, np.newaxis]
+
+    # Earth radius (km)
+    R = 6371.0
+
+    # Convert to radians
+    lon1 = np.deg2rad(lon_grp1)
+    lat1 = np.deg2rad(lat_grp1)
+
+    lon2 = np.deg2rad(lon_grp2)
+    lat2 = np.deg2rad(lat_grp2)
+
+    # Dateline-safe longitude difference
+    dlon = (lon2 - lon1 + np.pi) % (2 * np.pi) - np.pi
+    dlat = lat2 - lat1
+
+    # Haversine formula
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1)
+        * np.cos(lat2)
+        * np.sin(dlon / 2.0) ** 2
+    )
+
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    dist = R * c
+
+    return dist
+
 
 def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
     print('SepDistanceEachTimestep...')
@@ -1030,9 +648,6 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
         den += np.sum(dli_drifters[:,:i], axis=1)
         liu_index.append(np.sum(di_SVP_MOD[:,:i], axis=1)/den)   
     return np.array(liu_index)
-
-
-
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :

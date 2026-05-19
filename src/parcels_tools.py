@@ -272,6 +272,8 @@ def run_parcels_Drift_remote(PROD,ds,var_u,var_v,drifters_lon,drifters_lat,drift
 
     ParcelsRandom.seed(random.randint(0,3000))  # Random seed for reproducibility
 
+    print(k_forback)
+    
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
                  dt=timedelta(minutes=10)*k_forback,
@@ -301,7 +303,11 @@ def run_parcels_Drift(PROD, data_u, var_u, \
                       drifters_lon, drifters_lat,drifters_id, T_DRIFT,\
                        f_out1,
                       radius_cloud=0.25, seeding_resolution=1/12, 
-                      forback='FWD', time_period=False,hour = 0, nb_repeats=None,AdvectionDiffusion_type = "AdvectionRK4"):
+                      forback='FWD', time_period=False,hour = 0,
+                      nb_repeats=None,
+                      AdvectionDiffusion_type = "AdvectionRK4",
+                      T_delta = 60,
+                      HSampling = 6):
     import gc
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, StatusCode, Variable, Field,AdvectionDiffusionM1
     
@@ -373,10 +379,15 @@ def run_parcels_Drift(PROD, data_u, var_u, \
         fieldset1.add_field(e1u)
         fieldset1.add_field(e1v)
     else:
+        print(f'{filenames=}')
+        print(f'{variables=}')
+        print(f'{dimensions=}')
+        print(time_period)
         fieldset1 = FieldSet.from_nemo(filenames, variables, dimensions,
                                        allow_time_extrapolation=True,
                                        time_periodic=time_period,
                                        )#,deferred_load=True,field_chunksize=400 ) 
+        print('Create fieldset OK')
         e1u = Field.from_netcdf(
             filenames=meshmask,
             variable="e1u",
@@ -460,13 +471,17 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     #compiler ="icc" #"icc" # gcc
     #print('user set compiler = ', compiler)
     #distinguish between two cases: seed at drifter location, seed in neighbourhood
+    #print(radius_cloud)
     if radius_cloud == 0:  #seed only at given location (not around)
         print('\nradius_cloud:', radius_cloud)
-        lon_all=drifters_lon.ravel()
-        lat_all=drifters_lat.ravel()
-        label_all=drifters_id.ravel()
-
-        print('label_all,', label_all)
+        lon_all = drifters_lon.ravel()
+        lat_all = drifters_lat.ravel()
+        #label_all=drifters_id.ravel()
+        label_all = drifters_id
+        #print('label_all,', label_all)
+        #print(np.shape(lon_all))
+        #print(np.shape(lat_all))
+        #print(np.shape(label_all))
     else:
         # Seed around point of release dep on radius_cloud=0.25, seeding_resolution=1/12
         #determine number of circles and their radius:
@@ -641,13 +656,12 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print ("    #                      EXECUTE ")
     print ("    #-----------------------------------------------------------------------------------------")
 
-    output_file1 = pset1.ParticleFile(name=f_out1, outputdt=timedelta(hours=6))
+    output_file1 = pset1.ParticleFile(name=f_out1, outputdt=timedelta(hours=HSampling))
     
     ParcelsRandom.seed(random.randint(0,3000))  # Random seed for reproducibility
-
     pset1.execute(sum_kernels,
                  runtime=timedelta(days=T_DRIFT),
-                 dt=timedelta(minutes=10)*k_forback,
+                 dt=timedelta(minutes=T_delta)*k_forback,
                  output_file=output_file1)
 
     #output_file1.export()
@@ -664,12 +678,6 @@ def run_parcels_Drift(PROD, data_u, var_u, \
     print(' EXP1 FINISHED -----  ', now.strftime("%m/%d/%Y, %H:%M:%S"))
 
     #return traj_lon, traj_lat, traj_time
-    
-    
-    
-    
-    
-    
     
     
 def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
@@ -972,65 +980,3 @@ def run_parcels_Drift_with_repeat(PROD, data_u, var_u,
 
 
     output_file1.close()
-
-    #sys.exit(1)
-
-#        if np.isclose(np.fmod(time, repeatdt_hrs), 0):    # time is a multiple of repeatdt #isclose: Returns a boolean array where two arrays are element-wise equal within a tolerance.
-#            pset_init = ParticleSet(fieldset=fieldset1, pclass=SampleParticle, lon=lon_all, lat=lat_all, time=time)
-#            #pset_init.execute(sample_kernel, dt=0)    # record the initial temperature of the particles
-#            for i in range(len(id_all)): pset_init[i].label = id_all[i] 
-#            pset1.add(pset_init)                       # add the newly released particles to the total particleset
-#        output_file1.write(pset1,time)                  # write the initialised particles and the advected particles
-#    
-#        pset1.execute(sum_kernels, runtime=timedelta(hours=runtime), dt=timedelta(minutes=10))
-#        print('Length of pset at time %d: %d' % (time, len(pset1)))
-#        
-#    output_file1.write(pset1, time+12) 
-#
-#    output_file1.close()
-
-
-#    repeatdt_hrs = repeatdt.total_seconds()/3600
-#    print(' delayed start: need to run such that all repeats are done except last one,', str(nb_repeats),' repeats every ', str(repeatdt_hrs),' hours happens over ',str(nb_repeats*repeatdt_hrs))
-#    runtime_part1 = repeatdt_hrs*(nb_repeats-1)  #need to run such that all repeats are done except last one, e.g. 5 repeats every 12 hours, happens over 48hours, so set 36 hours
-#    runtime_part2 = (T_DRIFT)*24  #t_run.total_seconds()/3600 - runtime_part1
-#    print('step1, run for ', runtime_part1, 'hours')
-#    print('step2, stop repeats and run for ', runtime_part2, 'hours')
-#    #sys.exit(1)
-#    pset1.execute(sum_kernels,
-#                 runtime=timedelta(hours=runtime_part1), # repeatdt), #T_DRIFT),
-#                 dt=timedelta(hours=1*k_forback),
-#                 output_file=output_file1)
-#    # now stop the repeated release
-#    pset1.repeatdt = None
-#    print('End repeat: len pset1=', len(pset1))
-#    drifter_labels=np.matlib.repmat(id_all, 1, np.int(nb_repeats))
-#    print('drifter_labels.shape', drifter_labels.shape)
-#    drifter_labels=np.squeeze(drifter_labels)
-#    print(drifter_labels.shape)
-#    print('drifter_labels', drifter_labels)
-#    for i in range(len(drifter_labels)): pset1[i].label = drifter_labels[i]
-#    #sys.exit(1)
-#    # now continue running for the remaining 15 hours
-#    pset1.execute(sum_kernels, runtime=timedelta(hours=runtime_part2),
-#                 dt=timedelta(hours=1)*k_forback,
-#                 output_file=output_file1)
-#    # add drift label to the traj:
-#    print('length pset1',len(pset1))
-#    print(nb_repeats)
-#    #drifter_labels=np.matlib.repmat(id_all, 1, np.int(nb_repeats))
-#    #print('drifter_labels', drifter_labels)
-#    #for i in range(len(drifter_labels)): pset1[i].label = drifter_labels[i]
-#    #pset1.label=drifter_labels
-#    #print('pset1.label',pset1.label)
-#    output_file1.export()
-
-
-
-
-
-
-
-
-
-

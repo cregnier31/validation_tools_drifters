@@ -1,14 +1,408 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import matplotlib.pyplot as plt
+import numpy as np
+import os,glob
+import time
+import sys
+import xarray as xr
+import pandas as pd
+from configparser import ConfigParser
+from tqdm import tqdm
+import datetime
+from datetime import timedelta,datetime
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from scipy.stats import pearsonr
 import matplotlib
 import cartopy
-import numpy as np
-from datetime import timedelta,datetime
 import netCDF4 as nc
 
 
+def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim=None, y2lim=None, zero=None, c1='k', c2='grey', figsize=(10, 6), fontsize=14):
+    """
+    Initialize a figure with 1 ax or 2 axes (if y2label), title and labels.
+    zero: float (horizontal line) or 'diag' (diagonal line). Need xlim
+    c1/c2: ax and ax2 colors
+    xlim/ylim: xlim=(x0,x1)
+    """
+    # General
+    plt.rc('ytick',labelsize=fontsize); plt.rc('xtick',labelsize=fontsize)
+    fig, ax = plt.subplots()
+
+    fig.set_size_inches(figsize)
+    if title is not None:      
+        plt.title(title, fontsize=fontsize+2, fontweight='bold')
+    ax.grid(linestyle='--', zorder = 0)
+
+    # Left axis
+    set_axis(ax, ylabel, c1, fontsize)
+    if ylim: ax.set_ylim(ylim)
+    
+    # Right axis
+    if y2label is not None:
+        ax2  = ax.twinx()
+        set_axis(ax2, y2label, c2, fontsize)
+        if y2lim: ax2.set_ylim(y2lim)
+
+    # x axis
+    if xlim: plt.xlim(xlim)
+    if xlabel is not None: 
+        ax.set_xlabel(xlabel, fontsize=fontsize, fontweight='bold')
+    
+    # zero
+    plot_zero(ax, zero, xlim)
+    
+    # Return
+    if y2label is not None:
+        return (fig, ax, ax2)
+    else:
+        return (fig, ax)
+
+
+
+    
+def save_fig(fname, dpi=200, show=False):
+    """
+    Save figure fname as fname.png
+    """
+    if fname:
+        fname += '.png'
+        plt.savefig(fname, bbox_inches='tight', dpi=dpi)
+        print ('Saved ', fname)
+        if show:
+            plt.show()
+        plt.close()
+        
+        
+def set_axis(ax, label=None, col='k', fontsize=12):
+    """
+    set ax with color col and label 
+    """
+    if label is not None:
+        ax.set_ylabel(label, fontsize=fontsize, fontweight='bold')
+    ax.tick_params(axis='y', colors = col)
+    ax.yaxis.label.set_color(col)
+    
+    
+def plot_zero(ax, zero, xlim, c='k', vertical=False):
+    """
+    Plot an horizontal line at y=zero or vertical line if vertical==True or diagonal line.
+    xlim: xlim=(0,10) for example.
+    """
+    if zero != None and xlim:
+        if vertical:
+            y = np.linspace(xlim[0], xlim[1])
+            ax.plot(zero * np.ones(len(y)), y,'--k', zorder=3, c=c)
+        else:
+            x = np.linspace(xlim[0], xlim[1])
+            if zero == 'diag':
+                ax.plot(x, x,'--k', zorder=3, c=c)   
+            else:
+                ax.plot(x, zero * np.ones(len(x)),'--k', zorder=3, c=c)
+
+def init_polar(title=None, xlabel=None, ylabel=None, figsize=(8, 5), fontsize=14):
+
+    plt.rc('ytick',labelsize=fontsize); plt.rc('xtick',labelsize=fontsize)
+    fig = plt.figure(figsize=figsize) 
+    ax = plt.subplot(111, projection='polar')
+    plt.title(title, fontsize=fontsize+2, fontweight='bold')
+    
+    return fig, ax 
+
+
+def plot_traj_drift(traj_drifter_lon,
+                    traj_drifter_lat,
+                    STR_DATE_START,
+                    STR_DATE_END,
+                    LON_MIN=-180,
+                    LON_MAX=180,
+                    LAT_MIN=-90,
+                    LAT_MAX=90):
+    fig = plt.figure(figsize = (9,5))
+    axs=plt.axes(projection=ccrs.PlateCarree())
+    axs.coastlines()
+    axs.add_feature(cfeature.LAND)
+    gl = axs.gridlines(draw_labels=True, dms=True, x_inline=False, y_inline=False)
+    gl.xlabels_top = False
+    gl.ylabels_right = False
+    fig.suptitle('Trajectory of the SVP drifters',fontsize = 12)
+    
+    axs.plot(traj_drifter_lon.T,traj_drifter_lat.T,transform=ccrs.PlateCarree())
+    axs.set_xlim([LON_MIN,LON_MAX])
+    axs.set_ylim([LAT_MIN,LAT_MAX])
+    plt.savefig(dir_plot+'Traj_drifters'+STR_DATE_START+'_'+STR_DATE_END+'.png',dpi = 600)
+
+def compute_directions(U, V, nb_directions, bins_classes):
+    """
+    Compute directions histogram for current rose.
+    Return:
+        rose: yaxis of histogram, size nb_directions * nb_classes
+              (nb of occurences per speed class and per direction).
+        directions: x axis of histogram (-pi -> pi)
+    """
+    nb_classes = len(bins_classes) - 1
+    
+    # Norm and direction
+    speed = np.array(np.sqrt(U**2 + V**2))
+    theta = np.array(np.arctan2(V, U))
+    
+    # Flatten and remove nan
+    speed = speed[~np.isnan(speed)]
+    theta = theta[~np.isnan(theta)]
+
+    # Compute polar histogram
+    hist = np.histogram(theta, bins=nb_directions, range=(-np.pi, np.pi))   
+
+    # Compute histogram on norm for each direction
+    rose = np.zeros((nb_directions, nb_classes))
+    for k in range(nb_directions):
+        idx = np.where((theta >= hist[1][k]) & (theta < hist[1][k+1]))[0]
+        sp = speed[idx]
+        h = np.histogram(sp, bins=bins_classes)
+        rose[k, :] = h[0]
+    directions = (hist[1][:-1] + hist[1][1:]) / 2
+    return rose, directions
+
+
+def current_rose(U, V, bins_classes=[0,0.1,0.2,0.3,0.5], title=None, fname=False, nb_directions=32, pmax='auto', legend=True, fontsize=20,diff = False):
+    """
+    Plot circular histogram of current velocity with different colors depending on current norm.
+    
+    Parameters:
+        -U/V: current zonal/meridional velocity
+        -bins_classes: classes of current velocity. Last class is V > bins_classes[-1]
+        -title: figure title
+        -save: False or figure name
+        -nb_directions: divide the circle in nb_directions categories
+        -pmax: maximum percentage of data for yaxis (auto or int)
+        -legend: boolean, to plot legend
+    """
+    
+    # Calculate circular histogram
+    rose, directions = compute_directions(U, V, nb_directions, bins_classes)
+
+
+    # Useful variables for plot
+    delta = 2 * np.pi / nb_directions - 0.05 # Angle du segment de cercle
+    width = np.ones(nb_directions) * 2 * np.pi /nb_directions - 0.05
+    colors = ['blue', 'deepskyblue', 'greenyellow', 'yellow', 'orange', 'red', 'purple', 'k'] # max 8 classes
+    if legend:
+        labels = ['%.2f - %.2f m/s'%(bins_classes[k], bins_classes[k+1]) for k in range(len(bins_classes)-1)]
+        labels[-1] = '> %.2f m/s'%bins_classes[-1]
+    else:
+        labels = [None for i in range(len(bins_classes))]
+
+    # Decoration
+    fig, ax = init_polar(figsize=(10,12), fontsize=fontsize)
+
+    # Plot
+    bottom=0
+    nb_data = np.sum(~np.isnan(U))
+    for k in range(len(bins_classes) - 1):
+        height = rose[:, k] * 100 / nb_data
+        ax.bar(directions, height, width=width, bottom=bottom, edgecolor='k', color = colors[k], label=labels[k])
+        bottom += height
+
+    # Maximum % for yticks
+    if pmax == 'auto':
+        pmax = np.max([np.sum(rose[k, :]) for k in range(nb_directions)]) * 100 / nb_data
+    
+    # Plot mean direction       
+    mean_dir = np.arctan2(np.nanmean(V), np.nanmean(U))
+    ax.plot([mean_dir, mean_dir],[0,pmax], '-.',color='k',linewidth =5)
+
+    # Legend, title and ticks
+    if legend:
+        plt.legend(fontsize=fontsize, loc=(1,0), title='Current velocity (m/s)', title_fontsize=fontsize+2)
+    plt.title(title, fontsize=fontsize+8, fontweight='bold')
+    ax.set_xticks(np.linspace(0,2*np.pi-np.pi/8,16))
+    if diff==True:
+        ax.set_xticklabels(np.linspace(0,360 - 360 /16,16), fontsize=fontsize, fontweight='bold')    
+
+    else :
+        ax.set_xticklabels(('E','','NE','','N','','NW','','W','','SW','','S','','SE',''), fontsize=fontsize, fontweight='bold')    
+    ax.set_ylabel('Percentage of total data', fontsize=fontsize, position=(0,0.75), rotation=60)
+    ax.set_rlabel_position(150)      
+    nticks = 5
+    yticks = np.linspace(pmax/nticks, pmax, nticks, dtype='int')
+    ax.set_yticks(yticks)
+    ax.set_yticklabels([str(i) + '%' for i in yticks], fontsize=fontsize)
+
+    # Save figure
+    save_fig(fname)
+
+
+
+
+
+
+def proba_density_2D_SK(datax, datay, resx, resy, xlim = [0,360], ylim = [-90, 90], quantiles = [], metric = 'haversine', bandwidth = 200, nsample = 1e6, kernel = 'epanechnikov', periodx = 360):
+    from sklearn.neighbors import KernelDensity
+    from scipy.optimize import minimize_scalar
+    from scipy import optimize
+
+    """
+    Compute de the probability density function (pdf) of positions datax and datay on a regular grid, with a kernel density estimation method.
+    inputs :
+        - resx, resy : resolution of the output grid
+        - xlim, ylim : limits of the the output grid
+        - quantiles  : list of quantiles for compute corresponding contour of the pdf
+        - metric : metric of the methode. If datax and datay are lon-lat coordinate best metric is haversine
+        - bandwidth in km : determine the smoothing of the method
+        - kernel : kernel used in the kde method
+        - nsample : number of positions taken into account (the purpose is to make the computation faster)
+    outputs :
+        - Xi, Yi : coordinates of the regular grid
+        - zi : pdf values on the regular grid
+        - levels : levels of contour of the pdf corresponding to the quantiles in input 
+    """
+
+
+    x = np.array(datax).flatten()
+    y = np.array(datay).flatten()
+    idx = ~np.isnan(x) & ~np.isnan(y)
+    x = x[idx]
+    y = y[idx]
+
+    if len(x) > nsample :
+        rand_ind = random.sample(range(len(x)), int(nsample))
+        x = x[rand_ind]
+        y = y[rand_ind]
+
+    if periodx is not None :
+        x[x<xlim[0]] += periodx
+        x[x>xlim[1]] -= periodx        
+    try :
+        Xi, Yi = np.mgrid[xlim[0] + resx/2:xlim[1] + resx/2: resx, ylim[0] +  resy/ 2:ylim[1]+resy/2:resy]
+    except ValueError:
+        Xi = np.nan * np.ones(np.mgrid[0 + resx/2:1 + resx/2: resx, 0 +  resy/ 2:1+resy/2:resy].shape)        
+        levels = [np.nan for q in quantiles]
+        return Xi[0],Xi[0],Xi[0],levels
+
+    xy_sample = np.vstack([Yi.flatten(), Xi.flatten()]).T
+    xy_train  = np.vstack([y, x]).T
+
+    R = 6371 
+    if metric == 'haversine':
+        bandwidth = bandwidth/R
+
+    kde = KernelDensity(kernel = kernel, bandwidth = bandwidth, metric = metric)
+    kde.fit(np.radians(xy_train))
+    zi = np.exp(kde.score_samples(np.radians(xy_sample)))
+    zi = zi / np.sum(zi)
+
+    levels = []
+    for q in quantiles :
+        def diff(value):
+            return abs(np.sum(zi[zi>value]) - q)
+        res = minimize_scalar(diff ,bounds=(0,np.max(zi)), method='bounded')
+        level = res.x
+        levels.append(level)
+
+    
+    return Xi, Yi, np.reshape(zi, Xi.shape) , levels
+
+# rmse curve 
+def corr_coeff_for_rms(rms,std_r,std_t):
+    return (std_r**2+std_t**2-rms**2)/(2*std_r*std_t)
+
+
+def Taylor_diagram(dir_plot,u_svp,u_corrcoef,u_std,colors,MODELS):
+
+
+    fig, ax = plt.subplots(figsize = (8,8),subplot_kw={'projection': 'polar'})
+    std_ru = np.mean(np.std(u_svp,axis = 1))
+    std_drifters_svp_u = np.std(u_svp,axis = 1)
+
+    for i in np.arange(0.02,0.15,0.02):
+        r = np.linspace(0.001,0.16,100)
+        theta = -corr_coeff_for_rms(i,std_ru,r)*np.pi/2+np.pi/2
+        r = np.delete(r,np.where((theta<-np.pi)+(theta > np.pi))[0])
+        theta = np.delete(theta,np.where((theta<-np.pi)+(theta > np.pi))[0])
+        line, = ax.plot(theta,r,c = 'k',alpha = 0.5)
+        if i == 0.02:
+            line.set_label('centered RMS')
+        if theta[np.argmin(abs(r-0.1))]< np.pi/2 and theta[np.argmin(abs(r-0.1))]> 0 : 
+            t = ax.text(theta[np.argmin(abs(r-0.1))],0.1, str(round(i,2)), fontsize=11)
+            t.set_bbox(dict(facecolor='white', alpha=1, edgecolor='white'))
+        elif theta[np.argmin(abs(r-0.1))]< 0: 
+            t = ax.text(theta[np.argmin(abs(r-std_ru))],std_ru, str(round(i,2)), fontsize=11)
+            t.set_bbox(dict(facecolor='white', alpha=1, edgecolor='white'))
+        else : 
+            t = ax.text(theta[np.argmin(abs(r-0.14))],0.14, str(round(i,2)), fontsize=11)
+            t.set_bbox(dict(facecolor='white', alpha=1, edgecolor='white'))   
+            
+    ax.set_rticks(np.linspace(0,0.16,9))  # Less radial ticks
+    ax.set_rlabel_position(90)  # Move radial labels away from plotted line
+
+    ax.set_thetamin(0)
+    ax.set_thetamax(90)
+    #ax.set_rlabel_position(-22.5)  # Move radial labels away from plotted line
+    ax.grid(True)
+    ax.set_xticks(np.linspace(0,np.pi/2,11))
+    ax.set_xticklabels([1.0,0.9,0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1,0])
+    ax.set_xlabel('STD ($m.s^{-1}$)')
+    ax.xaxis.set_label_coords(.5, -.05)
+
+    #labelLines(ax.get_lines(),xvals=(0.1, 2),zorder=2.5)
+    #labelLines(ax.get_lines(),xvals=(0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.2),zorder=2.5)
+    for i in range (len(MODELS)):
+        ax.plot(-u_corrcoef[i]*np.pi/2+np.pi/2, u_std[i],'o',c = colors[i],alpha = 0.3,ms = 4)
+        ax.plot(np.nanmean(-u_corrcoef[i]*np.pi/2+np.pi/2), np.nanmean(u_std[i]),'o',c = colors[i],ms = 10,label = 'MEAN '+MODELS[i])
+
+    ax.plot(np.linspace(0,np.pi/2,100),std_ru*np.ones(100),'--',c = 'cyan')
+    ax.plot(0,std_ru, '*',c= 'cyan',ms = 15, clip_on=False, zorder=100,label = 'Mean std drifters')
+    ax.plot(np.zeros(std_drifters_svp_u.shape),std_drifters_svp_u, '*',c= 'k',ms = 8, clip_on=False, zorder=100,label = 'std drifters')
+
+    plt.legend()
+    ax.text(np.pi/6,0.165,'Correlation',fontsize = 12,rotation = -np.arccos(np.pi/6)*180/np.pi)
+
+    ax.set_rmax(0.16)
+    ax.set_rmin(0)
+    #ax.set_title('Taylor Diagram for zonal velocity U')
+    ax.text(np.pi/1.8,0.06,'STD ($m.s^{-1}$)',fontsize = 12,rotation =90)
+
+    plt.savefig(dir_plot,dpi = 600)
+
+
+def Report_card_plot(MODELS,prop_skill_score,prop_sep_dist,prop_corr_lon,prop_corr_lat,dir_in,str_date1,str_date2,dir_plot):
+
+    df = pd.DataFrame({
+    'MODELS': MODELS,
+    'SKILLS': prop_skill_score,
+    'SEP50': prop_sep_dist,
+    'CORR_LON': prop_corr_lon,
+    'CORR_LAT': prop_corr_lat})
+    # ------- PART 1: Create background
+    # number of variable
+    categories=list(df)[1:]
+    N = len(categories)
+
+
+    config_object = ConfigParser()
+    config_object.read(dir_in+"src/config_products_fidji.ini")
+    colors_list = []
+    for MODEL in MODELS:
+        run_info = config_object[MODEL]
+        colors_list.append(run_info["color"])
+
+
+
+
+
+
+
+
+
+
+
+    df.T[1:].plot.bar(rot = 0,title = "Lagrangian statistics from " + str_date1+' to '+str_date2,ylabel = 'Proportion',xlabel = 'Scores',color = colors_list)
+    plt.legend(labels = df.MODELS.values)
+    plt.savefig(dir_plot+'Lag_stats_'+str_date1+'_'+str_date2+'.png',dpi = 600)
+
+    print("Save fig : ", dir_plot+'Lag_stats_'+str_date1+'_'+str_date2+'.png')
 
 
 def comparative_maps(MAPS,AXS_TITLES,cell_size,grid,fig_title,fig_name,VMIN,VMAX):

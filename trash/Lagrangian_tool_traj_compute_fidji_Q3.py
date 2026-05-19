@@ -171,7 +171,7 @@ for ii in range(len(FCT_vect)):
                     print(DT_ST.strftime('%Y-%m-%d'))
                     indice_start_mod = np.where(file[69:77]==DT_ST.strftime('%Y%m%d'))[0] 
                     if len(indice_start_mod)> 0 :
-                        print('processing of CCalculate_model_traj_FCST')
+                        print('processing of Calculate_model_traj_FCST')
                         #exit()
                         Calculate_model_traj_FCST(MODELS[0] ,DIR_OUT,nb_points,traj_drifter_lon[:,indice_start:],traj_drifter_lat[:,indice_start:],traj_drifter_id[:,indice_start:],DT_ST,DRIFT_TIME,COPERNICUS_DRIFTER,np.array(u_files_mod)[:,indice_start_mod[0]:],np.array(v_files_mod)[:,indice_start_mod[0]:],var_u_mod,var_v_mod,meshmask,ADVECTION_DIFFUSION_TYPE,NB_REPEATS)
         

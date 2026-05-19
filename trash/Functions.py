@@ -13,6 +13,134 @@ from configparser import ConfigParser
 from tqdm import tqdm
 import datetime
 
+# =========================================================
+# 4. BINNING ON GRID
+# =========================================================
+
+def bin_spatial(array_daily, traj_lon, traj_lat, res=2):
+
+    # --- grid definition
+    lon_bins = np.arange(-180, 181, res)
+    lat_bins = np.arange(-90, 91, res)
+
+    nlon = len(lon_bins) - 1
+    nlat = len(lat_bins) - 1
+    ndays = array_daily.shape[1]
+
+    sum_sep = np.zeros((nlat, nlon, ndays))
+    count_sep = np.zeros((nlat, nlon, ndays))
+
+    # --- initial positions
+    lon0 = traj_lon[:, 0]
+    lat0 = traj_lat[:, 0]
+
+    # wrap longitude
+    lon0 = ((lon0 + 180) % 360) - 180
+
+    ilon = np.digitize(lon0, lon_bins) - 1
+    ilat = np.digitize(lat0, lat_bins) - 1
+
+    valid = (ilon >= 0) & (ilon < nlon) & (ilat >= 0) & (ilat < nlat)
+
+    ilon = ilon[valid]
+    ilat = ilat[valid]
+    sep_valid = array_daily[valid]
+
+    # --- vectorized accumulation
+    for t in range(ndays):
+        np.add.at(sum_sep[:, :, t], (ilat, ilon), sep_valid[:, t])
+        np.add.at(count_sep[:, :, t], (ilat, ilon), 1)
+
+    # --- mean
+    mean_sep = sum_sep / count_sep
+    mean_sep[count_sep == 0] = 0
+
+    return mean_sep, count_sep
+
+
+def bin_spatial2(array_daily, traj_lon, traj_lat, res=2):
+
+    import numpy as np
+
+    # -------------------------------------------------
+    # Grid definition
+    # -------------------------------------------------
+    lon_bins = np.arange(-180, 180 + res, res)
+    lat_bins = np.arange(-90, 90 + res, res)
+
+    nlon = len(lon_bins) - 1
+    nlat = len(lat_bins) - 1
+    ndays = array_daily.shape[1]
+
+    # -------------------------------------------------
+    # Arrays (lon, lat, leadtime)
+    # -------------------------------------------------
+    #sum_array = np.zeros((nlon, nlat, ndays))
+    #count_array = np.zeros((nlon, nlat, ndays))
+    sum_array = np.zeros((ndays, nlon, nlat))
+    count_array = np.zeros((ndays, nlon, nlat))
+
+    # -------------------------------------------------
+    # Initial trajectory positions
+    # -------------------------------------------------
+    lon0 = traj_lon[:, 0]
+    lat0 = traj_lat[:, 0]
+
+    # longitude wrap
+    lon0 = ((lon0 + 180) % 360) - 180
+
+    # avoid edge issues
+    lon0 = np.clip(lon0, -179.9999, 179.9999)
+    lat0 = np.clip(lat0, -89.9999, 89.9999)
+
+    # -------------------------------------------------
+    # Bin indices
+    # -------------------------------------------------
+    ilon = np.digitize(lon0, lon_bins) - 1
+    ilat = np.digitize(lat0, lat_bins) - 1
+
+    valid = (
+        (ilon >= 0) & (ilon < nlon) &
+        (ilat >= 0) & (ilat < nlat)
+    )
+
+    ilon = ilon[valid]
+    ilat = ilat[valid]
+
+    array_valid = array_daily[valid]
+
+    # -------------------------------------------------
+    # Accumulate
+    # -------------------------------------------------
+    for t in range(ndays):
+
+        np.add.at(
+            #sum_array[:, :, t],
+            sum_array[t, :, :],
+            (ilon, ilat),
+            array_valid[:, t]
+        )
+
+        np.add.at(
+            #count_array[:, :, t],
+            count_array[t, :, :],
+            (ilon, ilat),
+            1
+        )
+
+    # -------------------------------------------------
+    # Mean
+    # -------------------------------------------------
+    mean_array = np.divide(
+        sum_array,
+        count_array,
+        out=np.full_like(sum_array, np.nan),
+        where=count_array != 0
+    )
+
+    return mean_array, count_array
+
+
 def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim=None, y2lim=None, zero=None, c1='k', c2='grey', figsize=(10, 6), fontsize=14):
     """
     Initialize a figure with 1 ax or 2 axes (if y2label), title and labels.
@@ -52,162 +180,6 @@ def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim
         return (fig, ax, ax2)
     else:
         return (fig, ax)
-
-
-
-    
-def save_fig(fname, dpi=200, show=False):
-    """
-    Save figure fname as fname.png
-    """
-    if fname:
-        fname += '.png'
-        plt.savefig(fname, bbox_inches='tight', dpi=dpi)
-        print ('Saved ', fname)
-        if show:
-            plt.show()
-        plt.close()
-        
-        
-def set_axis(ax, label=None, col='k', fontsize=12):
-    """
-    set ax with color col and label 
-    """
-    if label is not None:
-        ax.set_ylabel(label, fontsize=fontsize, fontweight='bold')
-    ax.tick_params(axis='y', colors = col)
-    ax.yaxis.label.set_color(col)
-    
-    
-def plot_zero(ax, zero, xlim, c='k', vertical=False):
-    """
-    Plot an horizontal line at y=zero or vertical line if vertical==True or diagonal line.
-    xlim: xlim=(0,10) for example.
-    """
-    if zero != None and xlim:
-        if vertical:
-            y = np.linspace(xlim[0], xlim[1])
-            ax.plot(zero * np.ones(len(y)), y,'--k', zorder=3, c=c)
-        else:
-            x = np.linspace(xlim[0], xlim[1])
-            if zero == 'diag':
-                ax.plot(x, x,'--k', zorder=3, c=c)   
-            else:
-                ax.plot(x, zero * np.ones(len(x)),'--k', zorder=3, c=c)
-
-def init_polar(title=None, xlabel=None, ylabel=None, figsize=(8, 5), fontsize=14):
-
-    plt.rc('ytick',labelsize=fontsize); plt.rc('xtick',labelsize=fontsize)
-    fig = plt.figure(figsize=figsize) 
-    ax = plt.subplot(111, projection='polar')
-    plt.title(title, fontsize=fontsize+2, fontweight='bold')
-    
-    return fig, ax 
-
-
-
-def compute_directions(U, V, nb_directions, bins_classes):
-    """
-    Compute directions histogram for current rose.
-    Return:
-        rose: yaxis of histogram, size nb_directions * nb_classes
-              (nb of occurences per speed class and per direction).
-        directions: x axis of histogram (-pi -> pi)
-    """
-    nb_classes = len(bins_classes) - 1
-    
-    # Norm and direction
-    speed = np.array(np.sqrt(U**2 + V**2))
-    theta = np.array(np.arctan2(V, U))
-    
-    # Flatten and remove nan
-    speed = speed[~np.isnan(speed)]
-    theta = theta[~np.isnan(theta)]
-
-    # Compute polar histogram
-    hist = np.histogram(theta, bins=nb_directions, range=(-np.pi, np.pi))   
-
-    # Compute histogram on norm for each direction
-    rose = np.zeros((nb_directions, nb_classes))
-    for k in range(nb_directions):
-        idx = np.where((theta >= hist[1][k]) & (theta < hist[1][k+1]))[0]
-        sp = speed[idx]
-        h = np.histogram(sp, bins=bins_classes)
-        rose[k, :] = h[0]
-    directions = (hist[1][:-1] + hist[1][1:]) / 2
-    return rose, directions
-
-
-def current_rose(U, V, bins_classes=[0,0.1,0.2,0.3,0.5], title=None, fname=False, nb_directions=32, pmax='auto', legend=True, fontsize=20,diff = False):
-    """
-    Plot circular histogram of current velocity with different colors depending on current norm.
-    
-    Parameters:
-        -U/V: current zonal/meridional velocity
-        -bins_classes: classes of current velocity. Last class is V > bins_classes[-1]
-        -title: figure title
-        -save: False or figure name
-        -nb_directions: divide the circle in nb_directions categories
-        -pmax: maximum percentage of data for yaxis (auto or int)
-        -legend: boolean, to plot legend
-    """
-    
-    # Calculate circular histogram
-    rose, directions = compute_directions(U, V, nb_directions, bins_classes)
-
-
-    # Useful variables for plot
-    delta = 2 * np.pi / nb_directions - 0.05 # Angle du segment de cercle
-    width = np.ones(nb_directions) * 2 * np.pi /nb_directions - 0.05
-    colors = ['blue', 'deepskyblue', 'greenyellow', 'yellow', 'orange', 'red', 'purple', 'k'] # max 8 classes
-    if legend:
-        labels = ['%.2f - %.2f m/s'%(bins_classes[k], bins_classes[k+1]) for k in range(len(bins_classes)-1)]
-        labels[-1] = '> %.2f m/s'%bins_classes[-1]
-    else:
-        labels = [None for i in range(len(bins_classes))]
-
-    # Decoration
-    fig, ax = init_polar(figsize=(10,12), fontsize=fontsize)
-
-    # Plot
-    bottom=0
-    nb_data = np.sum(~np.isnan(U))
-    for k in range(len(bins_classes) - 1):
-        height = rose[:, k] * 100 / nb_data
-        ax.bar(directions, height, width=width, bottom=bottom, edgecolor='k', color = colors[k], label=labels[k])
-        bottom += height
-
-    # Maximum % for yticks
-    if pmax == 'auto':
-        pmax = np.max([np.sum(rose[k, :]) for k in range(nb_directions)]) * 100 / nb_data
-    
-    # Plot mean direction       
-    mean_dir = np.arctan2(np.nanmean(V), np.nanmean(U))
-    ax.plot([mean_dir, mean_dir],[0,pmax], '-.',color='k',linewidth =5)
-
-    # Legend, title and ticks
-    if legend:
-        plt.legend(fontsize=fontsize, loc=(1,0), title='Current velocity (m/s)', title_fontsize=fontsize+2)
-    plt.title(title, fontsize=fontsize+8, fontweight='bold')
-    ax.set_xticks(np.linspace(0,2*np.pi-np.pi/8,16))
-    if diff==True:
-        ax.set_xticklabels(np.linspace(0,360 - 360 /16,16), fontsize=fontsize, fontweight='bold')    
-
-    else :
-        ax.set_xticklabels(('E','','NE','','N','','NW','','W','','SW','','S','','SE',''), fontsize=fontsize, fontweight='bold')    
-    ax.set_ylabel('Percentage of total data', fontsize=fontsize, position=(0,0.75), rotation=60)
-    ax.set_rlabel_position(150)      
-    nticks = 5
-    yticks = np.linspace(pmax/nticks, pmax, nticks, dtype='int')
-    ax.set_yticks(yticks)
-    ax.set_yticklabels([str(i) + '%' for i in yticks], fontsize=fontsize)
-
-    # Save figure
-    save_fig(fname)
-
-
-
-
 
 
 def proba_density_2D_SK(datax, datay, resx, resy, xlim = [0,360], ylim = [-90, 90], quantiles = [], metric = 'haversine', bandwidth = 200, nsample = 1e6, kernel = 'epanechnikov', periodx = 360):
@@ -315,7 +287,7 @@ def Retrieve_drifter_local(dir_out,lon_min,lon_max,lat_min,lat_max,date_start,da
     for i in range(nb_drifters_temp):
         nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
         if not nb_entries >= (T_DRIFT*4+1):
-            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            #print(drifter_ids[i],': not enough entries, only ', nb_entries)
             spurious_drifters.append(drifter_ids[i])
 
     #ind1 = drifters_zone_traj['id']==spurious_drifters).index
@@ -350,10 +322,6 @@ def Retrieve_data_local(MODELS,date_start,date_end_plus_DRIFT_TIME,dir_out,dir_i
     u_files_mod = []
     v_files_mod = []
     colors = []
-
-
-
-
 
     print ("#-----------------------------------------------------------------------------------------")
     print ("#                      RETRIEVE U,V, SSH FIELDS")
@@ -710,17 +678,22 @@ def Taylor_diagram(dir_plot,u_svp,u_corrcoef,u_std,colors,MODELS):
 
 def Retrieve_traj_files(MODELS,dir_out):
     traj_files_temp = [] 
-    
+   
+    print(MODELS) 
     for MODEL in MODELS:
         print(MODEL)
         traj_files_int = []
-        traj_files_int.append(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr'))
-        print(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr')
+        #traj_files_int.append(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr'))
+        files = glob.glob(dir_out + '/' + '*Trajectories_' + MODEL + '_*at_SVPloc*.zarr')
+        #if files:
+        traj_files_int.append(glob.glob(dir_out+'/'+'*Trajectories_'+MODEL+'_*at_SVPloc*.zarr'))
+        #    #files = glob.glob(dir_out + '/' + '*Trajectories_' + MODEL + '_*at_SVPloc*.zarr')
+        #    print(files[0])
+        #    traj_files_int.append(files[0])
+        #print(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr')
         traj_files_temp.append(traj_files_int)
-        print('rtrtrt')
         print(traj_files_temp)
     traj_files =  np.sort([inner for outer in traj_files_temp for inner in outer])
-
     traj_lon_temp = []
     traj_lat_temp = []
     traj_time_temp = []
@@ -729,25 +702,29 @@ def Retrieve_traj_files(MODELS,dir_out):
     #traj_lon1  = []
     #traj_lat1  = []
     #traj_time1 = []
-
+    
     for i in range(len(MODELS)):
         traj_lon_int = []
         traj_lat_int = []
         traj_time_int = []
         traj_IDS_int = []
         #traj_date_int = []
-        for file in traj_files[i]:
+        list_traj = traj_files[i]
+        #for file in traj_files[i]:
+        for file in list_traj:
             print(file)
-            ds = xr.open_zarr(file)           
+            print('ok')
+            ds = xr.open_zarr(file)
             traj_time_int.append(ds.time.values)
             traj_lon_int.append(ds.lon.values)
             traj_lat_int.append(ds.lat.values)
             traj_IDS_int.append(ds['label'].values)
+            break
         traj_lon_temp.append(traj_lon_int)
         traj_lat_temp.append(traj_lat_int)
         traj_time_temp.append(traj_time_int)
         traj_IDS_temp.append(traj_IDS_int)
-
+        
         #traj_lon1.append(traj_lon_int)
         #traj_lat1.append(traj_lat_int)
         #traj_time1.append(traj_time_int)
@@ -809,7 +786,7 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
     print('loading ',outfile2)
     drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
     print(drifters_zone_traj.head(5))
-    print(drifters_zone_traj.dtypes)
+    #print(drifters_zone_traj.dtypes)
     
 
 
@@ -817,18 +794,19 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
     #remove drifters with missing entries (should be nb_days*4+1)
     #Check each drifter has n days * 4 entries
     drifter_ids = pd.unique(drifters_zone_traj['id'])
+    
     spurious_drifters=[]
 
     print(np.shape(drifter_ids))
     print(nb_drifters_temp)
-    
     for i in range(nb_drifters_temp):
         nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
-        if not nb_entries >= (T_DRIFT*24):
+        #print(nb_entries, i)
+       # if not nb_entries >= ((T_DRIFT+1)*24):
+        if not nb_entries >= ((T_DRIFT)*24):
             print(drifter_ids[i],': not enough entries, only ', nb_entries)
             spurious_drifters.append(drifter_ids[i])
     
-
 
     if False:
         #drifters_zone_traj_old = drifters_zone_traj
@@ -854,35 +832,36 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
     #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
     if remote or copernicus_drifter:
         nb_points = T_DRIFT*24   # hourly
+        #nb_points = (T_DRIFT+1)*24   # hourly
     else :
         nb_points = T_DRIFT*4 + 1    # hourly
 
-    print(nb_points)
+    #print(nb_points)
     print(np.shape(drifters_zone_traj))
-    print(drifters_zone_traj)
-    print(np.shape(drifters_zone_traj.date.values))
-    
-    print(np.shape(drifters_zone_traj.date.values))
-    print(nb_drifters2*nb_points)
+    #print(drifters_zone_traj)
+    #print(type(drifters_zone_traj))
+    #print(np.shape(drifters_zone_traj.time.values))
+    #print(np.shape(drifters_zone_traj.date.values))
+    #print(nb_drifters2*nb_points)
 
-    for i in range(nb_points):
-        print(drifters_zone_traj.id.values[i])
-        print(drifters_zone_traj.date.values[i])
-        print(drifters_zone_traj.time.values[i])
-    
-    print(drifters_zone_traj.id.values[nb_points])
-    print(drifters_zone_traj.date.values[nb_points])
-    print(drifters_zone_traj.id.values[nb_points +24])
-    print(drifters_zone_traj.date.values[nb_points+24])
-    print(drifters_zone_traj.id.values[nb_points+72])
-    print(drifters_zone_traj.date.values[nb_points+72])
+    #for i in range(nb_points):
+    #    print(drifters_zone_traj.id.values[i])
+    #    print(drifters_zone_traj.date.values[i])
+    #    print(drifters_zone_traj.time.values[i])
+    #
+    #print(drifters_zone_traj.id.values[nb_points])
+    #print(drifters_zone_traj.date.values[nb_points])
+    #print(drifters_zone_traj.id.values[nb_points +24])
+    #print(drifters_zone_traj.date.values[nb_points+24])
+    #print(drifters_zone_traj.id.values[nb_points+72])
+    #print(drifters_zone_traj.date.values[nb_points+72])
     ll =0
     while drifters_zone_traj.id.values[ll] == drifters_zone_traj.id.values[0]:
         ll += 1
-    print(f'{ll=}')
-    print(f'{nb_points = }')
-    print(f'{ll*nb_drifters2}')
-    print(np.shape(drifters_zone_traj.date.values))
+    #print(f'{ll=}')
+    #print(f'{nb_points = }')
+    #print(f'{ll*nb_drifters2}')
+    #print(np.shape(drifters_zone_traj.date.values))
     
 
 
@@ -911,7 +890,7 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
         for ll in range(len(IDS)):
             indexx = np.where(drifters_zone_traj.id.values == IDS[ll])
             #print(indexx[0])
-            print(indexx[0][0])
+            #print(indexx[0][0])
 
             list_lon_temp.append(drifters_zone_traj.lon.values[indexx[0][0]:indexx[0][0]+nb_points])
             list_lat_temp.append(drifters_zone_traj.lat.values[indexx[0][0]:indexx[0][0]+nb_points])
@@ -920,8 +899,8 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
             list_id_temp.append(drifters_zone_traj.id.values[indexx[0][0]:indexx[0][0]+nb_drifters2])
         
         taille_max = max(len(x) for x in list_lon_temp)
-        print(taille_max)
-        print([len(x) for x in list_lon_temp])
+        #print(taille_max)
+        #print([len(x) for x in list_lon_temp])
 
         list_lon = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_lon_temp])
         taille_max = max(len(x) for x in list_lat_temp)
@@ -943,14 +922,94 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
         traj_drifter_id = np.array( list_id)
 
         
-    print('abc')
-    print(np.shape(drifters_zone_traj.date.values))
-    print(np.shape(traj_drifter_date))
-    print(f'{nb_drifters2=}')
-    print(f'{nb_points=}')
-    print(T_DRIFT)
+    #print('abc')
+    #print(np.shape(drifters_zone_traj.date.values))
+    #print(np.shape(traj_drifter_date))
+    #print(f'{nb_drifters2=}')
+    #print(f'{nb_points=}')
+    #print(T_DRIFT)
 
     return traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id,nb_drifters2
+
+
+import numpy as np
+
+def Traj_filter_parcels(
+    DRIFT_TIME,
+    traj_drifter_lon,
+    traj_drifter_lat,
+    traj_drifter_date,
+    traj_drifter_time,
+    traj_lon,
+    traj_lat
+):
+    """
+    Align drifter trajectories onto model trajectory time grid.
+
+    Parameters
+    ----------
+    traj_drifter_lon : (Nd, Td)
+    traj_drifter_lat : (Nd, Td)
+    traj_drifter_time : (Nd, Td) datetime64
+    traj_lon : (Nd, Tm)
+    traj_time_model : (Tm,) datetime64
+
+    Returns
+
+    Parameters
+    ----------
+    traj_drifter_lon : (Nd, Td)
+    traj_drifter_lat : (Nd, Td)
+    traj_drifter_time : (Nd, Td) datetime64
+    traj_drifter_date : (Nd, Td) str or datetime
+    traj_lon : (Ni, Nj, Nd, Tm)
+    traj_lat : (Ni, Nj, Nd, Tm)
+    traj_time_model : (Tm,) datetime64
+
+    Returns
+    -------
+    drifter_lon : (Nd, Tm)
+    drifter_lat : (Nd, Tm)    
+
+    """
+
+    print(f'Dimension lon {traj_lon.shape}')
+     
+    Nd, Td = traj_drifter_lon.shape
+    Tm = traj_lon.shape[-1]
+
+    # --- Compute resampling factor automatically
+    factor = Td // Tm  # e.g. 240 // 40 = 6
+    print(f"Sampling factor {factor}")
+    if Td % Tm != 0:
+        print(f"Shape lon {traj_lon.shape}")
+        raise ValueError(f"Drifter time dimension not divisible by model time dimension {traj_lon.shape}")
+
+    # --- Reshape and average
+    lon_reshaped = traj_drifter_lon.reshape(Nd, Tm, factor)
+    lat_reshaped = traj_drifter_lat.reshape(Nd, Tm, factor)
+
+    drifter_lon_2d = lon_reshaped.mean(axis=2)
+    drifter_lat_2d = lat_reshaped.mean(axis=2)
+
+    # --- Time & date: take central value in each window
+    mid = factor // 2
+
+    time_reshaped = traj_drifter_time.reshape(Nd, Tm, factor)
+    date_reshaped = traj_drifter_date.reshape(Nd, Tm, factor)
+
+    drifter_time_2d = time_reshaped[:, :, mid]
+    drifter_date_2d = date_reshaped[:, :, mid]
+    # --- Now match original output shape
+    # Your original code had extra dims (i,j,:,:)
+    # So we broadcast the result
+
+    drifter_lon = np.broadcast_to(drifter_lon_2d, traj_lon.shape)
+    drifter_lat = np.broadcast_to(drifter_lat_2d, traj_lat.shape)
+    drifter_time = np.broadcast_to(drifter_time_2d, traj_lat.shape)
+    drifter_date = np.broadcast_to(drifter_date_2d, traj_lat.shape)
+
+    return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td
 
 
 

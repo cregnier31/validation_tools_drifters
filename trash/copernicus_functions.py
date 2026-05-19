@@ -63,22 +63,6 @@ def Retrieve_data_from_copernicusmarine_datastore(MODELS,USERNAME,PASSWORD,depth
     return data,colors
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 def Retrieve_drifter_from_copernicusmarine_datastore(user,password,DIR_WORK,dir_out,str_date1,str_date2,T_DRIFT,str_region,lon_min,lon_max,lat_min,lat_max,date_start,date_end,tay_diag= False):
     """
     """
@@ -299,20 +283,562 @@ def Calculate_speed_at_svp_location_remote(lon_uv_svp,lat_uv_svp,traj_drifter_da
     lon_model = np.array(lon_model)
     lat_model = np.array(lat_model)
     time_model =np.array(time_model)
-    U_model =np.array(U_model)
+    U_model = np.array(U_model)
     V_model = np.array(V_model)
     
     return U_model, V_model
 
+def retrieve_drifters_for_one_day_traj(
+    day,
+    T_DRIFT,
+    lon_min,
+    lon_max,
+    lat_min, lat_max,
+    str_region,
+    str_date1,
+    str_date2,
+    dir_out
+):
+    yyear = day.strftime("%Y")
+
+    base_dir = (
+        "/utmp/smer/regnierc/DATA/CURRENTS/NRT/"
+        "INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/"
+        + yyear + "/"
+    )
+    end_day = day + pd.Timedelta(days=T_DRIFT)
+    nb_points = T_DRIFT * 24
+
+    fout_driftersZone = f"Drifters_{str_region}_{str_date1}_{str_date2}.csv"
+    dir_drifters = dir_out+'/DRIFTERS/'
+
+    if not os.path.exists(dir_drifters):
+        print('\ncreate folder : ', dir_drifters)
+        # Create directory where to store results:
+        os.makedirs(dir_drifters, exist_ok=True)
+    outfile2 = dir_drifters+fout_driftersZone
+
+    # ==========================================================
+    # 1. Select files
+    # ==========================================================
+    print('Select files')
+    file_list = sorted(glob.glob(base_dir + "*.nc"))
+
+    def extract_date(f):
+        return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
+
+    files_in = [f for f in file_list if day <= extract_date(f) <= end_day]
+
+    if len(files_in) == 0:
+        return None
+
+    # ==========================================================
+    # 2. Load data
+    # ==========================================================
+    print('Load data')
+    df_list = []
+
+    for file in files_in:
+        ds = xr.open_dataset(file)
+
+        df_tmp = pd.DataFrame({
+            'id': ds.PLATFORM_CODE.values.astype(np.int32),
+            'time': pd.to_datetime(ds.TIME.values),
+            'lat': ds.LATITUDE.values,
+            'lon': ds.LONGITUDE.values
+        })
+
+        df_list.append(df_tmp)
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    # ==========================================================
+    # 3. Spatial filtering
+    # ==========================================================
+    print('Spatial filtering')
+    df = df[
+        (df.lon >= lon_min) & (df.lon <= lon_max) &
+        (df.lat >= lat_min) & (df.lat <= lat_max)
+    ]
+    ## ==========================================================
+    ## 4. Remove invalid coordinates
+    ## ==========================================================
+    print('Removing invalid coordinates')
+    
+    valid = (
+        np.isfinite(df.lon) &
+        np.isfinite(df.lat) &
+        (np.abs(df.lat) <= 90) &
+        (np.abs(df.lon) <= 360)
+    )
+    
+    print(f"Invalid positions removed: {np.sum(~valid)}")
+    
+    df = df[valid] 
+    # ==========================================================
+    # 4. Sort + prepare time
+    # ==========================================================
+
+    df = df.sort_values(['id', 'time'])
+    df['date'] = df['time'].dt.floor('D')
+    
+    # ==========================================================
+    # 5. Keep only complete trajectories
+    # ==========================================================
+    nb_points = T_DRIFT * 24
+    
+    counts = df.groupby('id').size()
+    valid_ids = counts[counts >= nb_points].index
+
+    df = df[df.id.isin(valid_ids)]
+
+    print(f"Valid drifters: {len(valid_ids)}")
+
+    # ==========================================================
+    # 7. Build trajectories
+    # ==========================================================
+    print(f"Build trajectories")
+    trajs = []
+
+    for drifter_id, g in df.groupby('id'):
+
+        g = g[(g.time >= day) & (g.time < end_day)]
+        g = g.sort_values('time')
+
+        if len(g) < nb_points:
+            continue
+
+        times = g.time.values
+
+        # must start exactly at day
+        if pd.to_datetime(times[0]) != day:
+            continue
+
+        # strict hourly continuity
+        dt = np.diff(times) / np.timedelta64(1, 'h')
+        if not np.all(dt == 1):
+            continue
+
+        g = g.iloc[:nb_points]
+
+        trajs.append({
+            'id': drifter_id,
+            'lon': g.lon.values,
+            'lat': g.lat.values,
+            'time': g.time.values,
+            'date': g.date.values
+        })
+
+    if len(trajs) == 0:
+        return None
+
+    # ==========================================================
+    # 6. Save CSV
+    # ==========================================================
+
+    # ==========================================================
+    # Save CLEAN trajectories (not raw df)
+    # ==========================================================
+    df_trajs_list = []
+    
+    for traj in trajs:
+        n = len(traj['lon'])
+    
+        df_tmp = pd.DataFrame({
+            'id': np.repeat(traj['id'], n),
+            'time': traj['time'],
+            'date': traj['date'],
+            'lat': traj['lat'],
+            'lon': traj['lon']
+        })
+    
+        df_trajs_list.append(df_tmp)
+    
+    df_trajs = pd.concat(df_trajs_list, ignore_index=True)
+    
+    df_trajs.to_csv(outfile2, index=False)
+    
+    print(f"Saved trajectories CSV: {outfile2}")
+    ##df.to_csv(outfile2, index=False)
+    #drifter_ids = pd.unique(df_trajs['id'])
+    #print(f"{len(drifter_ids)} valid trajectories")
+    #with open("/home/smer/regnierc/code/validation_tools_drifters/drifter_ids_3.txt", "w") as f:
+    #    for did in drifter_ids:
+    #        f.write(f"{did}\n")
+    
+    print(f"{day.date()} → {len(trajs)} valid trajectories")
+#
+    return trajs, outfile2
+
+
+
+
+def retrieve_drifters_for_one_day(
+    day,
+    T_DRIFT,
+    lon_min, lon_max, lat_min, lat_max,
+):
+    str_day = day.strftime("%Y-%m-%d")
+    yyear = str_day[:4]
+
+    base_dir = (
+        "/utmp/smer/regnierc/DATA/CURRENTS/NRT/"
+        "INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/"
+        + yyear + "/"
+    )
+
+    # ==========================================================
+    # 1. Select files (day → day + T_DRIFT)
+    # ==========================================================
+    end_day = day + pd.Timedelta(days=T_DRIFT)
+
+    file_list = sorted(glob.glob(base_dir + "*.nc"))
+
+    def extract_date(f):
+        return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
+
+    files_in = [
+        f for f in file_list
+        if day <= extract_date(f) <= end_day
+    ]
+
+    if len(files_in) == 0:
+        return None
+
+    # ==========================================================
+    # 2. Load data
+    # ==========================================================
+    df_list = []
+
+    for file in files_in:
+        ds = xr.open_dataset(file)
+
+        df_tmp = pd.DataFrame({
+            'id': ds.PLATFORM_CODE.values.astype(np.int32),
+            'time': pd.to_datetime(ds.TIME.values),
+            'lat': ds.LATITUDE.values,
+            'lon': ds.LONGITUDE.values
+        })
+
+        df_list.append(df_tmp)
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    # ==========================================================
+    # 3. Spatial filtering
+    # ==========================================================
+    df = df[
+        (df.lon >= lon_min) & (df.lon <= lon_max) &
+        (df.lat >= lat_min) & (df.lat <= lat_max)
+    ]
+
+    df = df.sort_values(['id', 'time'])
+
+    # ==========================================================
+    # 4. Keep only complete trajectories
+    # ==========================================================
+    nb_points = T_DRIFT * 24
+    print(nb_points)
+
+    counts = df.groupby('id').size()
+    valid_ids = counts[counts >= nb_points].index
+
+    df = df[df.id.isin(valid_ids)]
+
+    print(f"Valid drifters: {len(valid_ids)}")
+    sys.exit(1)
+    # ==========================================================
+    # 4. Select valid drifters (STRICT)
+    # ==========================================================
+    valid_trajs = []
+
+    for drifter_id, g in df.groupby('id'):
+
+        g = g.sort_values('time')
+
+        # keep only window
+        g = g[(g.time >= day) & (g.time < end_day)]
+
+        if len(g) < nb_points:
+            continue
+
+        times = g.time.values
+
+        # must start exactly at day
+        if pd.to_datetime(times[0]) != day:
+            continue
+
+        # check hourly continuity
+        dt = np.diff(times) / np.timedelta64(1, 'h')
+        if not np.all(dt == 1):
+            continue
+
+        g = g.iloc[:nb_points]
+        valid_trajs.append(g)
+
+    if len(valid_trajs) == 0:
+        return None
+
+    df_valid = pd.concat(valid_trajs)
+    df_valid = df_valid.sort_values(['id', 'time'])
+
+    nb_drifters = df_valid['id'].nunique()
+
+    lon = df_valid.lon.values.reshape(nb_drifters, nb_points)
+    lat = df_valid.lat.values.reshape(nb_drifters, nb_points)
+    time = df_valid.time.values.reshape(nb_drifters, nb_points)
+    ids = df_valid.id.values.reshape(nb_drifters, nb_points)
+
+    print(f"{day.date()} → {nb_drifters} valid drifters")
+
+    return {
+        'lon': lon,
+        'lat': lat,
+        'time': time,
+        'id': ids
+    }
+
+def retrieve_drifters_per_day(
+    str_date1, str_date2,
+    T_DRIFT,
+    lon_min, lon_max, lat_min, lat_max,
+):
+    yyear = str_date1[:4]
+
+    base_dir = (
+        "/utmp/smer/regnierc/DATA/CURRENTS/NRT/"
+        "INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/"
+        + yyear + "/"
+    )
+
+    # ==========================================================
+    # 1. Select files (ROBUST VERSION)
+    # ==========================================================
+    file_list = sorted(glob.glob(base_dir + "*.nc"))
+
+    date_start = pd.to_datetime(str_date1)
+    date_end   = pd.to_datetime(str_date2)
+
+    def extract_date(f):
+        return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
+
+    files_in = []
+    for f in file_list:
+        try:
+            file_date = extract_date(f)
+            if date_start <= file_date <= date_end:
+                files_in.append(f)
+        except Exception as e:
+            print(f"Skipping file {f} (error: {e})")
+
+    print(f"Selected {len(files_in)} files")
+
+    if len(files_in) == 0:
+        raise ValueError("No files found in the given date range")
+
+    # ==========================================================
+    # 2. Load data
+    # ==========================================================
+    df_list = []
+
+    for file in files_in:
+        print(f"Loading {file}")
+        ds = xr.open_dataset(file)
+
+        df_tmp = pd.DataFrame({
+            'id': ds.PLATFORM_CODE.values.astype(np.int32),
+            'time': pd.to_datetime(ds.TIME.values),
+            'lat': ds.LATITUDE.values,
+            'lon': ds.LONGITUDE.values
+        })
+
+        df_list.append(df_tmp)
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    print(f"Total points loaded: {len(df)}")
+
+    # ==========================================================
+    # 3. Spatial filtering
+    # ==========================================================
+    df = df[
+        (df.lon >= lon_min) & (df.lon <= lon_max) &
+        (df.lat >= lat_min) & (df.lat <= lat_max)
+    ]
+
+    print(f"After spatial filter: {len(df)}")
+
+    # ==========================================================
+    # 4. Sort + prepare time
+    # ==========================================================
+    df = df.sort_values(['id', 'time'])
+    df['date'] = df['time'].dt.floor('D')
+
+    nb_points = T_DRIFT * 24
+
+    # ==========================================================
+    # 5. Loop over each start day
+    # ==========================================================
+    start_days = pd.date_range(str_date1, str_date2, freq='D')
+
+    trajectories_by_day = {}
+
+    for day in start_days:
+
+        end_day = day + pd.Timedelta(days=T_DRIFT)
+
+        df_window = df[(df.time >= day) & (df.time < end_day)]
+
+        if df_window.empty:
+            continue
+
+        counts = df_window.groupby('id').size()
+        valid_ids = counts[counts >= nb_points].index
+
+        if len(valid_ids) == 0:
+            continue
+
+        df_valid = df_window[df_window.id.isin(valid_ids)]
+
+        # truncate
+        df_valid = df_valid.groupby('id').head(nb_points)
+        df_valid = df_valid.sort_values(['id', 'time'])
+
+        nb_drifters = df_valid['id'].nunique()
+
+        lon = df_valid.lon.values.reshape(nb_drifters, nb_points)
+        lat = df_valid.lat.values.reshape(nb_drifters, nb_points)
+        time = df_valid.time.values.reshape(nb_drifters, nb_points)
+        ids = df_valid.id.values.reshape(nb_drifters, nb_points)
+
+        trajectories_by_day[day] = {
+            'lon': lon,
+            'lat': lat,
+            'time': time,
+            'id': ids
+        }
+
+        print(f"{day.date()} → {nb_drifters} drifters")
+
+    return trajectories_by_day
 
 
 
 
 
+def Retrieve_drifter_from_fidji(
+    dir_out,
+    str_date1, str_date2,
+    T_DRIFT,
+    str_region,
+    lon_min, lon_max, lat_min, lat_max,
+    tay_diag=False
+):
+    """
+    Retrieve drifters with continuous trajectories over T_DRIFT days
+    """
 
+    yyear = str_date1[0:4]
 
+    output_directory = (
+        "/utmp/smer/regnierc/DATA/CURRENTS/NRT/"
+        "INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/"
+        + yyear + "/"
+    )
 
+    # ---- Output file ----
+    if tay_diag:
+        fout = f"Drifters_{str_region}_{str_date1}_{str_date2}_taylor_diag.csv"
+    else:
+        fout = f"Drifters_{str_region}_{str_date1}_{str_date2}.csv"
 
+    dir_drifters = dir_out + "/DRIFTERS/"
+    os.makedirs(dir_drifters, exist_ok=True)
+
+    outfile = dir_drifters + fout
+
+    # ==========================================================
+    # 1. Select files
+    # ==========================================================
+    file_start = output_directory + f"GL_TS_DC_{str_date1[:4]}{str_date1[5:7]}{str_date1[8:10]}_FILTR.nc"
+    file_end   = output_directory + f"GL_TS_DC_{str_date2[:4]}{str_date2[5:7]}{str_date2[8:10]}_FILTR.nc"
+
+    file_list = sorted(glob.glob(output_directory + "*.nc"))
+    files_in = [f for f in file_list if file_start <= f <= file_end]
+
+    print(f"Selected {len(files_in)} files")
+    # ==========================================================
+    # 2. Load data
+    # ==========================================================
+    df_list = []
+
+    for file in files_in:
+        ds = xr.open_dataset(file)
+
+        df_tmp = pd.DataFrame({
+            'id': ds.PLATFORM_CODE.values.astype(np.int32),
+            'time': pd.to_datetime(ds.TIME.values),
+            'lat': ds.LATITUDE.values,
+            'lon': ds.LONGITUDE.values
+        })
+
+        df_list.append(df_tmp)
+
+    df = pd.concat(df_list, ignore_index=True)
+
+    # ==========================================================
+    # 3. Spatial filtering
+    # ==========================================================
+    df = df[
+        (df.lon >= lon_min) & (df.lon <= lon_max) &
+        (df.lat >= lat_min) & (df.lat <= lat_max)
+    ]
+
+    print(f"After spatial filter: {len(df)} points")
+
+    # ==========================================================
+    # 4. Keep only complete trajectories
+    # ==========================================================
+    nb_points = T_DRIFT * 24
+    print(nb_points)
+
+    counts = df.groupby('id').size()
+    valid_ids = counts[counts >= nb_points].index
+
+    df = df[df.id.isin(valid_ids)]
+
+    print(f"Valid drifters: {len(valid_ids)}")
+
+    # ==========================================================
+    # 5. Sort before reshape
+    # ==========================================================
+    df = df.sort_values(['id', 'time'])
+
+    # ==========================================================
+    # 6. Save CSV
+    # ==========================================================
+    df.to_csv(outfile, index=False)
+
+    # ==========================================================
+    # 7. Reshape
+    # ==========================================================
+    nb_drifters = len(valid_ids)
+
+    traj_drifter_lon  = df.lon.values.reshape(nb_drifters, nb_points)
+    traj_drifter_lat  = df.lat.values.reshape(nb_drifters, nb_points)
+    traj_drifter_time = df.time.values.reshape(nb_drifters, nb_points)
+    traj_drifter_id   = df.id.values.reshape(nb_drifters, nb_points)
+
+    print(f"Final number of drifters: {nb_drifters}")
+
+    return (
+        traj_drifter_lon,
+        traj_drifter_lat,
+        traj_drifter_time,
+        traj_drifter_id
+    )
+
+####
 
 
 
@@ -350,8 +876,8 @@ def Retrieve_drifter_from_copernicusmarine_datastore_fidji(user,password,DIR_WOR
         print(file_end)
         file_list = np.array(sorted(glob.glob(output_directory+'*.nc')))
         files_in  = file_list[(file_list>= file_start)*(file_list<=file_end)]
-        print(f'{file_list=}')
-        print(f'{files_in=}')
+        #print(f'{file_list=}')
+        print(f'Final list : {files_in=}')
     
         platform_code = []
         platform_code_unique = []
@@ -366,8 +892,6 @@ def Retrieve_drifter_from_copernicusmarine_datastore_fidji(user,password,DIR_WOR
             TIME.append(ds.TIME.values)
             LATITUDE.append(ds.LATITUDE.values)
             LONGITUDE.append(ds.LONGITUDE.values)
-        
-
         ID = platform_code_unique[0]
         ID_old = ID
         for day_code in platform_code_unique[1:]:
