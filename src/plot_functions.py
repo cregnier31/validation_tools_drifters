@@ -18,8 +18,312 @@ from scipy.stats import pearsonr
 import matplotlib
 import cartopy
 import netCDF4 as nc
+from lib_pyt.plot.class_plot_map import PlotMapCartopy as plotmap
+import xarray as xr
+from matplotlib import gridspec
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import pathlib
+
+def plot_scores(dir_out,file_in, list_days = [1, 3, 5, 7]):
+    list_diags = ["Liu_score", "Nobs", "sep-dist"]
+    list_diags = ["sep-dist", "Liu_score"]
+    list_lead = ["FCST"]#["ANA", "FCT"]
+    colormap = "WhiteBlueGreenYellowRed"
+    dict_variable = {}
+    dict_variable["Liu_score"] = "liu_skill_score"
+    dict_variable["Nobs"] = "count"
+    dict_variable["sep-dist"] = "mean_separation_distance"
+    dict_cmin = {}
+    dict_cmin["Liu_score"] = -1
+    dict_cmin["Nobs"] = 0
+    dict_cmin["sep-dist"] = 0
+    dict_cmax = {}
+    dict_cmax["Liu_score"] = 1
+    dict_cmax["Nobs"] = 100
+    dict_cmax["sep-dist"] = {}
+    dict_cmax["sep-dist"]['DT1'] = 100 #30
+    dict_cmax["sep-dist"]['DT2'] = 100  #80
+    dict_cmax["sep-dist"]['DT3'] = 100  #80
+    dict_cmax["sep-dist"]['DT4'] = 100  #80
+    dict_cmax["sep-dist"]['DT5'] = 100 #120
+    dict_cmax["sep-dist"]['DT6'] = 100  #80
+    dict_cmax["sep-dist"]['DT7'] = 100 ## 140
+    dict_cmax["sep-dist"]['DT8'] = 100  #80
+    dict_cmax["sep-dist"]['DT9'] = 100 #200
+    dict_cmax["sep-dist"]['DT10'] = 100 #200
+   
+    dict_cbcolor = {}
+    dict_cbticks = {}
+    dict_cbcolor["Liu_score"] = 0.1
+    dict_cbticks["Liu_score"] = 0.2
+    dict_cbticks["sep-dist"] = {}
+    dict_cbticks["sep-dist"]['DT1'] = 10
+    dict_cbticks["sep-dist"]['DT2'] = 10
+    dict_cbticks["sep-dist"]['DT3'] = 10
+    dict_cbticks["sep-dist"]['DT4'] = 10
+    dict_cbticks["sep-dist"]['DT5'] = 10
+    dict_cbticks["sep-dist"]['DT6'] = 10
+    dict_cbticks["sep-dist"]['DT7'] = 10
+    dict_cbticks["sep-dist"]['DT8'] = 10
+    dict_cbticks["sep-dist"]['DT9'] = 10
+    dict_cbticks["sep-dist"]['DT10'] = 10
+
+    dict_cbcolor["sep-dist"] = {}
+    dict_cbcolor["sep-dist"]['DT1'] = 10
+    dict_cbcolor["sep-dist"]['DT2'] = 10
+    dict_cbcolor["sep-dist"]['DT3'] = 10
+    dict_cbcolor["sep-dist"]['DT4'] = 10
+    dict_cbcolor["sep-dist"]['DT5'] = 10
+    dict_cbcolor["sep-dist"]['DT6'] = 10
+    dict_cbcolor["sep-dist"]['DT7'] = 10
+    dict_cbcolor["sep-dist"]['DT8'] = 10
+    dict_cbcolor["sep-dist"]['DT9'] = 10
+    dict_cbcolor["sep-dist"]['DT10'] = 10
+
+    dict_cbcolor["Nobs"] = 1
+    dict_cbticks["Nobs"] = 5
+    dict_colormaps = {}
+    dict_colormaps["Liu_score"] = "diff_alti"
+    #nipy_spectral_r"
+    #"MO_greyed70_middle_rev"
+    # "rainbow+gray"
+    dict_colormaps["sep-dist"] = "tab20b"
+    dict_colormaps["sep-dist"] = "rainbow"
+    dict_colormaps["Nobs"] = "MO_Blue-Red-greyed_minimum"
+    dict_units = {}
+    dict_units["Liu_score"] = "mean Liu Index"
+    dict_units["sep-dist"] = "km"
+    dict_units["Nobs"] = "nb obs"
+    name_listdays = "_".join(map(str, list_days))
+ 
+    proj_1 = ccrs.PlateCarree(200)
+   
+    ncdata = xr.open_dataset(f"{file_in}", decode_times=False)
+
+    nb_plots = 4
+    nb_cols = 2
+    nlines = 2
+    gs = gridspec.GridSpec(
+                           nlines,
+                           nb_cols,
+                           height_ratios=[1] * nlines,
+                           left=0.05,
+                           right=0.95,
+                           wspace=0.1,
+                           hspace=0.2,
+                          )
+    path = pathlib.Path(file_in)
+    namefile= path.name
+    SYSTEM = namefile.split('_')[3]
+    DATE1 = namefile.split('_')[4]
+    DATE2 = namefile.split('_')[5].split('.')[0]
+    for variable in list_diags:
+        for ind_ech, ech in enumerate(list_lead):
+            fig = plt.figure(figsize=(9, 7))
+            title = f"{variable} {SYSTEM} {DATE1}_{DATE2}"
+            fig.suptitle(title, fontweight="bold", fontsize=14, color="red")
+            filename_out = f"{dir_out}Lagrangian_stats_{SYSTEM}_{DATE1}_{DATE2}_{variable}_{ech}_fcstdays{name_listdays}.png"
+            for ind_day, day in enumerate(list_days):
+                print(ind_day, day)
+                varname = dict_variable[variable]
+                results = ncdata[varname][:, :, day-1]
+                print(np.nanmax(results))
+                print(np.nanmean(results))
+                longitude = ncdata["lon"]
+                latitude = ncdata["lat"]
+                row_index = ind_day // nlines
+                col_index = ind_day
+                if (col_index) > nb_cols - 1:
+                    col_index = col_index - nb_cols
+                print(f"{col_index=} {ind_day=} {nlines=}")
+                print(f"{row_index=}")
+                ax_fig = fig.add_subplot(gs[row_index, col_index], projection=proj_1)
+                title_position = (0.5, 1.05)
+                mean_value = np.nanmean(results)
+                titre = f"{ech} {day} days (mean = {mean_value:.2f})"
+                map2d = plotmap(ax=ax_fig)
+                if variable == "sep-dist":
+                    cmax = dict_cmax[variable][f'DT{day}']
+                    cbcolor_spacing = dict_cbcolor[variable][f'DT{day}']
+                    cbticks_spacing = dict_cbticks[variable][f'DT{day}']
+                else:
+                    cmax = dict_cmax[variable]
+                    cbcolor_spacing = dict_cbcolor[variable]
+                    cbticks_spacing = dict_cbticks[variable]
+            
+                map2d.pcolor(
+                    longitude,
+                    latitude,
+                    results,
+                    title=titre,
+                    extend="both",
+                    labelfont=7,
+                    units=dict_units[variable],
+                    cmin=dict_cmin[variable],
+                    cmax=cmax,
+                    colormap=dict_colormaps[variable],
+                    cbcolor_spacing = cbcolor_spacing,
+                    cbticks_spacing = cbticks_spacing
+                )
+            print(f"Save file {filename_out}")
+            fig.savefig(filename_out, dpi=200)
 
 
+
+def compute_and_plot_histograms(results,
+                                dir_plot,
+                                MODEL,
+                                year,
+                                size_box=2,
+                                days=[1, 3, 5]):
+    """
+    Compute and plot histograms of:
+        - separation distance
+        - Liu score
+
+    from process_one_day() outputs.
+    """
+
+    # ==========================================================
+    # Collect data
+    # ==========================================================
+
+    all_sep_daily = []
+    all_liu_daily = []
+
+    for res in results:
+        if "sep_dist_daily" in res:
+            all_sep_daily.append(res["sep_dist_daily"])
+
+        if "liu_skill_daily" in res:
+            all_liu_daily.append(res["liu_skill_daily"])
+
+    all_sep_daily = np.concatenate(all_sep_daily, axis=0)
+    all_liu_daily = np.concatenate(all_liu_daily, axis=0)
+
+    print("sep shape:", all_sep_daily.shape)
+    print("liu shape:", all_liu_daily.shape)
+    print(all_liu_daily)
+    # ==========================================================
+    # Output file
+    # ==========================================================
+
+    fig_out = (
+        dir_plot
+        + '/Hist_stats_'
+        + MODEL + '_'
+        + str(year)
+        + '.png'
+    )
+
+    # ==========================================================
+    # Figure (matplotlib)
+    # ==========================================================
+
+    fig, axs = plt.subplots(1, 2, figsize=(9, 5))
+
+    fig.suptitle(f"{MODEL}, {year}", fontsize=14)
+
+    colors = ['r', 'b', 'g', 'k', 'orange']
+
+    # ==========================================================
+    # Separation distance histogram
+    # ==========================================================
+
+    ax = axs[0]
+    bin_dict = {}
+    bin_dict[0] = 1
+    bin_dict[1] = 2
+    bin_dict[2] = 2
+    bin_dict[3] = 5
+    bin_dict[4] = 5
+    bin_dict[5] = 5
+    bin_dict[6] = 5
+    bin_dict[7] = 10
+    bin_dict[8] = 10
+    bin_dict[9] = 10
+
+
+    for i, day in enumerate(days):
+        bins = np.arange(0, 200, bin_dict[day-1])
+
+        idx = day - 1
+        if idx >= all_sep_daily.shape[1]:
+            continue
+
+        dist = all_sep_daily[:, idx]
+        dist = dist[np.isfinite(dist)]
+
+        if len(dist) == 0:
+            continue
+
+        counts, _ = np.histogram(dist, bins=bins)
+        freq = counts / len(dist)
+
+        bin_centres = bins[:-1] + (bins[1] - bins[0]) / 2
+        ax.plot(bin_centres, freq, lw=2, color=colors[i], label=f"{day} day")
+
+    ax.set_xlabel("Separation distance [km]")
+    ax.set_ylabel("Frequency")
+    ax.set_xlim(0, 200)
+    ax.set_ylim(0, 0.15)
+    ax.legend()
+
+    # ==========================================================
+    # Liu score histogram
+    # ==========================================================
+
+    ax = axs[1]
+
+
+    bin_dict2 = {}
+    bin_dict2[0] = 0.1 #0.01
+    bin_dict2[1] = 0.1 #0.02
+    bin_dict2[2] = 0.1 #0.02
+    bin_dict2[3] = 0.1 #0.05
+    bin_dict2[4] = 0.1 #0.05
+    bin_dict2[5] = 0.1 #0.05
+    bin_dict2[6] = 0.1 #0.05
+    bin_dict2[7] = 0.1 #0.1
+    bin_dict2[8] = 0.1 #0.1
+    bin_dict2[9] = 0.1 #0.1
+    for i, day in enumerate(days):
+
+        #bins2 = np.arange(0, 3, 0.1)
+        bins2 = np.arange(0, 3, bin_dict2[day-1])
+        bin_centres2 = bins2[:-1] + (bins2[1] - bins2[0]) / 2
+        idx = day - 1
+        if idx >= all_liu_daily.shape[1]:
+            continue
+
+        liu = all_liu_daily[:, idx]
+        liu = liu[np.isfinite(liu)]
+
+        if len(liu) == 0:
+            continue
+
+        counts, _ = np.histogram(liu, bins=bins2)
+        freq = counts / len(liu)
+
+        ax.plot(bin_centres2, freq, lw=2, color=colors[i], label=f"{day} day")
+
+    ax.set_xlabel("Liu index")
+    ax.set_ylabel("Frequency")
+    ax.set_xlim(0, 3)
+    ax.set_ylim(0, 0.15)
+    ax.legend()
+
+    # ==========================================================
+    # Save
+    # ==========================================================
+
+    plt.tight_layout()
+    plt.savefig(fig_out, dpi=300)
+    plt.close()
+
+    print("Saved:", fig_out)
+ 
 def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim=None, y2lim=None, zero=None, c1='k', c2='grey', figsize=(10, 6), fontsize=14):
     """
     Initialize a figure with 1 ax or 2 axes (if y2label), title and labels.

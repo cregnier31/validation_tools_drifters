@@ -19,15 +19,12 @@ def retrieve_drifters_for_one_day_traj(
     str_region,
     str_date1,
     str_date2,
+    drift_path,
     dir_out
 ):
     yyear = day.strftime("%Y")
 
-    base_dir = (
-        "/utmp/smer/regnierc/DATA/CURRENTS/NRT/"
-        "INSITU_GLO_UV_NRT_OBSERVATIONS_013_048/drifter_filt/"
-        + yyear + "/"
-    )
+    base_dir = ( drift_path + yyear + "/" )
     end_day = day + pd.Timedelta(days=T_DRIFT)
     nb_points = T_DRIFT * 24
 

@@ -11,6 +11,7 @@ from parcels_tools import run_parcels_Drift
 from spatial_binning import bin_spatial, bin_spatial2
 from lagrangian_metrics import SeparationDistance,\
                         SeparationDistance_havers,\
+                        SeparationDistance_havers2,\
                         LiuScore2
 from utils import convert_id_to_char_array
 
@@ -21,7 +22,7 @@ def process_one_day(day, leadtime, DIR_OUT,
                     DEPTH,ADVECTION_DIFFUSION_TYPE,
                     NB_REPEATS, STR_REGION,
                     COPERNICUS_DRIFTER, DRIFT_TIME,
-                    resolution=2,
+                    DRIFT_PATH, resolution=2,filtered=True
                     ):
     """
     Process one initialization day for Lagrangian validation.
@@ -126,6 +127,7 @@ def process_one_day(day, leadtime, DIR_OUT,
         STR_REGION,
         str_date_sim,
         srt_date_end,
+        DRIFT_PATH,
         DIR_OUT
         )
     
@@ -239,81 +241,98 @@ def process_one_day(day, leadtime, DIR_OUT,
         drifter_lon,drifter_lat,drifter_date,drifter_time, Tm, Nd, Td = Traj_filter_parcels(DRIFT_TIME,traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time, traj_lon,traj_lat)
         print(f"Dimensions observations subsampled raw : {np.shape(drifter_lon)}")
         print(f'Dimensions model Parcels : {np.shape(traj_lon)}')
-        # Change to 0-360
-        traj_lon = ((traj_lon + 180) % 360) - 180
-        drifter_lon = ((drifter_lon + 180) % 360) - 180
-        # ---------------------------------------------------------
-        # Select suspicious trajectories by fixing a big theshold
-        # ---------------------------------------------------------
-        threshold = 300.00  # km
-        dist_first_day = SeparationDistance_havers(
-            drifter_lon[:, :, :, :4],
-            drifter_lat[:, :, :, :4],
-            traj_lon[:, :, :, :4],
-            traj_lat[:, :, :, :4]
-        )
-        maxdist = np.nanmax(dist_first_day, axis=-1)
-        bad_traj = np.squeeze(maxdist > threshold)
-        nb_bad = np.sum(bad_traj)
-        print(f"Number of suspicious trajectories: {nb_bad}")
-        # ------------------------------------------------------    
-        # Filter only if suspicious trajectories exist
-        # ------------------------------------------------------    
-        if nb_bad > 0:
-            #mask = dist0 > threshold
-            good_idx = np.where(~bad_traj)[0]
-            print(f"Number of suspicious trajectories: {np.sum(bad_traj)}")
-            print("Number of good trajectories:", len(good_idx))
-            print(np.shape(good_idx))
-            print(np.shape(drifter_lon))
-            print(np.shape(drifter_lat))
-            print('---------------------------------')
-            
-            traj_lon = traj_lon[:, :, good_idx, :]
-            traj_lat = traj_lat[:, :, good_idx, :]
-            drifter_lon = drifter_lon[:, :, good_idx, :]
-            drifter_lat = drifter_lat[:, :, good_idx, :]
-            
-            print(np.shape(drifter_lon))
-            print(np.shape(drifter_lat))
-            print('********************************************')
-            ## ---------------------------------------------------------
-            ## Build dataframe
-            ## ---------------------------------------------------------
-            #df = pd.DataFrame({
-            #    "lon_drift": lon_drift0,
-            #    "lat_drift": lat_drift0,
-            #    "lon_model": lon_model0,
-            #    "lat_model": lat_model0,
-            #    "distance_km": dist0,
-            #})
-            #
-            ## optional trajectory id
-            #df["trajectory"] = np.where(mask)[0]
-            #
-            ## reorder columns
-            #df = df[
-            #    [
-            #        "trajectory",
-            #        "lon_drift",
-            #        "lat_drift",
-            #        "lon_model",
-            #        "lat_model",
-            #        "distance_km",
-            #    ]
-            #]
-            #
-            ## ---------------------------------------------------------
-            ## Save CSV
-            ## ---------------------------------------------------------
-            #outfile = "suspicious_trajectories_first_step.csv"
-            #
-            #df.to_csv(outfile, index=False)
-            #print(f"Saved {outfile}")
+        if filtered:
+            # Change to 0-360
+            traj_lon = ((traj_lon + 180) % 360) - 180
+            drifter_lon = ((drifter_lon + 180) % 360) - 180
+            print(drifter_lon.shape)
+            print(traj_lon.shape)
+            # ---------------------------------------------------------
+            # Select suspicious trajectories by fixing a big theshold
+            # ---------------------------------------------------------
+            threshold = 500.00  # km
+            length_drift = T_DRIFT * factor
+            dist_first_day = SeparationDistance_havers2(
+                drifter_lon[:, :, :, :length_drift],
+                drifter_lat[:, :, :, :length_drift],
+                traj_lon[:, :, :, :length_drift],
+                traj_lat[:, :, :, :length_drift]
+            )
+            maxdist = np.nanmax(dist_first_day, axis=-1)
+            bad_traj = np.squeeze(maxdist > threshold)
+            nb_bad = np.sum(bad_traj)
+            save = False
+            print(f"Number of suspicious trajectories: {nb_bad}")
+            # ------------------------------------------------------    
+            # Filter only if suspicious trajectories exist
+            # ------------------------------------------------------    
+            if nb_bad > 0:
+                #mask = dist0 > threshold
+                good_idx = np.where(~bad_traj)[0]
+                bad_idx = np.where(bad_traj)[0]
+                print(f"Number of suspicious trajectories: {np.sum(bad_traj)}")
+                print("Number of good trajectories:", len(good_idx))
+                print(np.shape(good_idx))
+                print(np.shape(drifter_lon))
+                print(np.shape(drifter_lat))
+                print('********************************************')
+                if save:
+                    # ---------------------------------------------------------
+                    # Select suspicious indices
+                    # ---------------------------------------------------------
+
+                    # ---------------------------------------------------------
+                    # Extract first timestep (or full time if needed)
+                    # ---------------------------------------------------------
+                    lon_drift_bad = drifter_lon[:, :, bad_idx, :]
+                    lat_drift_bad = drifter_lat[:, :, bad_idx, :]
+                    lon_model_bad = traj_lon[:, :, bad_idx, :]
+                    lat_model_bad = traj_lat[:, :, bad_idx, :]
+                    dist_bad = dist_first_day[:, :, bad_idx, :]
+                    # time array (assumes same shape)
+                    time_bad = traj_time[:, :, bad_idx, :] if 'traj_time' in globals() else None
+
+                    # ---------------------------------------------------------
+                    # Build CSV rows
+                    # ---------------------------------------------------------
+                    rows = []
+
+                    ntraj = lon_drift_bad.shape[2]
+                    nt = lon_drift_bad.shape[-1]
+
+                    for t in range(nt):
+                        for i in range(ntraj):
+
+                            rows.append({
+                                "trajectory": int(bad_idx[i]),
+                                "time_index": t,
+
+                                "lon_drift": lon_drift_bad[0, 0, i, t],
+                                "lat_drift": lat_drift_bad[0, 0, i, t],
+
+                                "lon_model": lon_model_bad[0, 0, i, t],
+                                "lat_model": lat_model_bad[0, 0, i, t],
+                                "distance_km": dist_bad[0, 0, i, t],
+
+                            })
+
+                    # ---------------------------------------------------------
+                    # Save CSV
+                    # ---------------------------------------------------------
+                    df_bad = pd.DataFrame(rows)
+
+                    outfile_csv = f"data/suspicious_trajectories_{str_date_sim}.csv"
+                    df_bad.to_csv(outfile_csv, index=False)
+
+                    print(f"Saved: {outfile_csv}")
+                traj_lon = traj_lon[:, :, good_idx, :]
+                traj_lat = traj_lat[:, :, good_idx, :]
+                drifter_lon = drifter_lon[:, :, good_idx, :]
+                drifter_lat = drifter_lat[:, :, good_idx, :]
         # --------------------------------------------------------------------
         # Compute statistical scores ; Separation distance and Liu Skill score
         # --------------------------------------------------------------------
-        sep_dist = SeparationDistance_havers(drifter_lon,drifter_lat,traj_lon,traj_lat)
+        sep_dist = SeparationDistance_havers2(drifter_lon,drifter_lat,traj_lon,traj_lat)
         # remove extra dims → (1019, 40)
         lon2d = traj_lon[0, 0, :, :]
         lat2d = traj_lat[0, 0, :, :]
@@ -358,7 +377,8 @@ def process_one_day(day, leadtime, DIR_OUT,
         #print(liu_daily)
         #print('----------------------') 
         # Compute skill score with the assumption of n=1
-        skill_score = 1-liu_daily
+        #skill_score = 1-liu_daily
+        skill_score = liu_daily
         #print(skill_score)
         
     if True:# np.prod(np.shape(np.where(np.isnan(traj_lon)))):
@@ -374,20 +394,54 @@ def process_one_day(day, leadtime, DIR_OUT,
             traj_lat = np.delete(traj_lat,nans,axis = 2)
             drifter_lon = np.delete(drifter_lon,nans,axis = 2)
             drifter_lat = np.delete(drifter_lat,nans,axis = 2)
+   
+    # ---------------------------------------------------------
+    # Remove singleton dimensions
+    # ---------------------------------------------------------
+    lon_drift = np.squeeze(drifter_lon)   # (ntraj, ntime)
+    lon_model = np.squeeze(traj_lon)
     
+    lat_drift = np.squeeze(drifter_lat)
+    lat_model = np.squeeze(traj_lat)
     
-    corr_lon = np.array([[[pearsonr(drifter_lon[i,j,k],traj_lon[i,j,k])[0] \
-        for k in range(traj_lon.shape[2])] for j in range(traj_lon.shape[1])] for i in range(traj_lon.shape[0])])
-    corr_lat = np.array([[[pearsonr(drifter_lat[i,j,k],traj_lat[i,j,k])[0] \
-        for k in range(traj_lat.shape[2])] for j in range(traj_lat.shape[1])] for i in range(traj_lat.shape[0])])
+    ntraj, ntime = lon_drift.shape
     
+    # ---------------------------------------------------------
+    # Initialize
+    # ---------------------------------------------------------
+    corr_lon = np.full((ntraj, ntime), np.nan)
+    corr_lat = np.full((ntraj, ntime), np.nan)
+    # ---------------------------------------------------------
+    # Progressive correlation
+    # ---------------------------------------------------------
+    for k in range(ntraj):
     
+        for t in range(2, ntime + 1):
+            # need at least 2 points for correlation
+    
+            try:
+                corr_lon[k, t-1] = pearsonr(
+                    lon_drift[k, :t],
+                    lon_model[k, :t]
+                )[0]
+    
+                corr_lat[k, t-1] = pearsonr(
+                    lat_drift[k, :t],
+                    lat_model[k, :t]
+                )[0]
+    
+            except:
+                pass
+
+    #corr_lon = np.array([[[pearsonr(drifter_lon[i,j,k],traj_lon[i,j,k])[0] \
+    #    for k in range(traj_lon.shape[2])] for j in range(traj_lon.shape[1])] for i in range(traj_lon.shape[0])])
+    #corr_lat = np.array([[[pearsonr(drifter_lat[i,j,k],traj_lat[i,j,k])[0] \
+    #    for k in range(traj_lat.shape[2])] for j in range(traj_lat.shape[1])] for i in range(traj_lat.shape[0])])
     if np.prod(np.shape(sep_dist))>0:
         prop_sep_dist = np.count_nonzero(sep_dist[:,:,:,-1]<50 ,axis =(1,2) )/ (sep_dist.shape[1]*sep_dist.shape[2])
         prop_skill_score = np.count_nonzero(skill_score[:,:,:,-1]>0 ,axis =(1,2) )/ (skill_score.shape[1]*skill_score.shape[2])
-        prop_corr_lon = np.count_nonzero(corr_lon>0.7 ,axis =(1,2) )/ (corr_lon.shape[1]*corr_lon.shape[2])
-        prop_corr_lat = np.count_nonzero(corr_lat>0.7 ,axis =(1,2) )/ (corr_lat.shape[1]*corr_lat.shape[2])
-    
+        #prop_corr_lon = np.count_nonzero(corr_lon>0.7 ,axis =(1,2) )/ (corr_lon.shape[1]*corr_lon.shape[2])
+        #prop_corr_lat = np.count_nonzero(corr_lat>0.7 ,axis =(1,2) )/ (corr_lat.shape[1]*corr_lat.shape[2])
     # -----------------------------------------------------
     # Spatially bins statistics on a regular lon/lat grid
     # -----------------------------------------------------
@@ -395,10 +449,21 @@ def process_one_day(day, leadtime, DIR_OUT,
     sum_sep = mean_sep * count_sep
     lui_score_bin, count_liu_score = bin_spatial(skill_score.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     sum_liu = lui_score_bin * count_liu_score
+    corr_lon_bin, count_corr_lon = bin_spatial(corr_lon, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
+    sum_corr_lon = corr_lon_bin, * count_corr_lon
+    corr_lat_bin, count_corr_lat = bin_spatial(corr_lat, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
+    sum_corr_lat = corr_lat_bin, * count_corr_lat
+    
     print(f"Done {day}")
     return {
     "sum_sep": sum_sep,
     "count_sep": count_sep,
     "sum_liu": sum_liu,
-    "count_liu": count_liu_score
+    "count_liu": count_liu_score,
+    "sum_corr_lon": sum_corr_lon,
+    "count_corr_lon": count_corr_lon,
+    "sum_corr_lat": sum_corr_lat,
+    "count_corr_lat": count_corr_lat,
+    "sep_dist_daily": sep_dist_daily,
+    "liu_skill_daily": skill_score.squeeze()
 }

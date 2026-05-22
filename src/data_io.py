@@ -11,7 +11,6 @@ def Retrieve_data_local(MODEL,
                         dir_work,
                         depth,
                         leadtime=None):
-    zlevel = 11
     config_object = ConfigParser()
     config_object.read(dir_in+"src/config_products_fidji.ini")
     path_UV = []
@@ -48,6 +47,7 @@ def Retrieve_data_local(MODEL,
     #    os.makedirs(dir_work_mod[-1])
 
     if MODEL in ['PSY4V3R1','IBI36','GLO12V4']:
+        zlevel = 11
         print("OK1")
         u_files_mod_3D, v_files_mod_3D = ReturnUVlist(MODEL, date_start, date_end_plus_DRIFT_TIME, leadtime=leadtime)
         u_files, v_files = ExtractSurface(MODEL,u_files_mod_3D, v_files_mod_3D,zlevel,var_u_mod[i], var_v_mod[i], dir_work+'MODEL_OUTPUT/'+MODEL+'/UV/15m/')

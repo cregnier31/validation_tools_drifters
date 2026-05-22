@@ -469,6 +469,104 @@ def SeparationDistance_havers(lon_grp1, lat_grp1, lon_grp2, lat_grp2):
 
     return dist
 
+# ==========================================================
+# Robust Haversine distance
+# Handles:
+#   - dateline crossing
+#   - global trajectories
+#   - poles
+#   - NaNs
+#   - any ndarray shape
+# ==========================================================
+
+def SeparationDistance_havers2(
+    lon_grp1,
+    lat_grp1,
+    lon_grp2,
+    lat_grp2
+):
+    """
+    Compute great-circle separation distance (km)
+    between two trajectory groups using the haversine formula.
+
+    Parameters
+    ----------
+    lon_grp1, lat_grp1 : ndarray
+        Longitude/latitude of group 1 (degrees)
+
+    lon_grp2, lat_grp2 : ndarray
+        Longitude/latitude of group 2 (degrees)
+
+    Returns
+    -------
+    dist : ndarray
+        Separation distance in km
+        Same shape as input arrays.
+    """
+
+    # ------------------------------------------------------
+    # Earth radius (km)
+    # ------------------------------------------------------
+    R = 6371.0
+
+    # ------------------------------------------------------
+    # Convert to numpy arrays
+    # ------------------------------------------------------
+    lon1 = np.asarray(lon_grp1, dtype=np.float64)
+    lat1 = np.asarray(lat_grp1, dtype=np.float64)
+
+    lon2 = np.asarray(lon_grp2, dtype=np.float64)
+    lat2 = np.asarray(lat_grp2, dtype=np.float64)
+
+    # ------------------------------------------------------
+    # Normalize longitudes to [-180, 180]
+    # ------------------------------------------------------
+    lon1 = ((lon1 + 180) % 360) - 180
+    lon2 = ((lon2 + 180) % 360) - 180
+
+    # ------------------------------------------------------
+    # Longitude difference
+    # IMPORTANT:
+    # must ALSO be wrapped after subtraction
+    # ------------------------------------------------------
+    dlon = lon2 - lon1
+    dlon = ((dlon + 180) % 360) - 180
+
+    # ------------------------------------------------------
+    # Latitude difference
+    # ------------------------------------------------------
+    dlat = lat2 - lat1
+
+    # ------------------------------------------------------
+    # Convert to radians
+    # ------------------------------------------------------
+    lon1 = np.radians(lon1)
+    lat1 = np.radians(lat1)
+
+    dlon = np.radians(dlon)
+    dlat = np.radians(dlat)
+
+    # ------------------------------------------------------
+    # Haversine formula
+    # ------------------------------------------------------
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1)
+        * np.cos(np.radians(lat2))
+        * np.sin(dlon / 2.0) ** 2
+    )
+
+    # Numerical safety
+    a = np.clip(a, 0.0, 1.0)
+
+    c = 2.0 * np.arctan2(np.sqrt(a), np.sqrt(1.0 - a))
+
+    # ------------------------------------------------------
+    # Distance (km)
+    # ------------------------------------------------------
+    dist = R * c
+
+    return dist
 
 def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
     print('SepDistanceEachTimestep...')

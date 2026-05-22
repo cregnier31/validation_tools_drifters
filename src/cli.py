@@ -13,6 +13,7 @@ def parse_args():
     parser.add_argument('--date1', type=str, help='Start date in YYYYMMDD format')
     parser.add_argument('--date2', type=str, help='End date in YYYYMMDD format')
     parser.add_argument('--lead', type=str, help='leadtime HCST or FCST')
+    parser.add_argument('--sys', type=str, help='SYSTEM to validate')
     args = parser.parse_args()
     list_lead = ['HDCT', 'FCST']
     # --- Exit if missing arguments ---
@@ -20,10 +21,14 @@ def parse_args():
         print("❌ Error: You must provide --date1 and --date2 in YYYYMMDD format and --lead (HCST or FCST)")
         print("   Example: python your_script.py --date1 20221205 --date2 20250930")
         sys.exit(1)
+    if not args.sys:
+        print("❌ Error: SYSTEM is missing")
+        print("   Example: python your_script.py --sys GLO12")
 
     date_start = args.date1
     date_end = args.date2
     leadtime = args.lead 
+    system = args.sys
 
     # --- Validate format ---
     if not (len(date_start) == 8 and date_start.isdigit() and len(date_end) == 8 and date_end.isdigit()):
@@ -38,4 +43,4 @@ def parse_args():
     if leadtime not in list_lead:
         print(f"❌ Error: Lead must be one of them {list_lead}")
 
-    return date_start, date_end, leadtime
+    return date_start, date_end, leadtime, system

@@ -31,6 +31,11 @@ def aggregate_and_save_results(results,
     sum_liu_total = None
     count_liu_total = None
 
+    sum_corr_lon_total = None
+    count_corr_lon_total = None
+    sum_corr_lat_total = None
+    count_corr_lat_total = None
+
     # ======================================================
     # Aggregate results
     # ======================================================
@@ -49,7 +54,12 @@ def aggregate_and_save_results(results,
         sum_liu = res_day['sum_liu']
         count_liu = res_day['count_liu']
 
-        print(type(sum_sep))
+        sum_corr_lon = res_day['sum_corr_lon']
+        
+        count_corr_lon = res_day['count_corr_lon']
+        sum_corr_lat = res_day['sum_corr_lat']
+        count_corr_lat = res_day['count_corr_lat']
+
         print("Mean daily separation:",
               np.nanmean(sum_sep))
 
@@ -64,7 +74,11 @@ def aggregate_and_save_results(results,
 
             sum_liu_total = sum_liu.copy()
             count_liu_total = count_liu.copy()
-
+            
+            #sum_corr_lon_total = sum_corr_lon.copy()
+            #count_corr_lon_total = count_corr_lon.copy()
+            #sum_corr_lat_total = sum_corr_lat.copy()
+            #count_corr_lat_total = count_corr_lat.copy()
         # --------------------------------------------------
         # Accumulate
         # --------------------------------------------------
@@ -76,6 +90,10 @@ def aggregate_and_save_results(results,
 
             sum_liu_total += sum_liu
             count_liu_total += count_liu
+            #sum_corr_lon_total += sum_corr_lon
+            #count_corr_lon_total += count_corr_lon
+            #sum_corr_lat_total += sum_corr_lat
+            #count_corr_lat_total += count_corr_lat
 
     # ======================================================
     # Final means
@@ -87,6 +105,9 @@ def aggregate_and_save_results(results,
     mean_liu_total = sum_liu_total / count_liu_total
     mean_liu_total[count_liu_total == 0] = np.nan
 
+    #sum_corr_lon_total = sum_corr_lon_total / count_corr_lon_total
+    #sum_corr_lat_total = sum_corr_lat_total / count_corr_lat_total
+    
     print("\nFinal separation shape:",
           np.shape(mean_sep_total))
 
