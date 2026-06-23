@@ -16,114 +16,126 @@ from configparser import ConfigParser
 import getpass
 from joblib import Parallel, delayed
 import pandas as pd
+import pickle
+import yaml
+from time import perf_counter
 
 sys.path.append("src/")
 
 # Import custom functions from local module
-from utils import StringRegion
+from utils import build_runtime_config
 from cli import parse_args
 from lagrangian_workflow import process_one_day
-from lagrangian_postprocessing import aggregate_and_save_results
-from plot_functions import plot_scores, compute_and_plot_histograms 
-#------------------------------------------
-# Read information from the configuration file
-#------------------------------------------
-config_object = ConfigParser()
-config_object.read("config_drifters.ini")
-config_info = config_object['CONFIG_BASE']
-#MODELS = config_info["MODELS"].split(',')
-LON_MIN = int(config_info["lon_min"])
-LON_MAX = int(config_info["lon_max"])
-LAT_MIN = int(config_info["lat_min"])
-LAT_MAX = int(config_info["lat_max"])
-DEPTH = int(config_info["depth"])
-resolution = 2
-MONTH_YEAR = config_info["MONTH_YEAR"]
-PROJECT = config_info["PROJECT"]
-USERNAME = config_info["username"]
-DIR_WORK = config_info["dir_work"]
-DIR_IN = config_info["dir_in"]
-COPERNICUS_DRIFTER= config_info["copernicus_drifter"]
-NB_REPEATS = int(config_info["nb_repeats"])
-ADVECTION_DIFFUSION_TYPE = config_info["AdvectionDiffusion_type"]
-DRIFT_TIME = int(config_info["DRIFT_TIME"])
-N_MONTHS = int(config_info["N_MONTHS"])
-DRIFT_PATH = config_info["DRIFT_PATH"]
-dir_out = './data/'
-dir_imgs = './imgs/'
+from lagrangian_postprocessing import aggregate_and_save_results, read_traj_compute_scores
+from plot_functions import plot_scores, compute_and_plot_histograms
 #------------------------------------------
 # parse arguments and define outputs
 #------------------------------------------
-DATE_START, DATE_END, leadtime, SYSTEM = parse_args()
-DATE_START = datetime.strptime(DATE_START, "%Y%m%d")
-STR_DATE_START = DATE_START.strftime("%Y-%m-%d")
-DATE_END  = datetime.strptime(DATE_END, "%Y%m%d")
-STR_DATE_END = DATE_END.strftime("%Y-%m-%d")
-start_days = pd.date_range(STR_DATE_START, STR_DATE_END, freq='D')
-DATE_END_PLUS_DRIFT_TIME =  DATE_END+dt.timedelta(days=DRIFT_TIME+1)
-STR_DATE_END_PLUS_DRIFT_TIME=DATE_END_PLUS_DRIFT_TIME.strftime('%Y-%m-%d')
-T_DRIFT = 10
-print(f"{STR_DATE_START} - {STR_DATE_END}")
-#SYSTEM = 'GLO12'#'PSY4','GLO12']
-all_results = {}
-print(SYSTEM)
-STR_REGION = StringRegion(LON_MIN,LON_MAX,LAT_MIN,LAT_MAX)
-STR_DATE_START = DATE_START.strftime('%Y%m%d')
-STR_DATE_END   = DATE_END_PLUS_DRIFT_TIME.strftime('%Y%m%d')
-EXP_NAME = f'fidji_parcels_Drift-{leadtime}_{STR_DATE_START}-{STR_DATE_END}'
-DIR_OUT=f"{DIR_WORK}DRIFT_{SYSTEM}/{PROJECT}/{EXP_NAME}/ZONE_{STR_REGION}/"
-pickle_file = os.path.join(DIR_OUT, f"{EXP_NAME}_{STR_DATE_START}-{STR_DATE_END}_drift-observations.pkl")
+runtime = build_runtime_config(
+    parse_args(),
+    "cfg/config_drifters.yaml"
+)
+log = runtime["log"]
 
 #------------------------------------------
-# Compute lagrangian trajectories and scores
+# Compute lagrangian trajectories
 #------------------------------------------
-njobs = 4
-print("Running parallel computation...")
-results = Parallel(n_jobs=njobs)(   
-    delayed(process_one_day)(day, leadtime, DIR_OUT,\
-                             T_DRIFT, LON_MIN, \
-                             LON_MAX,LAT_MIN,LAT_MAX,\
-                             SYSTEM, DIR_IN, DIR_WORK,\
-                             DEPTH,ADVECTION_DIFFUSION_TYPE,\
-                             NB_REPEATS, STR_REGION,\
-                             COPERNICUS_DRIFTER, DRIFT_TIME,\
-                             DRIFT_PATH
+njobs = 8
+log.info(f"Start Lagrangian_tool {runtime['config_info']['PERIOD']} {runtime['config_info']['SYSTEM']}")
+log.info("Running parallel computation...")
+t0 = perf_counter()
+results = Parallel(n_jobs=njobs)(
+    delayed(process_one_day)(day,
+                             runtime,
                             )
-    for day in start_days
+    for day in runtime["start_days"]
 )
+
+traj_time = perf_counter() - t0
+log.info(
+    f"Lagrangian trajectories completed in "
+    f"{traj_time:.1f} s ({traj_time/60:.2f} min)"
+)
+
 #------------------------------------------
-# Compute Histograms
+# Compute lagrangian scores
 #------------------------------------------
-compute_and_plot_histograms(results,
-                            dir_imgs,
-                            SYSTEM,
-                            f"{STR_DATE_START}_{STR_DATE_END}",
-                            days=[1, 3, 5, 7, 10])
+log.info("Running lagrangian scores...")
+t0 = perf_counter()
+
+if len(runtime["start_days"]) > njobs:
+    results_stats = Parallel(n_jobs=njobs)(
+        delayed(read_traj_compute_scores)(
+                    day,
+                    runtime['config_info'],
+                    results[ind_day]
+        )
+        for ind_day, day in enumerate(runtime["start_days"])
+    )
+else:
+    results_stats = []
+    for ind_day, day in enumerate(runtime["start_days"]):
+        results_stats.append(
+            read_traj_compute_scores(
+                day,
+                runtime['config_info'],
+                results[ind_day]
+            )
+        )
+
+score_time = perf_counter() - t0
+
+log.info(
+    f"Lagrangian scores completed in "
+    f"{score_time:.1f} s ({score_time/60:.2f} min)"
+)
+
+log.info(
+    f"Total runtime: {(traj_time + score_time):.1f} s "
+    f"({(traj_time + score_time)/60:.2f} min)"
+)
+
+# ==========================================================
+# Save results
+# ==========================================================
+with open(runtime['pickle_file'], "wb") as f:
+        pickle.dump(results_stats, f)
+
+        log.info(f"Results saved to {runtime['pickle_file']}")
+
 
 #------------------------------------------
 # Compute final scores
 #------------------------------------------
-outfile = (
-    f"{dir_out}Lagrangian_scores_"
-    f"{leadtime}_{SYSTEM}_"
-    f"{STR_DATE_START}_"
-    f"{STR_DATE_END}.nc"
-)
+log.info("Compute final scores")
 mean_sep_total, \
 count_sep_total, \
 mean_liu_total, \
 count_liu_total = aggregate_and_save_results(
-    results,
-    outfile,
-    res=resolution
+    results_stats,
+    runtime['stats_out'],
+    log,
 )
+
+#------------------------------------------
+# Compute and plot Histograms
+#------------------------------------------
+log.info("Compute and plot histograms")
+compute_and_plot_histograms(results_stats,
+                            runtime['dir_out_imgs'],
+                            runtime['config_info'],
+                            log,
+                            #days=[1, 3, 5])
+                            days=[1, 3, 5, 7, 10])
 
 #------------------------------------------
 # Plot final scores
 #------------------------------------------
-
-list_days = [1, 3, 5, 7]
-plot_scores(dir_imgs,
-            outfile,
+log.info("Plot final scores")
+list_days = [1, 3, 5, 10]
+#list_days = [1, 3, 5]
+plot_scores(runtime['dir_out_imgs'],
+            runtime['stats_out'],
+            runtime['config_info'],
+            log,
             list_days=list_days)
-

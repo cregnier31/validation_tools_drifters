@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 #-*- coding: utf-8 -*-
 import argparse
+from datetime import datetime
 import sys
 
 def parse_args():
@@ -36,11 +37,14 @@ def parse_args():
         sys.exit(1)
 
     # --- Validate order ---
-    if date_end <= date_start:
+    if date_end < date_start:
         print(f"❌ Error: date2 ({date_end}) must be greater than date1 ({date_start}).")
         sys.exit(1)
     # --- Validate order ---
     if leadtime not in list_lead:
         print(f"❌ Error: Lead must be one of them {list_lead}")
+
+    date_start = datetime.strptime(date_start, "%Y%m%d")
+    date_end = datetime.strptime(date_end, "%Y%m%d")
 
     return date_start, date_end, leadtime, system

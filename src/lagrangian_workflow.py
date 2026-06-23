@@ -1,4 +1,5 @@
 import sys 
+import gc
 import os
 import numpy as np
 from scipy.stats import pearsonr
@@ -8,22 +9,15 @@ from data_io import Retrieve_data_local
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels, retrieve_drifters_for_one_day_traj
 from parcels_tools import run_parcels_Drift
-from spatial_binning import bin_spatial, bin_spatial2
-from lagrangian_metrics import SeparationDistance,\
-                        SeparationDistance_havers,\
-                        SeparationDistance_havers2,\
-                        LiuScore2
+#from spatial_binning import bin_spatial, bin_spatial2
+#from lagrangian_metrics import SeparationDistance,\
+#                        SeparationDistance_havers,\
+#                        SeparationDistance_havers2,\
+#                        LiuScore2
+from Logger import Logger
 from utils import convert_id_to_char_array
 
-def process_one_day(day, leadtime, DIR_OUT,
-                    T_DRIFT, LON_MIN,
-                    LON_MAX,LAT_MIN,LAT_MAX,
-                    MODEL,DIR_IN, DIR_WORK,
-                    DEPTH,ADVECTION_DIFFUSION_TYPE,
-                    NB_REPEATS, STR_REGION,
-                    COPERNICUS_DRIFTER, DRIFT_TIME,
-                    DRIFT_PATH, resolution=2,filtered=True
-                    ):
+def process_one_day(day, config_dict):
     """
     Process one initialization day for Lagrangian validation.
 
@@ -42,15 +36,12 @@ def process_one_day(day, leadtime, DIR_OUT,
     ----------
     day : datetime
         Initialization day for drifter selection and trajectory launch
-    
+
     day : leadtime
         Leadtime value for analysis or forecast fields HDCT or FCST
 
     DIR_OUT : str
         Output directory for temporary and Parcels trajectory files
-
-    T_DRIFT : int
-        Total drift duration in days
 
     LON_MIN, LON_MAX : float
         Longitude bounds for drifter spatial selection
@@ -80,14 +71,9 @@ def process_one_day(day, leadtime, DIR_OUT,
     STR_REGION : str
         Name of the validation region
 
-    COPERNICUS_DRIFTER : str
-        Path or identifier for drifter observations
-
     DRIFT_TIME : int
-        Temporal sampling interval of drifter observations (hours)
-    
-    resolution : int
-        Resolution of output grid for the statistics
+        Total drift duration in days
+
 
     Returns
     -------
@@ -103,23 +89,50 @@ def process_one_day(day, leadtime, DIR_OUT,
     import datetime
     import os
     import numpy as np
+
+    # ======================================================
+    # Get back the parameters from config file
+    # ======================================================
+    config_info  = config_dict['config_info']
+    DIR_OUT = config_info["DIR_OUT"]
+    LON_MIN = config_info["lon_min"]
+    LON_MAX = config_info["lon_max"]
+    LAT_MIN = config_info["lat_min"]
+    LAT_MAX = config_info["lat_max"]
+    MODEL = config_info["SYSTEM"]
+    leadtime = config_info["leadtime"]
+    DIR_IN = config_info["dir_in"]
+    DIR_WORK = config_info["dir_work"]
+    DRIFT_PATH = config_info["drift_path"]
+    DEPTH = config_info["depth"]
+    ADVECTION_DIFFUSION_TYPE = config_info["advection_diffusion_type"]
+    NB_REPEATS = config_info["nb_repeats"]
+    STR_REGION = config_info["STR_REGION"]
+    DRIFT_TIME = config_info["drift_time"]
+    loglevel = config_info["loglevel"]
+    # Create Logger
+    log = Logger("lagrangian",
+                ).run(loglevel)
+
     # ======================================================
     # Output paths
     # ======================================================
     str_date_sim = day.strftime('%Y%m%d')
-    srt_date_end = day + datetime.timedelta(days=int(T_DRIFT))
+    srt_date_end = day + datetime.timedelta(days=int(DRIFT_TIME))
     srt_date_end = srt_date_end.strftime('%Y%m%d')
-    factor = 4  # 4 × 6h = 1 day
-    resolution = resolution
+    # factor = 4  # 4 × 6h = 1 day
 
     dir_work_mod = f"{DIR_OUT}{str_date_sim}"
     if not os.path.exists(dir_work_mod):
         os.makedirs(dir_work_mod)
 
-    print(f"Retrieve drifters for one day {day}")
-    trajs_obs, outfile2 = retrieve_drifters_for_one_day_traj(
+    # ======================================================
+    # Retrieve drifters trajectories
+    # ======================================================
+    log.debug(f"Retrieve drifters for one day {day}")
+    result = retrieve_drifters_for_one_day_traj(
         day,
-        T_DRIFT,
+        DRIFT_TIME,
         LON_MIN,
         LON_MAX,
         LAT_MIN,
@@ -128,19 +141,25 @@ def process_one_day(day, leadtime, DIR_OUT,
         str_date_sim,
         srt_date_end,
         DRIFT_PATH,
-        DIR_OUT
+        DIR_OUT,
+        log
         )
-    
-    if trajs_obs is None:
-        print(f"{day.date()} → no valid drifters")
+    #if trajs_obs is None:
+    if result is None:
+        log.info(f"{day.date()} → no valid drifters")
         return None
+    else:
+        trajs_obs, outfile2 = result
 
-    print(f"Number of valid drifters {len(trajs_obs)}")
+    log.debug(f"Number of valid drifters {len(trajs_obs)}")
 
+    # ========================================================
+    # Compute Lagrangian dispersion of the model with Parcels
+    # ========================================================
     f_traj = f"{dir_work_mod}/Trajectories_{MODEL}_{str_date_sim}_{srt_date_end}_at_SVPloc_smag.zarr"
     if not os.path.exists(f_traj):
         #return 'skipped'
-        print(f"\nProcessing drift with parcel for {day}")
+        log.debug(f"\nProcessing drift with parcel for {day}")
         # ======================================================
         # Initial conditions
         # ======================================================
@@ -150,320 +169,48 @@ def process_one_day(day, leadtime, DIR_OUT,
         #with open("/home/smer/regnierc/code/validation_tools_drifters/drifter_ids_model.txt", "w") as f:
         #    for did in ids:
         #        f.write(f"{did}\n")
-        print(f'Min {min(lon0)}')
-        print(f'Max {max(lon0)}')
+        log.debug(f'Min {min(lon0)}')
+        log.debug(f'Max {max(lon0)}')
         id_char = convert_id_to_char_array(ids, string_length=8)
-    
-        print(np.shape(lon0))
-        print(np.shape(lat0))
-        print(np.shape(ids))
- 
+        log.debug(np.shape(lon0))
+        log.debug(np.shape(lat0))
+        log.debug(np.shape(ids))
         # ======================================================
         # Retrieve model data
         # ======================================================
-        DATE_END_PLUS_DRIFT_TIME = day + datetime.timedelta(days=T_DRIFT)
-    
+        DATE_END_PLUS_DRIFT_TIME = day + datetime.timedelta(days=DRIFT_TIME)
+
         u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask = \
             Retrieve_data_local(
+                config_dict['config_model_params'],
                 f'{MODEL}_{leadtime}',
                 day,
                 DATE_END_PLUS_DRIFT_TIME,
-                DIR_OUT, DIR_IN, DIR_WORK, DEPTH, leadtime=leadtime
+                DIR_OUT, DIR_IN, DIR_WORK,
+                DEPTH, log, leadtime=leadtime
             )
         # ======================================================
         # Run Parcels
         # ======================================================
         run_parcels_Drift(
+            config_info,
             MODEL,
             u_files_mod_temp, var_u_mod,
             v_files_mod_temp, var_v_mod,
             meshmask,
             lon0, lat0, id_char,
-            T_DRIFT,
+            DRIFT_TIME,
             f_traj,
+            log,
             radius_cloud=0,
             seeding_resolution=0,
             time_period=False,
-            AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
             nb_repeats=NB_REPEATS
         )
-        
-    # --------------------------------------------
-    # Retrieve Drifters trajectories
-    # --------------------------------------------
-    print('--------------------------------------------')
-    print('Retrieve drifters trajectories')
-    traj_drifter_lon_temp,traj_drifter_lat_temp,traj_drifter_date_temp,\
-        traj_drifter_time_temp,traj_drifter_id_temp,\
-        nb_drifters_temp = Retrieve_drifters_traj(outfile2,T_DRIFT,COPERNICUS_DRIFTER)
-    print(f'Taille drifters obs {np.shape(traj_drifter_lon_temp)}')
-    # --------------------------------------------
-    # Retrieve Model trajectories
-    # --------------------------------------------
-    print('Retrieve model trajectories')
-    print('--------------------------------------------')
-    traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod)
-    #print(nb_drifters_temp, len(traj_IDS.squeeze()))
-    if nb_drifters_temp  != len(traj_IDS.squeeze()):
-        drifter_traj_ids = np.unique(traj_IDS)
-        traj_drifter_lon  = []
-        traj_drifter_lat  = []
-        traj_drifter_date = []
-        traj_drifter_time = []
-        traj_drifter_id   = []
-        for mm in range(nb_drifters_temp):
-            if traj_drifter_id_temp[mm,0] in drifter_traj_ids:
-                traj_drifter_lon.append(traj_drifter_lon_temp[mm,:])
-                traj_drifter_lat.append(traj_drifter_lat_temp[mm,:])
-                traj_drifter_date.append(traj_drifter_date_temp[mm,:])
-                traj_drifter_time.append(traj_drifter_time_temp[mm,:])
-                traj_drifter_id.append(traj_drifter_id_temp[mm,:])
-        traj_drifter_lon = np.array(traj_drifter_lon)
-        traj_drifter_lat = np.array(traj_drifter_lat)
-        traj_drifter_date = np.array(traj_drifter_date)
-        traj_drifter_time = np.array(traj_drifter_time)
-        traj_drifter_id = np.array(traj_drifter_id)
+        del lon0, lat0, ids, id_char
+        del u_files_mod_temp, v_files_mod_temp
+        del meshmask
     else:
-        print('inside else')
-        traj_drifter_lon  = traj_drifter_lon_temp
-        traj_drifter_lat  = traj_drifter_lat_temp
-        traj_drifter_date = traj_drifter_date_temp
-        traj_drifter_time = traj_drifter_time_temp
-        traj_drifter_id   = traj_drifter_id_temp
-    
-    print('------------------OK------------------------')
-    print(f'Taille drifters observation {np.shape(traj_drifter_lon)}')
-    # print(traj_drifter_lon))
-    print('--------------------------------')
-    print(f'Taille drifters Modele Parcel raw {np.shape(traj_lon)}')
-    if(np.prod(np.shape(traj_drifter_lon)) >0):
-        # Reduce the oversampled trajectories of observations to compare with model trajectories        
-        drifter_lon,drifter_lat,drifter_date,drifter_time, Tm, Nd, Td = Traj_filter_parcels(DRIFT_TIME,traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time, traj_lon,traj_lat)
-        print(f"Dimensions observations subsampled raw : {np.shape(drifter_lon)}")
-        print(f'Dimensions model Parcels : {np.shape(traj_lon)}')
-        if filtered:
-            # Change to 0-360
-            traj_lon = ((traj_lon + 180) % 360) - 180
-            drifter_lon = ((drifter_lon + 180) % 360) - 180
-            print(drifter_lon.shape)
-            print(traj_lon.shape)
-            # ---------------------------------------------------------
-            # Select suspicious trajectories by fixing a big theshold
-            # ---------------------------------------------------------
-            threshold = 500.00  # km
-            length_drift = T_DRIFT * factor
-            dist_first_day = SeparationDistance_havers2(
-                drifter_lon[:, :, :, :length_drift],
-                drifter_lat[:, :, :, :length_drift],
-                traj_lon[:, :, :, :length_drift],
-                traj_lat[:, :, :, :length_drift]
-            )
-            maxdist = np.nanmax(dist_first_day, axis=-1)
-            bad_traj = np.squeeze(maxdist > threshold)
-            nb_bad = np.sum(bad_traj)
-            save = False
-            print(f"Number of suspicious trajectories: {nb_bad}")
-            # ------------------------------------------------------    
-            # Filter only if suspicious trajectories exist
-            # ------------------------------------------------------    
-            if nb_bad > 0:
-                #mask = dist0 > threshold
-                good_idx = np.where(~bad_traj)[0]
-                bad_idx = np.where(bad_traj)[0]
-                print(f"Number of suspicious trajectories: {np.sum(bad_traj)}")
-                print("Number of good trajectories:", len(good_idx))
-                print(np.shape(good_idx))
-                print(np.shape(drifter_lon))
-                print(np.shape(drifter_lat))
-                print('********************************************')
-                if save:
-                    # ---------------------------------------------------------
-                    # Select suspicious indices
-                    # ---------------------------------------------------------
-
-                    # ---------------------------------------------------------
-                    # Extract first timestep (or full time if needed)
-                    # ---------------------------------------------------------
-                    lon_drift_bad = drifter_lon[:, :, bad_idx, :]
-                    lat_drift_bad = drifter_lat[:, :, bad_idx, :]
-                    lon_model_bad = traj_lon[:, :, bad_idx, :]
-                    lat_model_bad = traj_lat[:, :, bad_idx, :]
-                    dist_bad = dist_first_day[:, :, bad_idx, :]
-                    # time array (assumes same shape)
-                    time_bad = traj_time[:, :, bad_idx, :] if 'traj_time' in globals() else None
-
-                    # ---------------------------------------------------------
-                    # Build CSV rows
-                    # ---------------------------------------------------------
-                    rows = []
-
-                    ntraj = lon_drift_bad.shape[2]
-                    nt = lon_drift_bad.shape[-1]
-
-                    for t in range(nt):
-                        for i in range(ntraj):
-
-                            rows.append({
-                                "trajectory": int(bad_idx[i]),
-                                "time_index": t,
-
-                                "lon_drift": lon_drift_bad[0, 0, i, t],
-                                "lat_drift": lat_drift_bad[0, 0, i, t],
-
-                                "lon_model": lon_model_bad[0, 0, i, t],
-                                "lat_model": lat_model_bad[0, 0, i, t],
-                                "distance_km": dist_bad[0, 0, i, t],
-
-                            })
-
-                    # ---------------------------------------------------------
-                    # Save CSV
-                    # ---------------------------------------------------------
-                    df_bad = pd.DataFrame(rows)
-
-                    outfile_csv = f"data/suspicious_trajectories_{str_date_sim}.csv"
-                    df_bad.to_csv(outfile_csv, index=False)
-
-                    print(f"Saved: {outfile_csv}")
-                traj_lon = traj_lon[:, :, good_idx, :]
-                traj_lat = traj_lat[:, :, good_idx, :]
-                drifter_lon = drifter_lon[:, :, good_idx, :]
-                drifter_lat = drifter_lat[:, :, good_idx, :]
-        # --------------------------------------------------------------------
-        # Compute statistical scores ; Separation distance and Liu Skill score
-        # --------------------------------------------------------------------
-        sep_dist = SeparationDistance_havers2(drifter_lon,drifter_lat,traj_lon,traj_lat)
-        # remove extra dims → (1019, 40)
-        lon2d = traj_lon[0, 0, :, :]
-        lat2d = traj_lat[0, 0, :, :]
-        Nd, Tm = lon2d.shape
-        Ndays = Tm // factor
-        sep_dist_daily = sep_dist.reshape(Nd, Ndays, factor).mean(axis=2)
-        # reshape + mean → (1019, 10)
-        traj_lon_daily_tmp = lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
-        traj_lat_daily_tmp = lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
-        # put back original structure → (1, 1, 1019, 10)
-        traj_lon_daily = traj_lon_daily_tmp[np.newaxis, np.newaxis, :, :]
-        traj_lat_daily = traj_lat_daily_tmp[np.newaxis, np.newaxis, :, :]
-        #print(sep_dist)
-        #print(drifter_time)
-        #print(np.shape(sep_dist_daily))
-        #print(sep_dist_daily)
-        #print(traj_lon.shape[0])
-    
-        liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T \
-                    for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
-        # Add missing value for the first step
-        liu_score = np.insert(liu_score, 0, np.nan, axis=-1)
-        Nt = liu_score.shape[-1]
-        
-        # reshape
-        newshape = liu_score.shape[:-1] + (Nt // factor, factor)
-
-        liu_daily = np.nanmean(
-            liu_score.reshape(newshape),
-            axis=-1
-        )
-        #Nt = (liu_score.shape[-1] // factor) * factor
-        #liu_trim = liu_score[..., :Nt]
-        ## reshape
-        #newshape = liu_trim.shape[:-1] + (Nt // factor, factor)
-        #liu_daily = liu_trim.reshape(newshape).mean(axis=-1)
-        ## reshape daily
-        #liu_score_daily = liu_score.reshape(Nd, Ndays, factor).mean(axis=2)
-        #print(liu_score)
-        #print(np.shape(liu_score))
-        #print(np.shape(liu_daily))
-        #print(liu_daily)
-        #print('----------------------') 
-        # Compute skill score with the assumption of n=1
-        #skill_score = 1-liu_daily
-        skill_score = liu_daily
-        #print(skill_score)
-        
-    if True:# np.prod(np.shape(np.where(np.isnan(traj_lon)))):
-        nans = np.unique(np.where(np.isnan(traj_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
-        nans = np.unique(np.where(np.isnan(drifter_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
-   
-    # ---------------------------------------------------------
-    # Remove singleton dimensions
-    # ---------------------------------------------------------
-    lon_drift = np.squeeze(drifter_lon)   # (ntraj, ntime)
-    lon_model = np.squeeze(traj_lon)
-    
-    lat_drift = np.squeeze(drifter_lat)
-    lat_model = np.squeeze(traj_lat)
-    
-    ntraj, ntime = lon_drift.shape
-    
-    # ---------------------------------------------------------
-    # Initialize
-    # ---------------------------------------------------------
-    corr_lon = np.full((ntraj, ntime), np.nan)
-    corr_lat = np.full((ntraj, ntime), np.nan)
-    # ---------------------------------------------------------
-    # Progressive correlation
-    # ---------------------------------------------------------
-    for k in range(ntraj):
-    
-        for t in range(2, ntime + 1):
-            # need at least 2 points for correlation
-    
-            try:
-                corr_lon[k, t-1] = pearsonr(
-                    lon_drift[k, :t],
-                    lon_model[k, :t]
-                )[0]
-    
-                corr_lat[k, t-1] = pearsonr(
-                    lat_drift[k, :t],
-                    lat_model[k, :t]
-                )[0]
-    
-            except:
-                pass
-
-    #corr_lon = np.array([[[pearsonr(drifter_lon[i,j,k],traj_lon[i,j,k])[0] \
-    #    for k in range(traj_lon.shape[2])] for j in range(traj_lon.shape[1])] for i in range(traj_lon.shape[0])])
-    #corr_lat = np.array([[[pearsonr(drifter_lat[i,j,k],traj_lat[i,j,k])[0] \
-    #    for k in range(traj_lat.shape[2])] for j in range(traj_lat.shape[1])] for i in range(traj_lat.shape[0])])
-    if np.prod(np.shape(sep_dist))>0:
-        prop_sep_dist = np.count_nonzero(sep_dist[:,:,:,-1]<50 ,axis =(1,2) )/ (sep_dist.shape[1]*sep_dist.shape[2])
-        prop_skill_score = np.count_nonzero(skill_score[:,:,:,-1]>0 ,axis =(1,2) )/ (skill_score.shape[1]*skill_score.shape[2])
-        #prop_corr_lon = np.count_nonzero(corr_lon>0.7 ,axis =(1,2) )/ (corr_lon.shape[1]*corr_lon.shape[2])
-        #prop_corr_lat = np.count_nonzero(corr_lat>0.7 ,axis =(1,2) )/ (corr_lat.shape[1]*corr_lat.shape[2])
-    # -----------------------------------------------------
-    # Spatially bins statistics on a regular lon/lat grid
-    # -----------------------------------------------------
-    mean_sep, count_sep = bin_spatial(sep_dist_daily, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_sep = mean_sep * count_sep
-    lui_score_bin, count_liu_score = bin_spatial(skill_score.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_liu = lui_score_bin * count_liu_score
-    corr_lon_bin, count_corr_lon = bin_spatial(corr_lon, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_corr_lon = corr_lon_bin, * count_corr_lon
-    corr_lat_bin, count_corr_lat = bin_spatial(corr_lat, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_corr_lat = corr_lat_bin, * count_corr_lat
-    
-    print(f"Done {day}")
-    return {
-    "sum_sep": sum_sep,
-    "count_sep": count_sep,
-    "sum_liu": sum_liu,
-    "count_liu": count_liu_score,
-    "sum_corr_lon": sum_corr_lon,
-    "count_corr_lon": count_corr_lon,
-    "sum_corr_lat": sum_corr_lat,
-    "count_corr_lat": count_corr_lat,
-    "sep_dist_daily": sep_dist_daily,
-    "liu_skill_daily": skill_score.squeeze()
-}
+        log.info(f"\nExisting parcels trajectory {f_traj}")
+    gc.collect()
+    return outfile2

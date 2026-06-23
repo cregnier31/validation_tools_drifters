@@ -21,7 +21,6 @@ import xarray as xr
 from scipy import interpolate
 import getpass
 username=getpass.getuser()
-print('username: ',username)
 import os, glob,sys
 from operator import attrgetter
 from scipy.ndimage import gaussian_filter
@@ -238,8 +237,8 @@ def resample_traj(file_name):
     data = xr.open_dataset(file_name)
     t_start = pd.Timestamp(data.TIME.values[0])
     t_end = pd.Timestamp(data.TIME.values[-1])
-    print(t_start)
-    print(t_end)
+    #print(t_start)
+    #print(t_end)
     nb_hours = (t_end - t_start).total_seconds()/3600 + 1
     #if True:
     if (int(nb_hours) != len(data.TIME.values)) or  (len(data.TIME.values)!= len(data.LONGITUDE.values)):
@@ -568,8 +567,8 @@ def SeparationDistance_havers2(
 
     return dist
 
-def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
-    print('SepDistanceEachTimestep...')
+def SepDistanceEachTimestep(lon_grp1, lat_grp1, lon_grp2, lat_grp2):
+    #log.info('SepDistanceEachTimestep...')
     earth_radius = 6371000.
     # 1 nm = 1.8520 km
     DEG2NM, NM2KM = 60., 1.8520
@@ -627,8 +626,7 @@ def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
     return dist
 
 
-def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
-    print('TrajDistBetweenTimesteps...')
+def TrajDistBetweenTimesteps(lon_grp1, lat_grp1):
     earth_radius = 6371000.
     # 1 nm = 1.8520 km
     DEG2NM, NM2KM = 60., 1.8520
@@ -679,8 +677,8 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
     #sys.exit(1)
     return dist
     
-def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
-    print('compute Liu Score')
+def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log):
+    log.info('Compute Liu Score')
     #print('drifter 6hourly: SVP', traj_drifter_lon.shape,', MODEL:', traj_lon_mod.shape)
     #Need to only take daily output:
     ind_daily=np.arange(0,traj_drifter_lon.shape[1],4)
@@ -695,7 +693,11 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
     dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon_daily, traj_drifter_lat_daily)
 
     #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
-    di_SVP_MOD =SepDistanceEachTimestep(traj_drifter_lon_daily[:,1:], traj_drifter_lat_daily[:,1:], traj_lon_mod_daily[:,1:], traj_lat_mod_daily[:,1:])
+    di_SVP_MOD =SepDistanceEachTimestep(traj_drifter_lon_daily[:,1:],
+                                        traj_drifter_lat_daily[:,1:],
+                                        traj_lon_mod_daily[:,1:],
+                                        traj_lat_mod_daily[:,1:]
+                                        )
     #print('dli_drifters.shape, di_SVP_MOD.shape\n', dli_drifters.shape, di_SVP_MOD.shape)
     #3. Compute Liu Score for 1, 3, 5 days
     
@@ -739,7 +741,11 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
     dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
 
     #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
-    di_SVP_MOD =SepDistanceEachTimestep(traj_drifter_lon[:,1:], traj_drifter_lat[:,1:], traj_lon_mod[:,1:], traj_lat_mod[:,1:])
+    di_SVP_MOD = SepDistanceEachTimestep(traj_drifter_lon[:,1:],
+                                         traj_drifter_lat[:,1:],
+                                         traj_lon_mod[:,1:],
+                                         traj_lat_mod[:,1:]
+                                         )
     liu_index = []
     den = np.zeros(di_SVP_MOD.shape[0])
     for i in range(di_SVP_MOD.shape[1]):
@@ -749,7 +755,6 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
-    print("Fonction ExtractLayer")
 
     u_files_surf, v_files_surf  = [], []
     for uline, vline in zip(u_files, v_files):  #loop through each uv file

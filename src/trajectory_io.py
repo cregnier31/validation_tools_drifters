@@ -20,7 +20,8 @@ def retrieve_drifters_for_one_day_traj(
     str_date1,
     str_date2,
     drift_path,
-    dir_out
+    dir_out,
+    log
 ):
     yyear = day.strftime("%Y")
 
@@ -32,7 +33,7 @@ def retrieve_drifters_for_one_day_traj(
     dir_drifters = dir_out+'/DRIFTERS/'
 
     if not os.path.exists(dir_drifters):
-        print('\ncreate folder : ', dir_drifters)
+        log.debug(f'\ncreate folder {dir_drifters}')
         # Create directory where to store results:
         os.makedirs(dir_drifters, exist_ok=True)
     outfile2 = dir_drifters+fout_driftersZone
@@ -40,9 +41,8 @@ def retrieve_drifters_for_one_day_traj(
     # ==========================================================
     # 1. Select files
     # ==========================================================
-    print('Select files')
-    file_list = sorted(glob.glob(base_dir + "*.nc"))
-
+    log.debug('Select files')
+    file_list = sorted(glob.glob(base_dir + "*/*.nc"))
     def extract_date(f):
         return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
 
@@ -54,7 +54,7 @@ def retrieve_drifters_for_one_day_traj(
     # ==========================================================
     # 2. Load data
     # ==========================================================
-    print('Load data')
+    log.debug('Load data')
     df_list = []
 
     for file in files_in:
@@ -74,7 +74,7 @@ def retrieve_drifters_for_one_day_traj(
     # ==========================================================
     # 3. Spatial filtering
     # ==========================================================
-    print('Spatial filtering')
+    log.debug('Spatial filtering')
     df = df[
         (df.lon >= lon_min) & (df.lon <= lon_max) &
         (df.lat >= lat_min) & (df.lat <= lat_max)
@@ -82,41 +82,36 @@ def retrieve_drifters_for_one_day_traj(
     ## ==========================================================
     ## 4. Remove invalid coordinates
     ## ==========================================================
-    print('Removing invalid coordinates')
-    
+    log.debug('Removing invalid coordinates')
     valid = (
         np.isfinite(df.lon) &
         np.isfinite(df.lat) &
         (np.abs(df.lat) <= 90) &
         (np.abs(df.lon) <= 360)
     )
-    
-    print(f"Invalid positions removed: {np.sum(~valid)}")
-    
-    df = df[valid] 
+    log.debug(f"Invalid positions removed: {np.sum(~valid)}")
+    df = df[valid]
     # ==========================================================
     # 4. Sort + prepare time
     # ==========================================================
 
     df = df.sort_values(['id', 'time'])
     df['date'] = df['time'].dt.floor('D')
-    
     # ==========================================================
     # 5. Keep only complete trajectories
     # ==========================================================
     nb_points = T_DRIFT * 24
-    
     counts = df.groupby('id').size()
     valid_ids = counts[counts >= nb_points].index
 
     df = df[df.id.isin(valid_ids)]
 
-    print(f"Valid drifters: {len(valid_ids)}")
+    log.debug(f"Valid drifters: {len(valid_ids)}")
 
     # ==========================================================
     # 7. Build trajectories
     # ==========================================================
-    print(f"Build trajectories")
+    log.debug(f"Build trajectories")
     trajs = []
 
     for drifter_id, g in df.groupby('id'):
@@ -159,10 +154,8 @@ def retrieve_drifters_for_one_day_traj(
     # Save CLEAN trajectories (not raw df)
     # ==========================================================
     df_trajs_list = []
-    
     for traj in trajs:
         n = len(traj['lon'])
-    
         df_tmp = pd.DataFrame({
             'id': np.repeat(traj['id'], n),
             'time': traj['time'],
@@ -170,22 +163,17 @@ def retrieve_drifters_for_one_day_traj(
             'lat': traj['lat'],
             'lon': traj['lon']
         })
-    
         df_trajs_list.append(df_tmp)
-    
     df_trajs = pd.concat(df_trajs_list, ignore_index=True)
-    
     df_trajs.to_csv(outfile2, index=False)
-    
-    print(f"Saved trajectories CSV: {outfile2}")
-    print(f"{day.date()} → {len(trajs)} valid trajectories")
+    log.debug(f"Saved trajectories CSV: {outfile2}")
+    log.debug(f"{day.date()} → {len(trajs)} valid trajectories")
+    log.debug("--------------------------------")
     return trajs, outfile2
 
 
-def Retrieve_traj_files(MODEL,dir_out):
+def Retrieve_traj_files(MODEL,dir_out, log):
     traj_files_temp = [] 
-   
-    print(MODEL)
     traj_files_int = []
     #traj_files_int.append(glob.glob(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr'))
     files = glob.glob(dir_out + '/' + '*Trajectories_' + MODEL + '_*at_SVPloc*.zarr')
@@ -196,7 +184,7 @@ def Retrieve_traj_files(MODEL,dir_out):
     #    traj_files_int.append(files[0])
     #print(dir_out+'EXP/'+MODEL+'/'+'Trajectories_'+MODEL+'_*at_SVPloc.zarr')
     traj_files_temp.append(traj_files_int)
-    print(traj_files_temp)
+    log.debug(f"Trajectories {traj_files_temp}")
     traj_files =  np.sort([inner for outer in traj_files_temp for inner in outer])
     traj_lon_temp = []
     traj_lat_temp = []
@@ -206,7 +194,6 @@ def Retrieve_traj_files(MODEL,dir_out):
     #traj_lon1  = []
     #traj_lat1  = []
     #traj_time1 = []
-    
     #for i in range(len(MODELS)):
     traj_lon_int = []
     traj_lat_int = []
@@ -216,8 +203,7 @@ def Retrieve_traj_files(MODEL,dir_out):
     list_traj = traj_files[0]
     #for file in traj_files[i]:
     for file in list_traj:
-        print(file)
-        print('ok')
+        log.info(f"Trajectories zarr file {file}")
         ds = xr.open_zarr(file)
         traj_time_int.append(ds.time.values)
         traj_lon_int.append(ds.lon.values)
@@ -228,7 +214,6 @@ def Retrieve_traj_files(MODEL,dir_out):
     traj_lat_temp.append(traj_lat_int)
     traj_time_temp.append(traj_time_int)
     traj_IDS_temp.append(traj_IDS_int)
-    
     #traj_lon1.append(traj_lon_int)
     #traj_lat1.append(traj_lat_int)
     #traj_time1.append(traj_time_int)
@@ -238,10 +223,8 @@ def Retrieve_traj_files(MODEL,dir_out):
 
     taille_max = max(len(x) for x in traj_lat_temp)
     traj_lat = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_lat_temp])
-    
     taille_max = max(len(x) for x in traj_time_temp)
     traj_time = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_time_temp])
-    
 
     taille_max = max(len(x) for x in traj_IDS_temp)
     traj_IDS = np.array([x + [x[-1]] * (taille_max - len(x)) for x in traj_IDS_temp])
@@ -251,52 +234,41 @@ def Retrieve_traj_files(MODEL,dir_out):
     return traj_lon,traj_lat,traj_time,traj_IDS
 
 
-def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= False):
-    print('loading ',outfile2)
+def Retrieve_drifters_traj(outfile2, T_DRIFT, log, remote = False,copernicus_drifter= False):
+    log.debug(f"loading drifters_traj {outfile2}")
     drifters_zone_traj = pd.read_csv(outfile2) #when unknown number of spaces separating columns
-    print(drifters_zone_traj.head(5))
+    log.debug(drifters_zone_traj.head(5))
     #print(drifters_zone_traj.dtypes)
-    
-
 
     nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
     #remove drifters with missing entries (should be nb_days*4+1)
     #Check each drifter has n days * 4 entries
     drifter_ids = pd.unique(drifters_zone_traj['id'])
-    
     spurious_drifters=[]
 
-    print(np.shape(drifter_ids))
-    print(nb_drifters_temp)
     for i in range(nb_drifters_temp):
         nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
         #print(nb_entries, i)
        # if not nb_entries >= ((T_DRIFT+1)*24):
         if not nb_entries >= ((T_DRIFT)*24):
-            print(drifter_ids[i],': not enough entries, only ', nb_entries)
+            log.error(drifter_ids[i],': not enough entries, only ', nb_entries)
             spurious_drifters.append(drifter_ids[i])
-    
 
     if False:
         #drifters_zone_traj_old = drifters_zone_traj
         #ind1 = drifters_zone_traj['id']==spurious_drifters).index
         for i in range(len(spurious_drifters)):
-            print('remove drifter ',spurious_drifters[i])
+            log.debug(f'remove drifter {spurious_drifters[i]}')
             ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
-            print(f'{ind1=}')
             #print(drifters_zone_traj['id'] == np.array(spurious_drifters[i]))
             drifters_zone_traj.drop(ind1, inplace=True) #remove data points
         drifters_zone_traj=drifters_zone_traj.reset_index()
         nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
-                    
-        print(f'{nb_drifters_temp} - {nb_drifters2} = {nb_drifters_temp - nb_drifters2}'   )
+        log.debug(f'{nb_drifters_temp} - {nb_drifters2} = {nb_drifters_temp - nb_drifters2}'   )
     else:
         nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
     #print( f'{aa}  - {len( drifters_zone_traj)} =  {aa  - len( drifters_zone_traj)}')
-    
-
-
-    print('total nb of drifters in zone at start that reach end:',nb_drifters2)
+    log.debug(f'total nb of drifters in zone at start that reach end: {nb_drifters2}')
 
     #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
     if remote or copernicus_drifter:
@@ -306,7 +278,7 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
         nb_points = T_DRIFT*4 + 1    # hourly
 
     #print(nb_points)
-    print(np.shape(drifters_zone_traj))
+    log.debug(np.shape(drifters_zone_traj))
     #print(drifters_zone_traj)
     #print(type(drifters_zone_traj))
     #print(np.shape(drifters_zone_traj.time.values))
@@ -338,18 +310,21 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
 
 
     if False:
+        print('Case1')
         traj_drifter_lon   = np.array([drifters_zone_traj.lon.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
         traj_drifter_lat   = np.array([drifters_zone_traj.lat.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
         traj_drifter_date  = np.array([drifters_zone_traj.date.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
         traj_drifter_time  = np.array([drifters_zone_traj.time.values[ll,0:nb_points] for ll in range(nb_drifters2)])#    np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
         traj_drifter_id    = np.array([drifters_zone_traj.id.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
     elif False:
+        print('Case2')
         traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
         traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
         traj_drifter_date  = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
         traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
         traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
     else:
+        print('Case3')
         list_lon_temp = []
         list_lat_temp = []
         list_date_temp = []
@@ -390,8 +365,6 @@ def Retrieve_drifters_traj(outfile2,T_DRIFT,remote = False,copernicus_drifter= F
         traj_drifter_time = np.array(list_time)
         traj_drifter_id = np.array( list_id)
 
-        
-    #print('abc')
     #print(np.shape(drifters_zone_traj.date.values))
     #print(np.shape(traj_drifter_date))
     #print(f'{nb_drifters2=}')
@@ -409,7 +382,9 @@ def Traj_filter_parcels(
     traj_drifter_date,
     traj_drifter_time,
     traj_lon,
-    traj_lat
+    traj_lat,
+    length_drift, 
+    log
 ):
     """
     Align drifter trajectories onto model trajectory time grid.
@@ -433,27 +408,38 @@ def Traj_filter_parcels(
     traj_lon : (Ni, Nj, Nd, Tm)
     traj_lat : (Ni, Nj, Nd, Tm)
     traj_time_model : (Tm,) datetime64
-
+    length_drift : max length of model trajectory
     Returns
     -------
     drifter_lon : (Nd, Tm)
-    drifter_lat : (Nd, Tm)    
+    drifter_lat : (Nd, Tm)
 
     """
 
-    print(f'Dimension lon {traj_lon.shape}')
-     
+    log.debug(f'Dimension lon {traj_lon.shape}')
     Nd, Td = traj_drifter_lon.shape
-    Tm = traj_lon.shape[-1]
-
-    # --- Compute resampling factor automatically
+    # ----------------------------------------------------
+    # Trim model value if it's greater that observation value
+    # ----------------------------------------------------
+    if Tm > length_drift:
+        log.warning(
+            f"Model time dimension ({Tm}) > drifter ({Td} and length_drift {length_drift}) -> trimming model"
+        )
+        #traj_lon = traj_lon[..., :Td]
+        #traj_lat = traj_lat[..., :Td]
+        traj_lon = traj_lon[..., :length_drift]
+        traj_lat = traj_lat[..., :length_drift]
+        Tm = traj_lon.shape[-1]
     factor = Td // Tm  # e.g. 240 // 40 = 6
-    print(f"Sampling factor {factor}")
-    if Td % Tm != 0:
-        print(f"Shape lon {traj_lon.shape}")
-        raise ValueError(f"Drifter time dimension not divisible by model time dimension {traj_lon.shape}")
+    # --- Compute resampling factor automatically
+    log.info(f"Sampling factor {factor}")
+    log.debug(f"Sampling factor {factor}")
+    #if Td % Tm != 0:
+    #    log.error(f"Shape model {traj_lon.shape} /= Shape drifter {Nd} {Td}")
+    #    raise ValueError(f"Drifter time dimension not divisible by model time dimension {traj_lon.shape}")
 
     # --- Reshape and average
+    log.info(f"Nd Tm {Nd} {Tm}")
     lon_reshaped = traj_drifter_lon.reshape(Nd, Tm, factor)
     lat_reshaped = traj_drifter_lat.reshape(Nd, Tm, factor)
 
@@ -477,4 +463,4 @@ def Traj_filter_parcels(
     drifter_time = np.broadcast_to(drifter_time_2d, traj_lat.shape)
     drifter_date = np.broadcast_to(drifter_date_2d, traj_lat.shape)
 
-    return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td
+    return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td, traj_lon, traj_lat

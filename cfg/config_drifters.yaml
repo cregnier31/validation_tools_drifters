@@ -1,0 +1,224 @@
+config_base:
+
+  lon_min: -180
+  lon_max: 180
+  lat_min: -90
+  lat_max: 90
+
+  depth: 15
+  drift_time: 10
+
+  project: "lagrangian_belenos"
+  exp_name: "belenos_GLO12"
+
+  dir_work: "/scratch/work/regnierc/WORK_lagrangian/"
+  dir_in: "/home/ext/mr/smer/regnierc/SAVE/codes/validation_tools_drifters/"
+
+  copernicus_drifter: true
+  drift_path: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
+
+  #advection_diffusion_type: "AdvectionRK4"
+  advection_diffusion_type: "K_smag"
+# "K_smag"
+  #"AdvectionEE"
+
+  dir_imgs:  './imgs/'
+  dir_data:  './data/'
+  loglevel: 2
+  nb_repeats: 0
+
+  forecast: true
+  remote: false
+
+  username : regnierc
+  password : 32chachaMO!!
+
+model_params:
+
+  GLO12_FCST:
+
+    path: "/utmp/smer/regnierc/SORT-2/DAILY/GLO12Q/glo12qv4/"
+    fname_prefix: "GLO12_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/utmp/smer/regnierc/staticinput/allmeshes.nc"
+
+    indice_date: 68
+    color: "blue"
+
+  GLO12_NWCT:
+
+    path: "/utmp/smer/regnierc/SORT-2/DAILY/GLO12Q/glo12qv4/nwct/"
+    fname_prefix: "GLO12_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "uo"
+    var_v: "vo"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/home/smer/sval001/DEV/validation_tools_drifters/allmeshes_11.nc"
+
+    indice_date: 68
+    color: "red"
+
+  SMOC_HDCT:
+
+    path: "/scratch/work/regnierc/SORT/HEBDO/SMOC/"
+    fname_prefix: "SMOC_"
+    lon: "longitude"
+    lat: "latitude"
+    time: "time"
+    var_u: "utotal"
+    var_v: "vtotal"
+
+    grid_type: "regular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/scratch/work/regnierc/static/SMOC_mask2.nc"
+
+    color: "red"
+    indice_date: 68
+
+  GLO12_HDCT:
+
+    path: "/scratch/work/regnierc/SORT/HEBDO/GLO12/glo12v4/hdct/"
+    fname_prefix: "GLO12_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "uo"
+    var_v: "vo"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/scratch/work/regnierc/static/allmeshes.nc"
+
+    color: "red"
+    indice_date: 68
+
+  GLO12_TEST5_HDCT:
+
+    path: "/scratch/work/regnierc/SORT/HEBDO/GLO12/glo12v4_test5/hdct/"
+    fname_prefix: "GLO12_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "uo"
+    var_v: "vo"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/scratch/work/regnierc/static/allmeshes.nc"
+
+    color: "red"
+
+  PSY4_FCST:
+
+    path: "/scratch/work/regnierc/SORT/DAILY/GLO12/PSY4Q/psy4qv3r1/fcst1/"
+    fname_prefix: "PSY4QV3R1_1dAV_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "vozocrtx"
+    var_v: "vomecrty"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/utmp/smer/regnierc/staticinput/allmeshes.nc"
+
+    color: "magenta"
+    indice_date: 70
+
+
+  PSY4_HDCT:
+
+    path: "/scratch/work/regnierc/SORT/HEBDO/GLO12/psy4qv3r1/hdct/"
+    fname_prefix: "PSY4QV3R1_1dAV_"
+
+    var_u: "vozocrtx"
+    var_v: "vomecrty"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/utmp/smer/regnierc/staticinput/allmeshes.nc"
+
+    color: "green"
+    indice_date: 69
+
+
+parcels:
+
+  defaults:
+
+    AdvectionRK4:
+      dt_minutes: 5
+      sampling_hours: 1
+
+    AdvectionEE:
+      dt_minutes: 5
+      sampling_hours: 1
+
+    K_smag:
+      dt_minutes: 5
+      sampling_hours: 1
+
+  overrides:
+
+    GLO12:
+
+      K_smag:
+        dt_minutes: 5
+        sampling_hours: 6
+
+      AdvectionRK4:
+        dt_minutes: 60
+        sampling_hours: 6
+
+      AdvectionEE:
+        dt_minutes: 10
+        sampling_hours: 1
+
+    SMOC:
+
+      AdvectionRK4:
+        dt_minutes: 10
+        sampling_hours: 6
+
+      K_smag:
+        dt_minutes: 10
+        sampling_hours: 6
+
+    GLO12_TEST5:
+
+      K_smag:
+        dt_minutes: 5
+        sampling_hours: 6
+
+

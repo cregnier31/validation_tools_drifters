@@ -8,7 +8,7 @@ import numpy.matlib
 from netCDF4 import Dataset, date2num
 from datetime import datetime, timedelta
 import matplotlib
-matplotlib.use('Agg')
+#matplotlib.use('Agg')
 import json
 import matplotlib.pyplot as plt
 import time
@@ -29,10 +29,154 @@ print('username: ',username)
 import os, glob,sys
 from operator import attrgetter
 from scipy.ndimage import gaussian_filter
-
+import yaml
 #sys.path.append("/home/svangennip/DEV/Drift/LIU_SCORE/src/")
 from extras import dist as sw_dist
+import yaml
+import datetime as dt
+from Logger import Logger
 
+def build_runtime_config(args, config_path):
+    """
+    Build full runtime configuration for Lagrangian workflow.
+    """
+
+    # ------------------------------------------
+    # 1. Parse CLI args
+    # ------------------------------------------
+    DATE_START, DATE_END, leadtime, SYSTEM = args
+    # ------------------------------------------
+    # 2. Load YAML
+    # ------------------------------------------
+    with open(config_path, "r") as f:
+        config = yaml.safe_load(f)
+
+    config_info = config["config_base"]
+    config_model_params = config['model_params']
+
+    # Add parcel config
+    config_parcels = config['parcels']
+    # 1. defaults
+    scheme = config_info["advection_diffusion_type"]
+    base = config_parcels["defaults"].get(scheme)
+    if base is None:
+        raise ValueError(f"Unknown scheme: {scheme}")
+    parcels_dt = base["dt_minutes"]
+    sampling = base["sampling_hours"]
+
+    # 2. overrides (if exists)
+    overrides = config_parcels.get("overrides", {})
+    if SYSTEM in overrides:
+        if scheme in overrides[SYSTEM]:
+            override = overrides[SYSTEM][scheme]
+            parcels_dt = override.get("dt_minutes", parcels_dt)
+            sampling = override.get("sampling_hours", sampling)
+    # store in config
+    config_info["parcels_dt_minutes"] = parcels_dt
+    config_info["parcels_sampling_hours"] = sampling
+    config_info["scheme"] = scheme
+    length_time =int(config_info["drift_time"])
+    # ------------------------------------------
+    # 3. Inject runtime args
+    # ------------------------------------------
+    config_info["SYSTEM"] = SYSTEM
+    config_info["leadtime"] = leadtime
+    config_info["gridtype"] = config_model_params[f'{SYSTEM}_{leadtime}']['grid_type']
+    config_info["lon"] = config_model_params[f'{SYSTEM}_{leadtime}']['lon']
+    config_info["lat"] = config_model_params[f'{SYSTEM}_{leadtime}']['lat']
+    config_info["time"] = config_model_params[f'{SYSTEM}_{leadtime}']['time']
+    # ------------------------------------------
+    # 4. Dates
+    # ------------------------------------------
+    STR_DATE_START = DATE_START.strftime("%Y-%m-%d")
+    STR_DATE_END = DATE_END.strftime("%Y-%m-%d")
+    config_info["DATE_START"] = STR_DATE_START
+    config_info["DATE_END"] = STR_DATE_END
+
+    config_info["PERIOD"] = f"{STR_DATE_START} - {STR_DATE_END}"
+
+    start_days = pd.date_range(STR_DATE_START, STR_DATE_END, freq="D")
+
+    DATE_END_PLUS_DRIFT_TIME = DATE_END + dt.timedelta(
+        days=int(config_info["drift_time"]) + 1
+    )
+
+    # ------------------------------------------
+    # 5. Region
+    # ------------------------------------------
+    config_info["STR_REGION"] = StringRegion(
+        config_info["lon_min"],
+        config_info["lon_max"],
+        config_info["lat_min"],
+        config_info["lat_max"],
+    )
+
+    # ------------------------------------------
+    # 6. Experiment name
+    # ------------------------------------------
+    EXP_NAME = (
+        f"Parcels_Drift-{SYSTEM}_{leadtime}_{scheme}_drift{length_time}_dt{parcels_dt}_"
+        f"{DATE_START.strftime('%Y%m%d')}-"
+        f"{DATE_END.strftime('%Y%m%d')}"
+    )
+
+    config_info["EXP_NAME"] = EXP_NAME
+
+    # ------------------------------------------
+    # 7. Output directory
+    # ------------------------------------------
+    dir_out_data = config_info['dir_data'] + scheme + "/"
+    dir_out_imgs = config_info['dir_imgs'] + scheme + "/"
+    if not os.path.exists(dir_out_imgs):
+        print(f'\ncreate folder : {dir_out_imgs}')
+        # Create directory where to store images:
+        os.makedirs(dir_out_imgs)
+    if not os.path.exists(dir_out_data):
+        print(f'\ncreate folder : {dir_out_data}')
+        # Create directory where to store results:
+        os.makedirs(dir_out_data)
+
+    DIR_WORK = config_info["dir_work"] + scheme + "/"
+    PROJECT = config_info["project"]
+
+    config_info["DIR_OUT"] = (
+        f"{DIR_WORK}DRIFT_{SYSTEM}/"
+        f"{EXP_NAME}/ZONE_{config_info['STR_REGION']}/"
+    )
+
+    # ------------------------------------------
+    # 8. Output file
+    # ------------------------------------------
+    pickle_file = os.path.join(
+        config_info["DIR_OUT"],
+        f"{EXP_NAME}_drift-observations.pkl"
+    )
+    outfile = (
+                f"{dir_out_data}Lagrangian_scores_"
+                f"{leadtime}_{SYSTEM}_"
+                f"{STR_DATE_START}_"
+                f"{STR_DATE_END}.nc"
+              )
+
+    # ------------------------------------------
+    # 8bis. Logger (NOW INCLUDED ✔)
+    # ------------------------------------------
+    log = Logger(
+        f"Lagrangian_tool {STR_DATE_START} - {STR_DATE_END} {SYSTEM}"
+    ).run(int(config_info["loglevel"]))
+
+    # ------------------------------------------
+    # 9. Return full runtime object
+    # ------------------------------------------
+    return {
+        "config_info": config_info,
+        "start_days": start_days,
+        "config_model_params": config_model_params,
+        "pickle_file": pickle_file,
+        "stats_out": outfile,
+        "dir_out_imgs": dir_out_imgs,
+        "log": log,
+    }
 
 def convert_id_to_char_array(ids, string_length=8):
     import numpy as np
@@ -526,251 +670,251 @@ def trapz(f,x):
 
 
 ## return U, V files within date range:
-def ReturnUVlist(MODEL, date_start, date_end, dir_in=None, leadtime=None):
-
-    print ("#-----------------------------------------------------------------------------------------")
-    print ("#                      READ IN FIELDSET")
-    print ("#-----------------------------------------------------------------------------------------")
-
-    print('script ReturnUVlist')
-    print('model :', MODEL)
-    print('date_start :', date_start)
-    print('date_end :', date_end)
-    print('dir_in :', dir_in)
-    #reconstruct date1
-    DD1=date_start.day
-    MM1=date_start.month
-    YYYY1=date_start.year 
-
-    DD2=date_end.day
-    MM2=date_end.month
-    YYYY2=date_end.year
-
-    config_object = ConfigParser()
-    config_object.read(dir_in+"src/config_products_fidji.ini")
-    #config_object.read("/config_products.ini")
-
-
-    if MODEL not in config_object.sections():
-        print(MODEL, "is either a typo or not yet tuned for this program")
-        print('model runs available: ',config_object.sections())
-        sys.exit(1)
-
-    run_info = config_object[MODEL]
-    fname_prefix=run_info["fname_prefix"]
-    #path to files 
-    path_UV=run_info["path"]
-
-    print('path_UV: ', path_UV)
-    print('fname_prefix: ', fname_prefix)
-    #sys.exit(1)
-    
-    #e.g.       /sortref/opr/pgn/PSY4/psy4v3r1/2009/07/PSY4V3R1_1dAV_20090703_20090704_gridU_R20090708.nc
-    #e.g.     /sortref/reanalyse/glorys/phy/GLORYS12V1/RUN5free/PGN/1991/12/GLORYS12V1_1dAV_19911204_19911205_gridU_R19911211.nc
-    # create list of files:
-    print('identify U,V :')
-
-    list_years = range (YYYY1, YYYY2+1, 1)
-    print('years=', list_years)
-    
-    u_files,v_files, ssh_files= [],[],[]  # initialise arryas
-    for i in list_years:
-        print (i)
-        if MODEL == 'GLOBC':
-            # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
-            # nrt_global_allsat_phy_l4_20181224_20181230.nc
-            u_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-        elif MODEL == 'ORCA12_RBB':
-            print('got here')
-            #e.g. /sortref/ose-2/btchonang/GLORYS12V1/GLO12OSSE/NatRun/ORCA12-TRBB36s003b_1d_grid_T_20141120-20141120.nc
-            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+'grid_U_'+str(i)+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ 'grid_V_'+str(i)+'*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-        elif MODEL == 'GLO12V4':
-            # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
-            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
-            v_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DV-vo_*.nc'))
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-        elif MODEL == 'IBI36':
-            print(path_UV+fname_prefix+'*gridU_R*.nc')
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*gridU_R*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*gridV_R*.nc'))
-            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d')
-
-        elif MODEL == 'SMOC' or MODEL == 'SMOC_GLO12':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) +format(MM2,'02d') + format(DD2,'02d')
-
-        elif MODEL == 'IBI8':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d')+ format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2)+format(MM2,'02d')+ format(DD2,'02d')
-
-        elif MODEL == 'GLO8':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif MODEL == 'IBI4' or MODEL == 'IBI12':
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif MODEL == "PSY4":
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-        
-        elif "GLO12_FCST" in MODEL:
-            ## Recode this
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+'fcst*/'+fname_prefix+'*3DU*.nc'))
-            v_files += sorted(glob.glob(path_UV+'fcst*/'+fname_prefix+'*3DV*.nc'))
-            print(u_files)
-            sys.exit(1)
-            #f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            #f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-            f_input_start = 'fcst-1_R' + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d') + '.nc'
-            f_input_end = 'fcst-1_R' + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d') + '.nc'
-            
-        elif "GLO12_NWCT" in MODEL or "GLO12_HDCT" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif "PSY4_FCST" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        elif "PSY4_NWCT" in MODEL:
-            print(path_UV+fname_prefix)
-            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
-            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
-            print(u_files)
-            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
-            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
-
-        else :
-            print('Inside else')
-            # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
-            u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
-            v_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridV_*.nc'))
-            
-            
-            #provide how file starts to identify it in list
-            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
-            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-            print('f_input_start=', f_input_start)
-            print('f_input_end=', f_input_end)
-
-
-    #ssh_files=ssh_files.sort() 
-
-
-    #sys.exit(1)
-    print('f_input_start',f_input_start)
-    print('f_input_end',f_input_end)
-
-    print('UV field, identify start date:')
-    print('nb files in Ulist = ', len(u_files))
-    counter=0
-    for line in u_files:
-        if f_input_start in line:
-           pos1u = counter 
-           print ('    ',f_input_start, ' in line ', pos1u,' :', line)        
-        counter+=1
-
-    #sys.exit(1)
-
-    print('UV field, identify end date')
-    counter=0
-    for line in u_files:
-        print(line)
-        print(f_input_end)
-        if f_input_end in line:
-           pos2u = counter 
-           print ('    ',f_input_end, ' in line ', pos2u,' :', line)        
-        counter+=1
-
-    counter=0
-    for line in v_files:
-        if f_input_start in line:
-           pos1v = counter
-           print ('    ',f_input_start, ' in line ', pos1v,' :', line)
-        counter+=1
-
-    #sys.exit(1)
-
-    print('UV field, identify end date')
-    counter=0
-    for line in v_files:
-        if f_input_end in line:
-           pos2v = counter 
-           print ('    ',f_input_end, ' in line ', pos2v,' :', line) 
-        counter+=1
-
-
-    #sys.exit(1)
-    # clear up paths to previous dayly outputs  from list:
-    if 'pos2u' in locals():
-        del(u_files[pos2u+1:])
-    if 'pos1u' in locals():
-        del(u_files[:pos1u])
-
-    if 'pos2v' in locals():
-        del(v_files[pos2v+1:])
-    if 'pos1v' in locals():
-        del(v_files[:pos1v])
-
-
-    print('nb files in ulist = ', len(u_files))
-    print('nb files in vlist = ', len(v_files))
-    print('nb files in ssh list = ', len(ssh_files))
-
-    return u_files, v_files
+#def ReturnUVlist(MODEL, date_start, date_end, dir_in=None, leadtime=None):
+#
+#    print ("#-----------------------------------------------------------------------------------------")
+#    print ("#                      READ IN FIELDSET")
+#    print ("#-----------------------------------------------------------------------------------------")
+#
+#    print('script ReturnUVlist')
+#    print('model :', MODEL)
+#    print('date_start :', date_start)
+#    print('date_end :', date_end)
+#    print('dir_in :', dir_in)
+#    #reconstruct date1
+#    DD1=date_start.day
+#    MM1=date_start.month
+#    YYYY1=date_start.year 
+#
+#    DD2=date_end.day
+#    MM2=date_end.month
+#    YYYY2=date_end.year
+#
+#    config_object = ConfigParser()
+#    config_object.read(dir_in+"src/config_products.ini")
+#    #config_object.read("/config_products.ini")
+#
+#
+#    if MODEL not in config_object.sections():
+#        print(MODEL, "is either a typo or not yet tuned for this program")
+#        print('model runs available: ',config_object.sections())
+#        sys.exit(1)
+#
+#    run_info = config_object[MODEL]
+#    fname_prefix=run_info["fname_prefix"]
+#    #path to files 
+#    path_UV=run_info["path"]
+#
+#    print('path_UV: ', path_UV)
+#    print('fname_prefix: ', fname_prefix)
+#    #sys.exit(1)
+#    
+#    #e.g.       /sortref/opr/pgn/PSY4/psy4v3r1/2009/07/PSY4V3R1_1dAV_20090703_20090704_gridU_R20090708.nc
+#    #e.g.     /sortref/reanalyse/glorys/phy/GLORYS12V1/RUN5free/PGN/1991/12/GLORYS12V1_1dAV_19911204_19911205_gridU_R19911211.nc
+#    # create list of files:
+#    print('identify U,V :')
+#
+#    list_years = range (YYYY1, YYYY2+1, 1)
+#    print('years=', list_years)
+#    
+#    u_files,v_files, ssh_files= [],[],[]  # initialise arryas
+#    for i in list_years:
+#        print (i)
+#        if MODEL == 'GLOBC':
+#            # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
+#            # nrt_global_allsat_phy_l4_20181224_20181230.nc
+#            u_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
+#            v_files += sorted(glob.glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
+#            
+#            #provide how file starts to identify it in list
+#            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+#            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+#            print('f_input_start=', f_input_start)
+#            print('f_input_end=', f_input_end)
+#
+#        elif MODEL == 'ORCA12_RBB':
+#            print('got here')
+#            #e.g. /sortref/ose-2/btchonang/GLORYS12V1/GLO12OSSE/NatRun/ORCA12-TRBB36s003b_1d_grid_T_20141120-20141120.nc
+#            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+'grid_U_'+str(i)+'*.nc'))
+#            v_files += sorted(glob.glob(path_UV+'/' + fname_prefix+ 'grid_V_'+str(i)+'*.nc'))
+#            
+#            #provide how file starts to identify it in list
+#            f_input_start = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+#            f_input_end =str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+#            print('f_input_start=', f_input_start)
+#            print('f_input_end=', f_input_end)
+#
+#        elif MODEL == 'GLO12V4':
+#            # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
+#            u_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
+#            v_files += sorted(glob.glob(path_UV +'/'+ fname_prefix+str(i)+'*3DV-vo_*.nc'))
+#            
+#            #provide how file starts to identify it in list
+#            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+#            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+#            print('f_input_start=', f_input_start)
+#            print('f_input_end=', f_input_end)
+#        elif MODEL == 'IBI36':
+#            print(path_UV+fname_prefix+'*gridU_R*.nc')
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*gridU_R*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*gridV_R*.nc'))
+#            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d')
+#
+#        elif MODEL == 'SMOC' or MODEL == 'SMOC_GLO12':
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) +format(MM2,'02d') + format(DD2,'02d')
+#
+#        elif MODEL == 'IBI8':
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_interp_resol8.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1)+format(MM1,'02d')+ format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2)+format(MM2,'02d')+ format(DD2,'02d')
+#
+#        elif MODEL == 'GLO8':
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#
+#        elif MODEL == 'IBI4' or MODEL == 'IBI12':
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#
+#        elif MODEL == "PSY4":
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#        
+#        elif "GLO12_FCST" in MODEL:
+#            ## Recode this
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+'fcst*/'+fname_prefix+'*3DU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+'fcst*/'+fname_prefix+'*3DV*.nc'))
+#            print(u_files)
+#            sys.exit(1)
+#            #f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            #f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#            f_input_start = 'fcst-1_R' + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d') + '.nc'
+#            f_input_end = 'fcst-1_R' + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d') + '.nc'
+#            
+#        elif "GLO12_NWCT" in MODEL or "GLO12_HDCT" in MODEL:
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*3DU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*3DV*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#
+#        elif "PSY4_FCST" in MODEL:
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#
+#        elif "PSY4_NWCT" in MODEL:
+#            print(path_UV+fname_prefix)
+#            u_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridU*.nc'))
+#            v_files += sorted(glob.glob(path_UV+fname_prefix+'*_gridV*.nc'))
+#            print(u_files)
+#            f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')
+#            f_input_end = fname_prefix + str(YYYY2) + format(MM2,'02d') +format(DD2,'02d')
+#
+#        else :
+#            print('Inside else')
+#            # e.g. /sortref/opr/pgn/PSY4/psy4v3r1/2006/10/PSY4V3R1_1dAV_20061011_20061012_gridU_R20061018.nc
+#            u_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridU_*.nc'))
+#            v_files += sorted(glob.glob(path_UV+'/*/*/' + fname_prefix+ str(i)+'*gridV_*.nc'))
+#            
+#            
+#            #provide how file starts to identify it in list
+#            f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+#            f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+#            print('f_input_start=', f_input_start)
+#            print('f_input_end=', f_input_end)
+#
+#
+#    #ssh_files=ssh_files.sort() 
+#
+#
+#    #sys.exit(1)
+#    print('f_input_start',f_input_start)
+#    print('f_input_end',f_input_end)
+#
+#    print('UV field, identify start date:')
+#    print('nb files in Ulist = ', len(u_files))
+#    counter=0
+#    for line in u_files:
+#        if f_input_start in line:
+#           pos1u = counter 
+#           print ('    ',f_input_start, ' in line ', pos1u,' :', line)        
+#        counter+=1
+#
+#    #sys.exit(1)
+#
+#    print('UV field, identify end date')
+#    counter=0
+#    for line in u_files:
+#        print(line)
+#        print(f_input_end)
+#        if f_input_end in line:
+#           pos2u = counter 
+#           print ('    ',f_input_end, ' in line ', pos2u,' :', line)        
+#        counter+=1
+#
+#    counter=0
+#    for line in v_files:
+#        if f_input_start in line:
+#           pos1v = counter
+#           print ('    ',f_input_start, ' in line ', pos1v,' :', line)
+#        counter+=1
+#
+#    #sys.exit(1)
+#
+#    print('UV field, identify end date')
+#    counter=0
+#    for line in v_files:
+#        if f_input_end in line:
+#           pos2v = counter 
+#           print ('    ',f_input_end, ' in line ', pos2v,' :', line) 
+#        counter+=1
+#
+#
+#    #sys.exit(1)
+#    # clear up paths to previous dayly outputs  from list:
+#    if 'pos2u' in locals():
+#        del(u_files[pos2u+1:])
+#    if 'pos1u' in locals():
+#        del(u_files[:pos1u])
+#
+#    if 'pos2v' in locals():
+#        del(v_files[pos2v+1:])
+#    if 'pos1v' in locals():
+#        del(v_files[:pos1v])
+#
+#
+#    print('nb files in ulist = ', len(u_files))
+#    print('nb files in vlist = ', len(v_files))
+#    print('nb files in ssh list = ', len(ssh_files))
+#
+#    return u_files, v_files
 
 def DispDirAndLength(traj_lon, traj_lat):
     nb_part   = traj_lon.shape[0]
@@ -917,19 +1061,6 @@ def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
     deg2rad, rad2deg = pi / 180.0,  180.0 / pi
     earth_radius = 6371000.
     # 1 nm = 1.8520 km
-    
-    #print('SVP:\n',np.shape(lon_grp1), np.shape(lat_grp1),'\nMODEL\n',np.shape(lon_grp2),np.shape(lat_grp2))
-    #sys.exit(1)
-    #if len(lon_grp1.shape) == 1:
-    #     lon_grp1=np.expand_dims(lon_grp1, axis=1)
-    #if len(lat_grp1.shape) == 1:
-    #     lat_grp1=np.expand_dims(lat_grp1, axis=1)
-    #if len(lon_grp2.shape) == 1:
-    #     lon_grp2=np.expand_dims(lon_grp2, axis=1)
-    #if len(lat_grp2.shape) == 1:
-    #     lat_grp2=np.expand_dims(lat_grp2, axis=1)
-    #print(np.shape(lon_grp1), np.shape(lat_grp1),np.shape(lon_grp2),np.shape(lat_grp2))
-    #sys.exit(1)
     # difference in lon/lat with above and below cells
     dlon = lon_grp1 - lon_grp2  #np.diff(lon_grp1)
     dlat = lat_grp1 - lat_grp2  #np.diff(lat_grp1)
@@ -957,13 +1088,6 @@ def SepDistanceEachTimestep(lon_grp1,lat_grp1,lon_grp2,lat_grp2):
     dep = np.cos(latrad) * dlon
     dist = DEG2NM * (dlat ** 2 + dep ** 2) ** 0.5
     dist = dist*NM2KM
-    #print('\nSVP_lon\n',lon_grp1[0,:])
-    #print('\nSVP_lat\n',lat_grp1[0,:])
-    #print('\nMOD_lon\n',lon_grp2[0,:])
-    #print('\nMOD_lat\n',lat_grp2[0,:])
-    #print('\ndist\n',dist[0,:])
-    
-    #sys.exit(1)
     return dist
 
 
@@ -1018,7 +1142,7 @@ def TrajDistBetweenTimesteps(lon_grp1,lat_grp1):
     #print('\ndist\n',dist[0,:])
     #sys.exit(1)
     return dist
-    
+ 
 def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
     print('compute Liu Score')
     #print('drifter 6hourly: SVP', traj_drifter_lon.shape,', MODEL:', traj_lon_mod.shape)
@@ -1150,7 +1274,6 @@ def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
             # e.g. ncwa -a deptht -d deptht,10 infile.nc file-depth10.nc 
             # Example to select only 10th level of depth dim (resulting file won't keep this dimension):
             #  If no -a option is precised, ncwa is used to average data. By default all dimensions will be averaged to give only a float value.
-            
             #cmd_exe1 = 'ncwa -F -a %s -d %s,%s %s %s ' %(depth,depth,z_level, u_file, u_file_surf)
             #ncks -F -A -d deptht,${zlevel},${zlevel},1 -v $var_i $ff ${IDIR}/temp1.nc
             #cmd_exe1 = 'ncks -F -A -d %s,%s,%s,1 -v %s %s %s ' %(depth,zlevel,zlevel,var_u, u_file, u_file_temp)
@@ -1186,7 +1309,6 @@ def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
             #cmd_exe2 = 'ncwa -F -a %s -d %s,%s %s %s ' %(depth,depth,z_level, v_file, v_file_surf)
             print(cmd_exe2)   
             os.system(cmd_exe2)
-           
             #2  Remove degenerated dimension
             #echo ncwa -F -a deptht,1  ${IDIR}/temp1.nc ${IDIR}/${fname2}
             cmd_exe2b = 'ncwa -F -a %s,1 %s %s ' %(depth,  v_file_temp, v_file_surf)

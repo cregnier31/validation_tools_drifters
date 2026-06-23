@@ -1,0 +1,44 @@
+###################
+*.com
+*.class
+*.dll
+*.exe
+*.o
+*.e
+*.so
+*.pyc
+*.bak
+.*.swp
+
+save/*
+dist/
+*/*_old.py
+*/*_save.py
+lib_pyt.egg-info/
+test_outputs/
+.pytest_cache/
+zoom.nc
+
+# Packages #
+############
+# it's better to unpack these files and commit the raw source
+# git has its own built in compression methods
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+
+## Images
+
+*.gif
+*.tiff
+
+## Eclipse's files
+.project
+.pydevproject
+.settings/
+.eggs/
