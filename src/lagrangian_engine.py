@@ -1,7 +1,7 @@
 from parcels_tools import run_parcels_Drift
 from opendrift_tools import run_opendrift
 
-def run_lagrangian(engine, **kwargs):
+def run_lagrangian(engine, *args, **kwargs):
     """
     Run the selected Lagrangian engine.
     """
@@ -9,10 +9,16 @@ def run_lagrangian(engine, **kwargs):
     engine = engine.lower()
 
     if engine == "parcels":
-        return run_parcels_Drift(**kwargs)
+        return run_parcels_Drift(
+            *args,
+            **kwargs
+        )
 
     elif engine == "opendrift":
-        return run_opendrift(**kwargs)
+        return run_opendrift(
+            *args,
+            **kwargs
+        )
 
     else:
         raise ValueError(

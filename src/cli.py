@@ -15,8 +15,8 @@ def parse_args():
     parser.add_argument('--date2', type=str, help='End date in YYYYMMDD format')
     parser.add_argument('--lead', type=str, help='leadtime HCST or FCST')
     parser.add_argument('--sys', type=str, help='SYSTEM to validate')
-    parser.add_argument('--scheme', type=str, help='Scheme of the dispersion')
-    parser.add_argument('--typeobs', type=str, help='type of observation')
+    parser.add_argument('--scheme', type=str, default="K_smag", help='Scheme of the dispersion')
+    parser.add_argument('--typeobs', type=str, default="COPERNICUS_DAILY", help='type of observation')
     parser.add_argument('--engine', type=str,  default="parcels", help='Engine choosen forthe dispersion')
     args = parser.parse_args()
     list_lead = ['HDCT', 'FCST']
