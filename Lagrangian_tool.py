@@ -68,7 +68,8 @@ if len(runtime["start_days"]) > njobs:
         delayed(read_traj_compute_scores)(
                     day,
                     runtime['config_info'],
-                    results[ind_day]
+                    results[ind_day],
+                    filtered=False,
         )
         for ind_day, day in enumerate(runtime["start_days"])
     )
@@ -134,6 +135,7 @@ compute_and_plot_histograms(results_stats,
 log.info("Plot final scores")
 list_days = [1, 3, 5, 10]
 #list_days = [1, 3, 5]
+log.info(f"plot_scores Stats {runtime['stats_out']}")
 plot_scores(runtime['dir_out_imgs'],
             runtime['stats_out'],
             runtime['config_info'],

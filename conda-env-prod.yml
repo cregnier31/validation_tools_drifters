@@ -1,0 +1,13 @@
+# This file may be used to create an environment using:
+# $ conda env create -f conda-env.yml
+name: lagrangian
+dependencies:
+  - python[version='>=3.10,<3.12']
+  - cartopy
+  - matplotlib
+  - zarr
+  - joblib
+  - numpy
+  - parcels
+  - pip:
+    - lib_pyt

@@ -7,6 +7,62 @@ import numpy as np
 # 4. BINNING ON GRID
 # =========================================================
 
+def bin_spatial_weighted(array_daily, traj_lon, traj_lat, res=2):
+
+    lon_bins = np.arange(-180, 181, res)
+    lat_bins = np.arange(-90, 91, res)
+
+    nlon = len(lon_bins) - 1
+    nlat = len(lat_bins) - 1
+    ndays = array_daily.shape[1]
+
+    sum_sep = np.zeros((nlat, nlon, ndays))
+    weight_sep = np.zeros((nlat, nlon, ndays))
+
+    # initial positions
+    lon0 = traj_lon[:, 0]
+    lat0 = traj_lat[:, 0]
+
+    lon0 = ((lon0 + 180) % 360) - 180
+
+    ilon = np.digitize(lon0, lon_bins) - 1
+    ilat = np.digitize(lat0, lat_bins) - 1
+
+    valid = (
+        (ilon >= 0) & (ilon < nlon) &
+        (ilat >= 0) & (ilat < nlat)
+    )
+
+    ilon = ilon[valid]
+    ilat = ilat[valid]
+
+    sep_valid = array_daily[valid]
+
+    # latitude dependent area weight
+    lat_center = (lat_bins[:-1] + lat_bins[1:]) / 2
+    area_weight = np.cos(np.deg2rad(lat_center))
+
+    weights = area_weight[ilat]
+
+    for t in range(ndays):
+
+        np.add.at(
+            sum_sep[:, :, t],
+            (ilat, ilon),
+            sep_valid[:, t] * weights
+        )
+
+        np.add.at(
+            weight_sep[:, :, t],
+            (ilat, ilon),
+            weights
+        )
+
+    mean_sep = sum_sep / weight_sep
+    mean_sep[weight_sep == 0] = np.nan
+
+    return mean_sep, weight_sep
+
 def bin_spatial(array_daily, traj_lon, traj_lat, res=2):
 
     # --- grid definition

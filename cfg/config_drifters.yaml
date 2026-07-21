@@ -14,8 +14,9 @@ config_base:
   dir_work: "/scratch/work/regnierc/WORK_lagrangian/"
   dir_in: "/home/ext/mr/smer/regnierc/SAVE/codes/validation_tools_drifters/"
 
-  copernicus_drifter: true
-  drift_path: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
+#  copernicus_drifter: true
+  #drift_path: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
+  #  drift_path: "/scratch/work/regnierc/data/UV_Drifters/PhOD/"
 
   #advection_diffusion_type: "AdvectionRK4"
   advection_diffusion_type: "K_smag"
@@ -24,7 +25,7 @@ config_base:
 
   dir_imgs:  './imgs/'
   dir_data:  './data/'
-  loglevel: 2
+  loglevel: 1
   nb_repeats: 0
 
   forecast: true
@@ -32,6 +33,11 @@ config_base:
 
   username : regnierc
   password : 32chachaMO!!
+
+path_data:
+
+  COPERNICUS_DAILY: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
+  AOML : "/scratch/work/regnierc/data/UV_Drifters/PhOD/"
 
 model_params:
 
@@ -93,6 +99,21 @@ model_params:
 
     color: "red"
     indice_date: 68
+
+  GLOBCURR_HDCT:
+
+    path: "/scratch/work/regnierc/data/MULTIOBS_GLO_PHY_NRT_015_003/dataset-uv-nrt-daily"
+    fname_prefix: "dataset-uv-nrt-daily_"
+    lon: "longitude"
+    lat: "latitude"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "regular"
+    meshmask: "/scratch/work/regnierc/static/GLOBcurr_mask.nc"
+    color: "red"
+    indice_date: 68
+
 
   GLO12_HDCT:
 
@@ -206,6 +227,16 @@ parcels:
         sampling_hours: 1
 
     SMOC:
+
+      AdvectionRK4:
+        dt_minutes: 10
+        sampling_hours: 6
+
+      K_smag:
+        dt_minutes: 10
+        sampling_hours: 6
+
+    GLOBCURR:
 
       AdvectionRK4:
         dt_minutes: 10

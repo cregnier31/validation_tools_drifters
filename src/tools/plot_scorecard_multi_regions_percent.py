@@ -325,7 +325,7 @@ files = {
     "GLO12":
     f"{DIR_KSMAG}Lagrangian_scores_weighted_HDCT_GLO12_2024-01-04_2024-12-28.nc",
 
-    "GLO12_TEST":
+    "GLO12_TEST5":
     f"{DIR_KSMAG}Lagrangian_scores_weighted_HDCT_GLO12_TEST5_2024-01-04_2024-12-28.nc",
 
     "SMOC":

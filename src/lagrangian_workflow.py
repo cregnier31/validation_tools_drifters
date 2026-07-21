@@ -8,7 +8,9 @@ from configparser import ConfigParser
 from data_io import Retrieve_data_local
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels, retrieve_drifters_for_one_day_traj
-from parcels_tools import run_parcels_Drift
+#from parcels_tools import run_parcels_Drift
+from lagrangian_engine import run_lagrangian
+
 #from spatial_binning import bin_spatial, bin_spatial2
 #from lagrangian_metrics import SeparationDistance,\
 #                        SeparationDistance_havers,\
@@ -37,43 +39,20 @@ def process_one_day(day, config_dict):
     day : datetime
         Initialization day for drifter selection and trajectory launch
 
-    day : leadtime
-        Leadtime value for analysis or forecast fields HDCT or FCST
-
-    DIR_OUT : str
-        Output directory for temporary and Parcels trajectory files
-
-    LON_MIN, LON_MAX : float
-        Longitude bounds for drifter spatial selection
-
-    LAT_MIN, LAT_MAX : float
-        Latitude bounds for drifter spatial selection
-
-    MODEL : str
-         Ocean model configuration to process
-
-    DIR_IN : str
-        Input directory containing model velocity fields
-
-    DIR_WORK : str
-        Working directory for intermediate files
-
-    DEPTH : float
-        Initial particle depth
-
-    ADVECTION_DIFFUSION_TYPE : str
-        Parcels kernel configuration
-        (e.g. advection only, diffusion, smagorinsky)
-
-    NB_REPEATS : int or None
-        Number of repeated launches per drifter position
-
-    STR_REGION : str
-        Name of the validation region
-
-    DRIFT_TIME : int
-        Total drift duration in days
-
+    config_dict: is a dictionnary that contains the following parameters
+        leadtime (int): Leadtime value for analysis or forecast fields HDCT or FCST
+        DIR_OUT (str): Output directory for temporary and Parcels trajectory files
+        LON_MIN, LON_MAX (float): Longitude bounds for drifter spatial selection
+        LAT_MIN, LAT_MAX (float): Latitude bounds for drifter spatial selection
+        MODEL (str): Ocean model configuration to process
+        DIR_IN (str): Input directory containing model velocity fields
+        DIR_WORK(str): Working directory for intermediate files
+        DEPTH (float): Initial particle depth
+        ADVECTION_DIFFUSION_TYPE (str) Parcels kernel configuration
+            (e.g. advection only, diffusion, smagorinsky)
+        NB_REPEATS (int or None): Number of repeated launches per drifter position
+        STR_REGION (str): Name of the validation region
+        DRIFT_TIME (int): Total drift duration in days
 
     Returns
     -------
@@ -103,13 +82,16 @@ def process_one_day(day, config_dict):
     leadtime = config_info["leadtime"]
     DIR_IN = config_info["dir_in"]
     DIR_WORK = config_info["dir_work"]
-    DRIFT_PATH = config_info["drift_path"]
+    DRIFT_PATH = config_info["path_data"]
     DEPTH = config_info["depth"]
     ADVECTION_DIFFUSION_TYPE = config_info["advection_diffusion_type"]
     NB_REPEATS = config_info["nb_repeats"]
     STR_REGION = config_info["STR_REGION"]
     DRIFT_TIME = config_info["drift_time"]
+    obs_type = config_info["obs_type"]
     loglevel = config_info["loglevel"]
+    engine = config_info["engine"]
+    print(f"{engine=}")
     # Create Logger
     log = Logger("lagrangian",
                 ).run(loglevel)
@@ -140,6 +122,7 @@ def process_one_day(day, config_dict):
         STR_REGION,
         str_date_sim,
         srt_date_end,
+        obs_type,
         DRIFT_PATH,
         DIR_OUT,
         log
@@ -190,9 +173,10 @@ def process_one_day(day, config_dict):
                 DEPTH, log, leadtime=leadtime
             )
         # ======================================================
-        # Run Parcels
+        # Run 
         # ======================================================
-        run_parcels_Drift(
+        run_lagrangian(
+            engine,
             config_info,
             MODEL,
             u_files_mod_temp, var_u_mod,

@@ -27,6 +27,29 @@ import matplotlib.pyplot as plt
 import cartopy.crs as ccrs
 import pathlib
 
+
+def area_weighted_mean(da):
+    """
+    Compute global mean weighted by latitude area
+    da(lat, lon, leadtime)
+    """
+
+    lat = da.lat
+
+    weights = np.cos(np.deg2rad(lat))
+
+    weights = xr.DataArray(
+        weights,
+        coords={"lat": lat},
+        dims=["lat"]
+    )
+
+    return (
+        da.weighted(weights)
+        .mean(dim=("lat", "lon"))
+    )
+
+
 def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
 
     """
@@ -169,6 +192,7 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     proj_1 = ccrs.PlateCarree(200)
     ncdata = xr.open_dataset(f"{file_in}", decode_times=False)
 
+
     nb_plots = 4
     nb_cols = 2
     nlines = 2
@@ -198,7 +222,7 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
                 log.debug(f"Day {day}")
                 varname = dict_variable[variable]
                 results = ncdata[varname][:, :, day-1]
-                results = np.where(results == 0, np.nan, results)
+                #results = np.where(results == 0, np.nan, results)
                 log.debug(np.nanmax(results))
                 log.debug(np.nanmean(results))
                 longitude = ncdata["lon"]
@@ -211,8 +235,29 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
                 log.debug(f"{row_index=}")
                 ax_fig = fig.add_subplot(gs[row_index, col_index], projection=proj_1)
                 title_position = (0.5, 1.05)
-                mean_value = np.nanmean(results)
-                titre = f"{ech} {day} days (mean = {mean_value:.2f})"
+                #mean_value = np.nanmean(results)
+                # remove invalid values
+                global_score = area_weighted_mean(results)
+
+                valid = np.isfinite(results)
+                # latitude-dependent area weight
+                lat_rad = np.deg2rad(latitude)
+                # broadcast weights to grid shape
+                weights = np.cos(lat_rad)
+                # convert to numpy
+                weights = weights.values
+
+                # make (lat,lon)
+                weights = weights[:, np.newaxis]
+                # broadcast to field shape
+                weights = np.broadcast_to(
+                            weights,
+                            results.shape
+                            )
+                print("Weighted mean value")
+                mean_value = np.nansum(results * weights) / np.nansum(weights * valid)
+                #titre = f"{ech} {day} days (mean = {mean_value:.2f})"
+                titre = f"{ech} {day} days (mean = {global_score:.2f})"
                 map2d = plotmap(ax=ax_fig)
                 if variable == "sep-dist":
                     cmax = dict_cmax[variable][f'DT{day}']

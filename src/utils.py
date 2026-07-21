@@ -44,20 +44,19 @@ def build_runtime_config(args, config_path):
     # ------------------------------------------
     # 1. Parse CLI args
     # ------------------------------------------
-    DATE_START, DATE_END, leadtime, SYSTEM = args
+    DATE_START, DATE_END, leadtime, SYSTEM, scheme, obs_type, engine = args
     # ------------------------------------------
     # 2. Load YAML
-    # ------------------------------------------
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     config_info = config["config_base"]
     config_model_params = config['model_params']
-
+    config_path_data = config['path_data']
     # Add parcel config
     config_parcels = config['parcels']
     # 1. defaults
-    scheme = config_info["advection_diffusion_type"]
+    #scheme = config_info["advection_diffusion_type"]
     base = config_parcels["defaults"].get(scheme)
     if base is None:
         raise ValueError(f"Unknown scheme: {scheme}")
@@ -67,7 +66,9 @@ def build_runtime_config(args, config_path):
     # 2. overrides (if exists)
     overrides = config_parcels.get("overrides", {})
     if SYSTEM in overrides:
+        print(f'{SYSTEM} in overrides')
         if scheme in overrides[SYSTEM]:
+            print('scheme in overrides')
             override = overrides[SYSTEM][scheme]
             parcels_dt = override.get("dt_minutes", parcels_dt)
             sampling = override.get("sampling_hours", sampling)
@@ -75,6 +76,8 @@ def build_runtime_config(args, config_path):
     config_info["parcels_dt_minutes"] = parcels_dt
     config_info["parcels_sampling_hours"] = sampling
     config_info["scheme"] = scheme
+    config_info["obs_type"] = obs_type
+    config_info["engine"] = engine
     length_time =int(config_info["drift_time"])
     # ------------------------------------------
     # 3. Inject runtime args
@@ -85,6 +88,7 @@ def build_runtime_config(args, config_path):
     config_info["lon"] = config_model_params[f'{SYSTEM}_{leadtime}']['lon']
     config_info["lat"] = config_model_params[f'{SYSTEM}_{leadtime}']['lat']
     config_info["time"] = config_model_params[f'{SYSTEM}_{leadtime}']['time']
+    config_info["path_data"] = config_path_data[obs_type]
     # ------------------------------------------
     # 4. Dates
     # ------------------------------------------
@@ -143,7 +147,10 @@ def build_runtime_config(args, config_path):
         f"{DIR_WORK}DRIFT_{SYSTEM}/"
         f"{EXP_NAME}/ZONE_{config_info['STR_REGION']}/"
     )
-
+    print(config_info["DIR_OUT"])
+    if not os.path.exists(config_info["DIR_OUT"]):
+        # Create directory where to store results:
+        os.makedirs(config_info["DIR_OUT"])
     # ------------------------------------------
     # 8. Output file
     # ------------------------------------------
@@ -153,7 +160,7 @@ def build_runtime_config(args, config_path):
     )
     outfile = (
                 f"{dir_out_data}Lagrangian_scores_"
-                f"{leadtime}_{SYSTEM}_"
+                f"weighted_{leadtime}_{SYSTEM}_"
                 f"{STR_DATE_START}_"
                 f"{STR_DATE_END}.nc"
               )

@@ -4,7 +4,7 @@ import numpy as np
 import xarray as xr
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels
-from spatial_binning import bin_spatial
+from spatial_binning import bin_spatial, bin_spatial_weighted
 from lagrangian_metrics import SeparationDistance,\
                         SeparationDistance_havers,\
                         SeparationDistance_havers2,\
@@ -37,8 +37,10 @@ def read_traj_compute_scores(day,
     dir_out_parcels = config_info["DIR_OUT"]
     leadtime = config_info["leadtime"]
     DIR_WORK = config_info["dir_work"]
-    DRIFT_PATH = config_info["drift_path"]
-    COPERNICUS_DRIFTER = config_info["copernicus_drifter"]
+    #DRIFT_PATH = config_info["drift_path"]
+    #DRIFT_PATH = config_info["path_data"]
+    #COPERNICUS_DRIFTER = config_info["copernicus_drifter"]
+    DRIFTER_type = config_info["obs_type"]
     T_DRIFT = config_info["drift_time"]
     sampling = config_info["parcels_sampling_hours"]
 
@@ -77,7 +79,7 @@ def read_traj_compute_scores(day,
     traj_drifter_lon_temp,traj_drifter_lat_temp,traj_drifter_date_temp,\
         traj_drifter_time_temp,traj_drifter_id_temp,\
         nb_drifters_temp = Retrieve_drifters_traj(filename_drift,\
-        T_DRIFT, log, COPERNICUS_DRIFTER)
+        T_DRIFT, log, DRIFTER_type)
     log.debug(f'Size drifters obs {np.shape(traj_drifter_lon_temp)}')
     # --------------------------------------------
     # Retrieve Model trajectories

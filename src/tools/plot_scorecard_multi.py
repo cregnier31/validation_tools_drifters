@@ -230,7 +230,7 @@ DIR_RK4 = "/home/ext/mr/smer/regnierc/SAVE/codes/validation_tools_drifters/data/
 dir_out = '../../imgs/'
 files = {
         "GLO12": f"{DIR_KSMAG}Lagrangian_scores_weighted_HDCT_GLO12_2024-01-04_2024-12-28.nc",
-        "GLO12_TEST": f"{DIR_KSMAG}Lagrangian_scores_weighted_HDCT_GLO12_TEST5_2024-01-04_2024-12-28.nc",
+        "GLO12_TEST5": f"{DIR_KSMAG}Lagrangian_scores_weighted_HDCT_GLO12_TEST5_2024-01-04_2024-12-28.nc",
         "SMOC": f"{DIR_RK4}Lagrangian_scores_weighted_HDCT_SMOC_2024-01-04_2024-12-28.nc",
         "GLOBCURR": f"{DIR_RK4}Lagrangian_scores_weighted_HDCT_GLOBCURR_2024-01-04_2024-12-28.nc"
 }
@@ -238,9 +238,9 @@ files = {
 leadtimes=[1,3,5,7,10]
 
 varname = "mean_separation_distance"
-varname = "liu_skill_score"
+#varname = "liu_skill_score"
 title="Mean separation distance"
-title="Liu score"
+#title="Liu score"
 file_img = f"{dir_out}/scorecard_multimodel_2024_{varname}.png"
 #varname = "mean_separation_distance"
 df = build_separation_dataframe(

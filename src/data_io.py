@@ -2,6 +2,10 @@ from configparser import ConfigParser
 from glob import glob
 import os
 import sys
+import re
+from pathlib import Path
+from collections import defaultdict
+from datetime import date, timedelta
 
 def Retrieve_data_local(config_object,
                         MODEL,
@@ -115,16 +119,27 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
 
     u_files,v_files, ssh_files= [],[],[]  # initialise arryas
     for i in list_years:
-        if MODEL == 'GLOBC':
+        if MODEL == 'GLOBCURR_HDCT':
             # e.g. /dataref/opr/DATA/OCEAN_CURRENTS/REP/L4/MULTIOBS_GLO_PHY_REP_015_004/dataset-uv-rep-daily/2019/dataset-uv-rep-daily_20191009T1200Z_P20200521T0000.nc
             # nrt_global_allsat_phy_l4_20181224_20181230.nc
-            u_files += sorted(glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-            v_files += sorted(glob(path_UV+'/*/' + fname_prefix+ str(i)+'*.nc'))
-
+           # u_files += sorted(glob(path_UV+'/' + fname_prefix+ str(i)+'*.nc'))
+           # v_files += sorted(glob(path_UV+'/' + fname_prefix+ str(i)+'*.nc'))
+            print(f"{fname_prefix}{i}*.nc")
+            print(f"{path_UV}/")
+            files = list(Path(f"{path_UV}/").glob(f"{fname_prefix}{i}*.nc"))
+            files_by_day = defaultdict(list)
             #provide how file starts to identify it in list
             f_input_start =fname_prefix + str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
             f_input_end =fname_prefix + str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
-
+            date_start  = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
+            date_end = str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
+            date_list = []
+            # convert strings → date objects
+            d = date(int(date_start[0:4]), int(date_start[4:6]), int(date_start[6:8]))
+            end = date(int(date_end[0:4]), int(date_end[4:6]), int(date_end[6:8]))
+            while d <= end:
+                date_list.append(d.strftime("%Y%m%d"))
+                d += timedelta(days=1)
         elif MODEL == 'ORCA12_RBB':
             #e.g. /sortref/ose-2/btchonang/GLORYS12V1/GLO12OSSE/NatRun/ORCA12-TRBB36s003b_1d_grid_T_20141120-20141120.nc
             u_files += sorted(glob(path_UV +'/'+ fname_prefix+'grid_U_'+str(i)+'*.nc'))
@@ -230,7 +245,7 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
 
     #ssh_files=ssh_files.sort()
 
-    if leadtime == 'HDCT':
+    if leadtime == 'HDCT' and MODEL != 'GLOBCURR_HDCT':
         log.debug(f'f_input_start {f_input_start}')
         log.debug(f'f_input_end {f_input_end}')
         log.debug('UV field, identify start date:')
@@ -243,7 +258,7 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
                log.debug(f'    {f_input_end}  in line {pos1u} : {line}')
             counter+=1
 
-        log.debug('UV field, identify end date')
+        log.debug(f'U field, identify end date')
         counter=0
         for line in u_files:
             if f_input_end in line:
@@ -252,11 +267,13 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
             counter+=1
 
         counter=0
+        log.debug(f'U field, identify end date')
         for line in v_files:
             if f_input_start in line:
                pos1v = counter
                log.debug(f'    {f_input_start}  in line {pos1v} : {line}')
             counter+=1
+        log.debug(f'V field identify end date')
 
         #sys.exit(1)
 
@@ -267,9 +284,9 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
                pos2v = counter
                log.debug(f'    {f_input_end}  in line {pos2v} : {line}')
             counter+=1
+        log.debug(f'V field, identify end date')
 
 
-        #sys.exit(1)
         # clear up paths to previous dayly outputs  from list:
         if 'pos2u' in locals():
             del(u_files[pos2u+1:])
@@ -281,10 +298,33 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
         if 'pos1v' in locals():
             del(v_files[:pos1v])
 
-
+    else:
+        print('case globcurrent')
+        day_files = defaultdict(list)
+        for f in files:
+            name = f.name
+            try:
+                left, right = name.split("_", 1)
+                day = right[:8]  # YYYYMMDD
+                p_date = right.split("_P")[1][:8]
+                #files_by_day[day].append((p_date, f))
+                # keep only in range
+                if date_start <= day <= date_end:
+                    day_files[day].append((p_date, f))
+            except Exception as e:
+                continue
+        # keep ONLY ONE file per day (latest P)
+        one_file_per_day = [
+            max(lst, key=lambda x: x[0])[1]
+            for lst in day_files.values()
+        ]
+        # optional: sort by day
+        one_file_per_day = sorted(one_file_per_day)
+        u_files = one_file_per_day
+        v_files = one_file_per_day
     log.debug(f'nb files in ulist = {len(u_files)}')
     log.debug(f'nb files in vlist =  {len(v_files)}')
     log.debug(f'nb files in ssh list = {len(ssh_files)}')
-    log.debug(u_files)
+    #log.debug(u_files)
     log.debug('--------------------')
     return u_files, v_files
