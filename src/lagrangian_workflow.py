@@ -192,22 +192,23 @@ def process_one_day(day, config_dict):
                 u_depth=config_info.get("zarr_u_depth", "depthu"),
                 v_depth=config_info.get("zarr_v_depth", "depthv"),
             ) as velocities:
-                # Existing xarray runner accepts regular lon/lat coordinates.
-                # Native NEMO staggered/curvilinear grids need a separate adapter.
-                if not ({"lon", "lat"} <= set(velocities.coords) or
-                        {"longitude", "latitude"} <= set(velocities.coords)):
-                    raise NotImplementedError(
-                        "Zarr NEMO curvilinear U/V grids require a Parcels grid adapter"
+                if MODEL.upper() == "GLOENS":
+                    from gloens_parcels import run_gloens_parcels
+                    meshmask = config_dict["config_model_params"][f"{MODEL}_{leadtime}"]["meshmask"]
+                    run_gloens_parcels(
+                        velocities, meshmask, day, lon0, lat0, f_traj,
+                        drift_days=DRIFT_TIME,
                     )
-                run_parcels_Drift_remote(
-                    MODEL, velocities,
-                    config_info.get("zarr_u_var", "uo"),
-                    config_info.get("zarr_v_var", "vo"),
-                    lon0, lat0, id_char, DRIFT_TIME, f_traj,
-                    radius_cloud=0, seeding_resolution=0,
-                    time_period=False, nb_repeats=NB_REPEATS,
-                    AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
-                )
+                else:
+                    run_parcels_Drift_remote(
+                        MODEL, velocities,
+                        config_info.get("zarr_u_var", "uo"),
+                        config_info.get("zarr_v_var", "vo"),
+                        lon0, lat0, id_char, DRIFT_TIME, f_traj,
+                        radius_cloud=0, seeding_resolution=0,
+                        time_period=False, nb_repeats=NB_REPEATS,
+                        AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
+                    )
         else:
             (u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask) = Retrieve_data_local(
                     config_dict['config_model_params'],
