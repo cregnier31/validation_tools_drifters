@@ -52,6 +52,8 @@ def main():
     parser.add_argument("--date", default="20251106")
     parser.add_argument("--particles", type=int, default=10)
     parser.add_argument("--output", default=None)
+    parser.add_argument("--meshmask", default="/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc",
+                        help="NEMO iORCA025 meshmask containing glamu/gphiu and glamv/gphiv")
     args = parser.parse_args()
     if args.particles != 10:
         raise SystemExit("This comparison test requires exactly 10 particles")
@@ -81,8 +83,23 @@ def main():
     with prepare_ensemble_forecast(u_store, v_store, day, days=28, storage_options=options) as ds:
         # Preserve native NEMO U and V horizontal positions; do not assume
         # that their staggered grids are interchangeable.
-        u_lon, u_lat = horizontal_coordinates(ds, "uo")
-        v_lon, v_lat = horizontal_coordinates(ds, "vo")
+        mesh_path = Path(args.meshmask)
+        if not mesh_path.is_file():
+            raise FileNotFoundError(f"NEMO meshmask not found: {mesh_path}")
+        with xr.open_dataset(mesh_path, decode_times=False) as mesh:
+            # NEMO C-grid: U lives at glamu/gphiu, V at glamv/gphiv.
+            def mesh_coord(name):
+                a = mesh[name]
+                if "time_counter" in a.dims:
+                    a = a.isel(time_counter=0)
+                if a.dims != ("y", "x"):
+                    raise ValueError(f"{name} has unexpected dimensions {a.dims}")
+                return a.values.astype("float32")
+            u_lon, u_lat = mesh_coord("glamu"), mesh_coord("gphiu")
+            v_lon, v_lat = mesh_coord("glamv"), mesh_coord("gphiv")
+            if u_lon.shape != tuple(ds["uo"].shape[-2:]) or v_lon.shape != tuple(ds["vo"].shape[-2:]):
+                raise ValueError("NEMO meshmask U/V shapes do not match GLOENS velocity grids")
+            print(f"Using NEMO C-grid coordinates from {mesh_path}")
         u = ds["uo"].transpose("time", *ds["uo"].dims[-2:]).values.astype("float32")
         v = ds["vo"].transpose("time", *ds["vo"].dims[-2:]).values.astype("float32")
         if u.shape[0] != 28 or v.shape[0] != 28:
