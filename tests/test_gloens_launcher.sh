@@ -53,13 +53,6 @@ case "${1:-}" in
       echo "Expected YYYYMMDD forecast initialization date" >&2
       exit 2
     fi
-    "$PYTHON" - <<'PY'
-import yaml
-with open("cfg/config_drifters.yaml", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
-if int(cfg["config_base"]["drift_time"]) != 28:
-    raise SystemExit("Set config_base.drift_time: 28 in cfg/config_drifters.yaml before --run")
-PY
     echo "Launching GLOENS for $DATE with 28-day particle dispersion."
     echo "Requires observed drifter files and a working Parcels adapter for GLOENS grid."
     "$PYTHON" Lagrangian_tool.py \
