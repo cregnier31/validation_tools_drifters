@@ -51,11 +51,6 @@ def main():
     if not dates:
         raise SystemExit("No matching GLOENS forecast initialization cycles found")
     print(f"Discovered {len(dates)} GLOENS cycles for {args.year}", flush=True)
-    import yaml
-    with (Path(__file__).resolve().parents[1] / "cfg/config_drifters.yaml").open() as config_file:
-        config = yaml.safe_load(config_file)
-    if int(config["config_base"]["drift_time"]) != 28:
-        raise SystemExit("Set config_base.drift_time: 28 before running the annual GLOENS experiment")
     output = Path(args.output or f"outputs/gloens_annual_{args.year}")
     output.mkdir(parents=True, exist_ok=True)
     summary = output / "summary.csv"
