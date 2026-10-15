@@ -50,13 +50,13 @@ def horizontal_coordinates(ds, var):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date", default="20251106")
-    parser.add_argument("--particles", type=int, default=10)
+    parser.add_argument("--particles", type=int, default=0, help="0 means all available validated drifters")
     parser.add_argument("--output", default=None)
     parser.add_argument("--meshmask", default="/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc",
                         help="NEMO iORCA025 meshmask containing glamu/gphiu and glamv/gphiv")
     args = parser.parse_args()
-    if args.particles != 10:
-        raise SystemExit("This comparison test requires exactly 10 particles")
+    if args.particles < 0:
+        raise SystemExit("--particles must be positive")
     day = pd.Timestamp(args.date)
     end = day + pd.Timedelta(days=28)
     out = Path(args.output or f"outputs/gloens_10_drifters_{args.date}")
@@ -74,9 +74,9 @@ def main():
         if result is None:
             raise RuntimeError("No complete 28-day drifter trajectories")
         observed, _ = result
-    observed = sorted(observed, key=lambda t: int(t["id"]))[:10]
-    if len(observed) < 10:
-        raise RuntimeError(f"Only {len(observed)} valid drifters; need 10")
+    observed = sorted(observed, key=lambda t: int(t["id"]))[:args.particles] if args.particles else sorted(observed, key=lambda t: int(t["id"]))
+    if not observed:
+        raise RuntimeError("No valid drifters")
 
     u_store, v_store, options = discover_gloens_stores(day)
     from parcels import AdvectionRK4, FieldSet, JITParticle, ParticleSet
@@ -119,7 +119,7 @@ def main():
             fieldset=fieldset, pclass=JITParticle,
             lon=[float(t["lon"][0]) for t in observed],
             lat=[float(t["lat"][0]) for t in observed],
-            time=np.zeros(10, dtype="float64"))
+            time=np.zeros(len(observed), dtype="float64"))
         zarr_path = out / "model_trajectories.zarr"
         if zarr_path.exists():
             raise FileExistsError(f"Refusing to overwrite {zarr_path}")
@@ -132,8 +132,8 @@ def main():
         model_lon = simulated["lon"].values.copy()
         model_lat = simulated["lat"].values.copy()
         model_time = simulated["time"].values.copy()
-    if model_lon.shape[0] != 10:
-        raise AssertionError(f"Expected 10 simulated trajectories; got {model_lon.shape}")
+    if model_lon.shape[0] != len(observed):
+        raise AssertionError(f"Expected {len(observed)} simulated trajectories; got {model_lon.shape}")
     if not np.isfinite(model_lon).any():
         raise AssertionError("All simulated coordinates are invalid")
 
@@ -147,14 +147,14 @@ def main():
                 linewidth=1.5, label=f"{obs['id']} GLOENS")
         ax.scatter(obs["lon"][0], obs["lat"][0], color=color, s=16, zorder=3)
     ax.set(xlabel="Longitude (degrees)", ylabel="Latitude (degrees)",
-           title=f"GLOENS ensemble mean vs 10 observed drifters | {args.date} | 28 days")
+           title=f"GLOENS ensemble mean vs {len(observed)} observed drifters | {args.date} | 28 days")
     ax.grid(alpha=0.25)
     ax.legend(fontsize=7, ncol=2, loc="best")
     ax.set_aspect("equal", adjustable="datalim")
     png = out / "comparison_2d.png"
     fig.savefig(png, dpi=180)
     plt.close(fig)
-    print(f"PASS: saved 10 model trajectories to {zarr_path}")
+    print(f"PASS: saved {len(observed)} model trajectories to {zarr_path}")
     print(f"PASS: saved 2D observed/model comparison to {png}")
     print("NOTE: This is an experimental comparison with extrapolated boundary velocities.")
 
