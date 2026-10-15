@@ -45,7 +45,7 @@ def retrieve_drifters_for_one_day_traj(
         # 1. Select files
         # ==========================================================
         log.debug('Select files')
-        file_list = sorted(glob.glob(base_dir + "*/*.nc"))
+        file_list = sorted(glob.glob(base_dir + "*/*.nc") + glob.glob(base_dir + "*.nc"))
         def extract_date(f):
             return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
 
