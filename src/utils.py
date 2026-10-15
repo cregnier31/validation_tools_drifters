@@ -89,6 +89,16 @@ def build_runtime_config(args, config_path):
     config_info["lat"] = config_model_params[f'{SYSTEM}_{leadtime}']['lat']
     config_info["time"] = config_model_params[f'{SYSTEM}_{leadtime}']['time']
     config_info["path_data"] = config_path_data[obs_type]
+    # GLOENS uses CLASS1 S3 Zarr; GLO12 retains its NetCDF directory.
+    if SYSTEM.upper() == "GLOENS":
+        config_info["input_format"] = "zarr"
+        model_settings = config_model_params[f"{SYSTEM}_{leadtime}"]
+        config_info["zarr_bucket"] = model_settings.get("bucket_name", "MOISICEEF")
+        config_info["zarr_endpoint_url"] = model_settings.get(
+            "endpoint_url", "https://s3.waw3-1.cloudferro.com")
+    else:
+        config_info["input_format"] = "netcdf"
+
     # ------------------------------------------
     # 4. Dates
     # ------------------------------------------
