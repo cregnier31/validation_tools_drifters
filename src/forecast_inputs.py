@@ -58,7 +58,7 @@ def ensemble_mean_velocity(u_ds, v_ds=None, *, u_name="uo", v_name="vo",
         if time_dim not in field.dims:
             raise ValueError(f"{var!r} has no {time_dim!r} dimension")
         fields.append(field.mean(ensemble_dim, skipna=True))
-    if not fields[0][time_dim].identical(fields[1][time_dim]):
+    if not fields[0][time_dim].equals(fields[1][time_dim]):
         raise ValueError("U and V forecast valid times do not match")
     return xr.Dataset({u_name: fields[0], v_name: fields[1]})
 
