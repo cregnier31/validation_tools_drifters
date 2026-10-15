@@ -15,6 +15,9 @@ save/*
 dist/
 */*_old.py
 */*_save.py
+*~
+*/*~
+*/*/*~
 lib_pyt.egg-info/
 test_outputs/
 .pytest_cache/

@@ -41,6 +41,7 @@ log = runtime["log"]
 # Compute lagrangian trajectories
 #------------------------------------------
 njobs = 8
+filtered = True
 log.info(f"Start Lagrangian_tool {runtime['config_info']['PERIOD']} {runtime['config_info']['SYSTEM']}")
 log.info("Running parallel computation...")
 t0 = perf_counter()
@@ -69,7 +70,7 @@ if len(runtime["start_days"]) > njobs:
                     day,
                     runtime['config_info'],
                     results[ind_day],
-                    filtered=False,
+                    filtered=filtered,
         )
         for ind_day, day in enumerate(runtime["start_days"])
     )

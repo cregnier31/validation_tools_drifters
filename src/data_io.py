@@ -148,7 +148,7 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
             f_input_start = str(YYYY1)+format(MM1,'02d')+format(DD1,'02d')
             f_input_end =str(YYYY2)+format(MM2,'02d')+format(DD2,'02d')
 
-        elif MODEL == 'GLO12V4' or MODEL == 'GLO12V4_TEST5':
+        elif MODEL == 'GLO12V4' or MODEL == 'GLO12V4_TEST5' or MODEL == 'GLO12V4_TEST8':
             # GLO12: /sortref/opr/diag/GLO12/GLO12V4/data/Extract_UV/GLO12_ng_1d-m_20200101-20200101_3DU-uo_rtr_R20200108.nc
             u_files += sorted(glob(path_UV +'/'+ fname_prefix+str(i)+'*3DU-uo_*.nc'))
             v_files += sorted(glob(path_UV +'/'+ fname_prefix+str(i)+'*3DV-vo_*.nc'))
@@ -216,7 +216,7 @@ def ReturnUVlist(config_object, MODEL, date_start, date_end, log, dir_in=None, l
             #f_input_end = 'fcst-1_R' + str(YYYY2) + format(MM2,'02d') + format(DD2,'02d') + '.nc'
             log.debug(f_input_start)
             log.debug(f_input_end)
-        elif "GLO12_NWCT" in MODEL or "GLO12_HDCT" in MODEL or "GLO12_TEST5_HDCT" in MODEL :
+        elif "GLO12_NWCT" in MODEL or "GLO12_HDCT" in MODEL or "GLO12_TEST5_HDCT" in MODEL or "GLO12_TEST8_HDCT" in MODEL:
             u_files += sorted(glob(path_UV+fname_prefix+'*3DU*.nc'))
             v_files += sorted(glob(path_UV+fname_prefix+'*3DV*.nc'))
             f_input_start = fname_prefix + str(YYYY1) + format(MM1,'02d') + format(DD1,'02d')

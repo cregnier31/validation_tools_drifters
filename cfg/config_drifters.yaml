@@ -25,7 +25,7 @@ config_base:
 
   dir_imgs:  './imgs/'
   dir_data:  './data/'
-  loglevel: 1
+  loglevel: 2
   nb_repeats: 0
 
   forecast: true
@@ -138,6 +138,26 @@ model_params:
   GLO12_TEST5_HDCT:
 
     path: "/scratch/work/regnierc/SORT/HEBDO/GLO12/glo12v4_test5/hdct/"
+    fname_prefix: "GLO12_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time_counter"
+    var_u: "uo"
+    var_v: "vo"
+
+    grid_type: "irregular"
+    path_ssh: ""
+    var_ssh: ""
+    fname_prefix_ssh: ""
+
+    meshmask: "/scratch/work/regnierc/static/allmeshes.nc"
+
+    color: "red"
+
+
+  GLO12_TEST8_HDCT:
+
+    path: "/scratch/work/regnierc/SORT/HEBDO/GLO12/glo12v4_test8/hdct/"
     fname_prefix: "GLO12_ng_1d-m_"
     lon: "nav_lon"
     lat: "nav_lat"
