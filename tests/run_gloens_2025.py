@@ -31,7 +31,7 @@ def main():
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
     from forecast_inputs import GLOENS_BUCKET, GLOENS_ENDPOINT_URL
     fs = s3fs.S3FileSystem(anon=True, client_kwargs={"endpoint_url": GLOENS_ENDPOINT_URL})
-    pattern = re.compile(r"glo4-ens50_ng_1d-m_(\\d{8})-\\d{8}_3DU-uo_fcst_R(\\d{8})\\.zarr$")
+    pattern = re.compile(r"glo4-ens50_ng_1d-m_(\d{8})-\d{8}_3DU-uo_fcst_R(\d{8})\.zarr$")
     dates = sorted({
         date.fromisoformat(m.group(1)[:4] + "-" + m.group(1)[4:6] + "-" + m.group(1)[6:])
         for item in fs.ls(GLOENS_BUCKET)
