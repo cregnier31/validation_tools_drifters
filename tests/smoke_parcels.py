@@ -29,7 +29,7 @@ def main():
         pfile = pset.ParticleFile(name=output, outputdt=timedelta(hours=1))
         pset.execute(AdvectionRK4, runtime=timedelta(hours=2),
                      dt=timedelta(minutes=10), output_file=pfile)
-        pfile.close()
+        # Parcels 3.1.x ParticleFile has no close() method; execute writes Zarr.
         with xr.open_zarr(output) as traj:
             if "lon" not in traj or "lat" not in traj or "time" not in traj:
                 raise AssertionError(f"Missing trajectory variables: {list(traj)}")
