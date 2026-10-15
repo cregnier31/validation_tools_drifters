@@ -24,7 +24,11 @@ def open_velocity_dataset(source, *, storage_options=None, chunks=None):
     if source.rstrip("/").endswith(".zarr"):
         if source.startswith(("s3://", "gs://", "https://", "http://")):
             import fsspec
-            source = fsspec.get_mapper(source, **(storage_options or {}))
+            import s3fs
+            if source.startswith("s3://"):
+                source = s3fs.S3Map(root=source, s3=s3fs.S3FileSystem(**(storage_options or {})), check=False)
+            else:
+                source = fsspec.get_mapper(source, **(storage_options or {}))
         return xr.open_zarr(source, consolidated=False, chunks=chunks or {})
     if storage_options:
         raise ValueError("storage_options only applies to Zarr")
@@ -60,17 +64,17 @@ def ensemble_mean_velocity(u_ds, v_ds=None, *, u_name="uo", v_name="vo",
 
 
 def select_forecast_window(ds, start, *, days=28, time_dim="time"):
-    """Require lead zero and a complete time span through day 28."""
+    """Require 28 daily forecast samples (lead days 0 through 27)."""
     import numpy as np
     if days <= 0:
         raise ValueError("days must be positive")
     start = np.datetime64(start, "ns")
-    end = start + np.timedelta64(days, "D")
+    end = start + np.timedelta64(days - 1, "D")
     selected = ds.sel({time_dim: slice(start, end)})
     times = selected[time_dim].values
-    if len(times) < 2 or times[0].astype("datetime64[ns]") != start or times[-1].astype("datetime64[ns]") != end:
+    if len(times) != days or times[0].astype("datetime64[ns]") != start or times[-1].astype("datetime64[ns]") != end:
         raise ValueError(f"Incomplete {days}-day forecast window starting {start}")
-    if np.any(np.diff(times) <= np.timedelta64(0, "ns")):
+    if np.any(np.diff(times) != np.timedelta64(1, "D")):
         raise ValueError("Forecast times must be strictly increasing")
     return selected
 
