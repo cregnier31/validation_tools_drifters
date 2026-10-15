@@ -130,7 +130,7 @@ def discover_gloens_stores(run_date, *, bucket=GLOENS_BUCKET,
     for path in candidates:
         name = path.rsplit("/", 1)[-1]
         match = re.fullmatch(
-            re.escape(prefix) + r"(\\d{8})-(\\d{8})_(3D[UV]-[uv]o)_fcst_R(\\d{8})\\.zarr",
+            re.escape(prefix) + r"(\d{8})-(\d{8})_(3D[UV]-[uv]o)_fcst_R(\d{8})\.zarr",
             name,
         )
         if not match or match.group(4) != date or match.group(1) != date:
