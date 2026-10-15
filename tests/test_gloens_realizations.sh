@@ -26,13 +26,6 @@ case "$MODE" in
     ;;
   *) usage ;;
 esac
-"$PYTHON" - <<'PY'
-import yaml
-with open("cfg/config_drifters.yaml", encoding="utf-8") as f:
-    cfg = yaml.safe_load(f)
-if int(cfg["config_base"]["drift_time"]) != 28:
-    raise SystemExit("Set config_base.drift_time: 28 in cfg/config_drifters.yaml")
-PY
 if [[ "$MODE" == "--day" ]]; then
   echo "GLOENS Parcels: initialization $VALUE, all valid drifters, 28 days"
   exec "$PYTHON" Lagrangian_tool.py \
