@@ -98,3 +98,54 @@ def prepare_ensemble_forecast(u_store, v_store, start, *, days=28,
                         u_depth=u_depth, v_depth=v_depth)
                     yield select_forecast_window(mean, start, days=days)
     return opened()
+
+
+# CLASS1 GLOENS operational Zarr location; same settings as
+# class1-comparisons/cfg/config_def_GLOENS.cfg.
+GLOENS_BUCKET = "MOISICEEF"
+GLOENS_ENDPOINT_URL = "https://s3.waw3-1.cloudferro.com"
+GLOENS_PREFIX = "glo4-ens50_ng_1d-m_"
+
+
+def discover_gloens_stores(run_date, *, bucket=GLOENS_BUCKET,
+                           endpoint_url=GLOENS_ENDPOINT_URL,
+                           storage_options=None, prefix=GLOENS_PREFIX):
+    """Find matching U/V forecast stores for exactly one forecast cycle.
+
+    CLASS1 names: glo4-ens50_ng_1d-m_YYYYMMDD-YYYYMMDD_
+                  3DU-uo_fcst_RYYYYMMDD.zarr (and 3DV-vo).
+    Only returns matching run cycles and matching valid-time periods.
+    """
+    import s3fs
+    from datetime import datetime
+
+    date = run_date.strftime("%Y%m%d") if hasattr(run_date, "strftime") else str(run_date).replace("-", "")
+    if len(date) != 8 or not date.isdigit():
+        raise ValueError(f"Expected a YYYYMMDD run date; got {run_date!r}")
+    options = {"anon": True, "client_kwargs": {"endpoint_url": endpoint_url}}
+    options.update(storage_options or {})
+    fs = s3fs.S3FileSystem(**options)
+    candidates = fs.ls(bucket)
+    found = {}
+    for path in candidates:
+        name = path.rsplit("/", 1)[-1]
+        match = re.fullmatch(
+            re.escape(prefix) + r"(\\d{8})-(\\d{8})_(3D[UV]-[uv]o)_fcst_R(\\d{8})\\.zarr",
+            name,
+        )
+        if not match or match.group(4) != date or match.group(1) != date:
+            continue
+        key = match.group(3)
+        if key in found:
+            raise ValueError(f"Multiple GLOENS {key} stores for run {date}")
+        found[key] = (f"s3://{bucket}/{name}", match.group(2))
+    if not {"3DU-uo", "3DV-vo"} <= found.keys():
+        raise FileNotFoundError(f"Missing GLOENS U/V Zarr forecast stores for run {date} in s3://{bucket}")
+    if found["3DU-uo"][1] != found["3DV-vo"][1]:
+        raise ValueError(f"GLOENS U/V forecast coverage differs for run {date}")
+    # Validate advertised end date >= 28 days from the forecast cycle.
+    advertised_end = datetime.strptime(found["3DU-uo"][1], "%Y%m%d").date()
+    cycle = datetime.strptime(date, "%Y%m%d").date()
+    if (advertised_end - cycle).days < 27:
+        raise ValueError(f"GLOENS forecast for {date} advertises fewer than 28 daily fields")
+    return found["3DU-uo"][0], found["3DV-vo"][0], options
