@@ -199,8 +199,7 @@ def process_one_day(day, config_dict):
                     AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
                 )
         else:
-            u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask = \\
-                Retrieve_data_local(
+            (u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask) = Retrieve_data_local(
                     config_dict['config_model_params'],
                     f'{MODEL}_{leadtime}',
                     day,
