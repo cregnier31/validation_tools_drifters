@@ -167,14 +167,24 @@ def process_one_day(day, config_dict):
         if config_info.get("input_format", "netcdf").lower() == "zarr":
             if engine.lower() != "parcels":
                 raise NotImplementedError("Ensemble Zarr currently requires Parcels")
-            from forecast_inputs import prepare_ensemble_forecast
+            from forecast_inputs import prepare_ensemble_forecast, discover_gloens_stores
             from parcels_tools import run_parcels_Drift_remote
-            u_store = config_info["zarr_u_store"]
-            v_store = config_info.get("zarr_v_store", u_store)
+            if MODEL.upper() == "GLOENS":
+                u_store, v_store, storage_options = discover_gloens_stores(
+                    day,
+                    bucket=config_info.get("zarr_bucket", "MOISICEEF"),
+                    endpoint_url=config_info.get(
+                        "zarr_endpoint_url", "https://s3.waw3-1.cloudferro.com"),
+                )
+            else:
+                u_store = config_info["zarr_u_store"]
+                v_store = config_info.get("zarr_v_store", u_store)
+                storage_options = None
             if int(DRIFT_TIME) != 28:
                 raise ValueError("Ensemble forecast mode requires drift_time=28")
             with prepare_ensemble_forecast(
                 u_store, v_store, day, days=28,
+                storage_options=storage_options,
                 u_name=config_info.get("zarr_u_var", "uo"),
                 v_name=config_info.get("zarr_v_var", "vo"),
                 ensemble_dim=config_info.get("zarr_ensemble_dim", "ens"),
