@@ -16,6 +16,14 @@ case "${1:-}" in
     "$PYTHON" -m unittest discover -s tests -p 'test_gloens_launcher.py' -v
     "$PYTHON" -m unittest discover -s tests -p 'test_forecast_inputs.py' -v
     ;;
+  --drifters|--model|--inputs)
+    DATE="${2:?Provide a forecast initialization date YYYYMMDD}"
+    case "$1" in
+      --drifters) "$PYTHON" tests/check_gloens_inputs.py --date "$DATE" --drifters ;;
+      --model) "$PYTHON" tests/check_gloens_inputs.py --date "$DATE" --model ;;
+      --inputs) "$PYTHON" tests/check_gloens_inputs.py --date "$DATE" --drifters --model ;;
+    esac
+    ;;
   --live-read)
     DATE="${2:?Provide a forecast initialization date YYYYMMDD}"
     "$PYTHON" tests/smoke_gloens_zarr.py --run-date "$DATE"
@@ -40,7 +48,7 @@ PY
       --lead FCST --sys GLOENS --scheme AdvectionRK4 --engine parcels
     ;;
   *)
-    echo "Usage: bash tests/test_gloens_launcher.sh [--live-read YYYYMMDD | --run YYYYMMDD]" >&2
+    echo "Usage: bash tests/test_gloens_launcher.sh [--drifters YYYYMMDD | --model YYYYMMDD | --inputs YYYYMMDD | --live-read YYYYMMDD | --run YYYYMMDD]" >&2
     exit 2
     ;;
 esac
