@@ -71,21 +71,24 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     import numpy as np
     if days <= 0:
         raise ValueError("days must be positive")
-    start = np.datetime64(start, "ns")
-    end = start + np.timedelta64(days - 1, "D")
-    selected = ds.sel({time_dim: slice(start, end)})
-    times = selected[time_dim].values
-    if len(times) != days or times[0].astype("datetime64[ns]") != start or times[-1].astype("datetime64[ns]") != end:
+    start = np.datetime64(start, "D")
+    # Daily mean GLOENS fields are stamped at 12:00 UTC, not midnight.
+    # Select by calendar date and preserve their native timestamps.
+    dates = ds[time_dim].values.astype("datetime64[D]")
+    indices = np.flatnonzero((dates >= start) & (dates < start + np.timedelta64(days, "D")))
+    selected = ds.isel({time_dim: indices})
+    times = selected[time_dim].values.astype("datetime64[ns]")
+    expected_dates = start + np.arange(days).astype("timedelta64[D]")
+    if len(times) != days or not np.array_equal(times.astype("datetime64[D]"), expected_dates):
         raise ValueError(
             f"Incomplete {days}-day forecast window starting {start}; "
             f"available time count={ds.sizes.get(time_dim, 0)}, "
             f"first={ds[time_dim].values[0] if ds.sizes.get(time_dim, 0) else None}, "
             f"last={ds[time_dim].values[-1] if ds.sizes.get(time_dim, 0) else None}, "
-            f"selected count={len(times)}, selected first={times[0] if len(times) else None}, "
-            f"selected last={times[-1] if len(times) else None}"
+            f"selected count={len(times)}"
         )
     if np.any(np.diff(times) != np.timedelta64(1, "D")):
-        raise ValueError("Forecast times must be strictly increasing")
+        raise ValueError("Forecast times must be strictly daily with a consistent time of day")
     return selected
 
 
