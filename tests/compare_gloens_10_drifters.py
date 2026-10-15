@@ -142,14 +142,14 @@ def main():
     for i, obs in enumerate(observed):
         color = colors[i]
         ax.plot(obs["lon"], obs["lat"], color=color, linewidth=1.7,
-                label=f"{obs['id']} observed")
+                label="Observed drifters" if i == 0 else None)
         ax.plot(model_lon[i], model_lat[i], color=color, linestyle="--",
-                linewidth=1.5, label=f"{obs['id']} GLOENS")
+                linewidth=1.5, label="GLOENS ensemble mean" if i == 0 else None)
         ax.scatter(obs["lon"][0], obs["lat"][0], color=color, s=16, zorder=3)
     ax.set(xlabel="Longitude (degrees)", ylabel="Latitude (degrees)",
            title=f"GLOENS ensemble mean vs {len(observed)} observed drifters | {args.date} | 28 days")
     ax.grid(alpha=0.25)
-    ax.legend(fontsize=7, ncol=2, loc="best")
+    ax.legend(fontsize=9, loc="best")
     ax.set_aspect("equal", adjustable="datalim")
     png = out / "comparison_2d.png"
     fig.savefig(png, dpi=180)
