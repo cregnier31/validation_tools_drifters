@@ -38,8 +38,8 @@ def main():
         with open(ROOT / "cfg/config_drifters.yaml", encoding="utf-8") as f:
             config = yaml.safe_load(f)
         root = config["path_data"]["COPERNICUS_DAILY"]
-        pattern = os.path.join(root, args.date[:4], "*", "*.nc")
-        files = sorted(glob.glob(pattern))
+        pattern = os.path.join(root, args.date[:4], "*")
+        files = sorted(glob.glob(os.path.join(root, args.date[:4], "*.nc")) + glob.glob(os.path.join(root, args.date[:4], "*", "*.nc")))
         print("Observation directory:", root)
         print("Search pattern:", pattern)
         print(f"{args.date[:4]} NetCDF files:", len(files))
