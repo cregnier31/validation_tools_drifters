@@ -163,37 +163,69 @@ def process_one_day(day, config_dict):
         # ======================================================
         DATE_END_PLUS_DRIFT_TIME = day + datetime.timedelta(days=DRIFT_TIME)
 
-        u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask = \
-            Retrieve_data_local(
-                config_dict['config_model_params'],
-                f'{MODEL}_{leadtime}',
-                day,
-                DATE_END_PLUS_DRIFT_TIME,
-                DIR_OUT, DIR_IN, DIR_WORK,
-                DEPTH, log, leadtime=leadtime
+        # Optional 28-day ensemble Zarr input. Legacy NetCDF remains unchanged.
+        if config_info.get("input_format", "netcdf").lower() == "zarr":
+            if engine.lower() != "parcels":
+                raise NotImplementedError("Ensemble Zarr currently requires Parcels")
+            from forecast_inputs import prepare_ensemble_forecast
+            from parcels_tools import run_parcels_Drift_remote
+            u_store = config_info["zarr_u_store"]
+            v_store = config_info.get("zarr_v_store", u_store)
+            if int(DRIFT_TIME) != 28:
+                raise ValueError("Ensemble forecast mode requires drift_time=28")
+            with prepare_ensemble_forecast(
+                u_store, v_store, day, days=28,
+                u_name=config_info.get("zarr_u_var", "uo"),
+                v_name=config_info.get("zarr_v_var", "vo"),
+                ensemble_dim=config_info.get("zarr_ensemble_dim", "ens"),
+                depth=float(DEPTH),
+                u_depth=config_info.get("zarr_u_depth", "depthu"),
+                v_depth=config_info.get("zarr_v_depth", "depthv"),
+            ) as velocities:
+                # Existing xarray runner accepts regular lon/lat coordinates.
+                # Native NEMO staggered/curvilinear grids need a separate adapter.
+                if not ({"lon", "lat"} <= set(velocities.coords) or
+                        {"longitude", "latitude"} <= set(velocities.coords)):
+                    raise NotImplementedError(
+                        "Zarr NEMO curvilinear U/V grids require a Parcels grid adapter"
+                    )
+                run_parcels_Drift_remote(
+                    MODEL, velocities,
+                    config_info.get("zarr_u_var", "uo"),
+                    config_info.get("zarr_v_var", "vo"),
+                    lon0, lat0, id_char, DRIFT_TIME, f_traj,
+                    radius_cloud=0, seeding_resolution=0,
+                    time_period=False, nb_repeats=NB_REPEATS,
+                    AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
+                )
+        else:
+            u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask = \\
+                Retrieve_data_local(
+                    config_dict['config_model_params'],
+                    f'{MODEL}_{leadtime}',
+                    day,
+                    DATE_END_PLUS_DRIFT_TIME,
+                    DIR_OUT, DIR_IN, DIR_WORK,
+                    DEPTH, log, leadtime=leadtime
+                )
+            run_lagrangian(
+                engine,
+                config_info,
+                MODEL,
+                u_files_mod_temp, var_u_mod,
+                v_files_mod_temp, var_v_mod,
+                meshmask,
+                lon0, lat0, id_char,
+                DRIFT_TIME,
+                f_traj,
+                log,
+                radius_cloud=0,
+                seeding_resolution=0,
+                time_period=False,
+                nb_repeats=NB_REPEATS
             )
-        # ======================================================
-        # Run 
-        # ======================================================
-        run_lagrangian(
-            engine,
-            config_info,
-            MODEL,
-            u_files_mod_temp, var_u_mod,
-            v_files_mod_temp, var_v_mod,
-            meshmask,
-            lon0, lat0, id_char,
-            DRIFT_TIME,
-            f_traj,
-            log,
-            radius_cloud=0,
-            seeding_resolution=0,
-            time_period=False,
-            nb_repeats=NB_REPEATS
-        )
+            del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
-        del u_files_mod_temp, v_files_mod_temp
-        del meshmask
     else:
         log.info(f"\nExisting parcels trajectory {f_traj}")
     gc.collect()
