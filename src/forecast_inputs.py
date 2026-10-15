@@ -64,11 +64,11 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     import numpy as np
     if days <= 0:
         raise ValueError("days must be positive")
-    start = np.datetime64(start)
+    start = np.datetime64(start, "ns")
     end = start + np.timedelta64(days, "D")
     selected = ds.sel({time_dim: slice(start, end)})
     times = selected[time_dim].values
-    if len(times) < 2 or times[0] != start or times[-1] != end:
+    if len(times) < 2 or times[0].astype("datetime64[ns]") != start or times[-1].astype("datetime64[ns]") != end:
         raise ValueError(f"Incomplete {days}-day forecast window starting {start}")
     if np.any(np.diff(times) <= np.timedelta64(0, "ns")):
         raise ValueError("Forecast times must be strictly increasing")
