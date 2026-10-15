@@ -21,7 +21,6 @@ def main():
     p.add_argument("--start", default=None, help="Optional YYYYMMDD first cycle")
     p.add_argument("--end", default=None, help="Optional YYYYMMDD last cycle")
     p.add_argument("--output", default=None)
-    p.add_argument("--meshmask", default="/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc")
     p.add_argument("--continue-on-error", action="store_true", help="Continue after failed cycle")
     args = p.parse_args()
     if args.step_days is not None and args.step_days < 1:
@@ -52,10 +51,15 @@ def main():
     if not dates:
         raise SystemExit("No matching GLOENS forecast initialization cycles found")
     print(f"Discovered {len(dates)} GLOENS cycles for {args.year}", flush=True)
+    import yaml
+    with (Path(__file__).resolve().parents[1] / "cfg/config_drifters.yaml").open() as config_file:
+        config = yaml.safe_load(config_file)
+    if int(config["config_base"]["drift_time"]) != 28:
+        raise SystemExit("Set config_base.drift_time: 28 before running the annual GLOENS experiment")
     output = Path(args.output or f"outputs/gloens_annual_{args.year}")
     output.mkdir(parents=True, exist_ok=True)
     summary = output / "summary.csv"
-    script = Path(__file__).resolve().with_name("compare_gloens_10_drifters.py")
+    script = Path(__file__).resolve().parents[1] / "Lagrangian_tool.py"
     with summary.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["date", "status", "returncode", "log", "plot"])
@@ -64,15 +68,17 @@ def main():
             cycle_output = output / stamp
             cycle_output.mkdir(parents=True, exist_ok=True)
             log_path = cycle_output / "run.log"
-            command = [sys.executable, str(script), "--date", stamp,
-                       "--output", str(cycle_output), "--meshmask", args.meshmask]
+            command = [sys.executable, str(script), "--date1", stamp,
+                       "--date2", stamp, "--lead", "FCST", "--sys", "GLOENS",
+                       "--scheme", "AdvectionRK4", "--engine", "parcels",
+                       "--typeobs", "COPERNICUS_DAILY"]
             print(f"Running {stamp} (all valid particles, 28 days)", flush=True)
             with log_path.open("w", encoding="utf-8") as log:
                 result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=False)
-            plot = cycle_output / "comparison_2d.png"
-            ok = result.returncode == 0 and plot.is_file()
+            plot = None  # Lagrangian_tool.py manages its own figures and output paths.
+            ok = result.returncode == 0
             writer.writerow([stamp, "PASS" if ok else "FAIL", result.returncode,
-                             str(log_path), str(plot) if plot.is_file() else ""])
+                             str(log_path), ""])
             f.flush()
             print(f"{stamp}: {'PASS' if ok else 'FAIL'}; log: {log_path}", flush=True)
             if not ok and not args.continue_on_error:
