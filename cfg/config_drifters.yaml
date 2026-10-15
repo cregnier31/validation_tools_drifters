@@ -41,6 +41,22 @@ path_data:
 
 model_params:
 
+  # CLASS1 GLOENS ensemble forecast velocity stores on CloudFerro S3.
+  # U/V store filenames are discovered automatically for each run date.
+  GLOENS_FCST:
+    bucket_name: "MOISICEEF"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
+    path: "s3://MOISICEEF/"
+    fname_prefix: "glo4-ens50_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "irregular"
+    meshmask: "/scratch/cregnier/static/GLOENS_mesh_hgr.nc"
+
+
   GLO12_FCST:
 
     path: "/utmp/smer/regnierc/SORT-2/DAILY/GLO12Q/glo12qv4/"
