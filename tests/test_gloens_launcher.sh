@@ -25,6 +25,10 @@ case "${1:-}" in
       --inputs) "$PYTHON" tests/check_gloens_inputs.py --date "$DATE" --drifters --model ;;
     esac
     ;;
+  --year-2025)
+    shift
+    "$PYTHON" tests/run_gloens_2025.py --year 2025 "$@"
+    ;;
   --compare-10)
     DATE="${2:?Provide a forecast initialization date YYYYMMDD}"
     "$PYTHON" tests/compare_gloens_10_drifters.py --date "$DATE"
@@ -56,7 +60,7 @@ PY
       --lead FCST --sys GLOENS --scheme AdvectionRK4 --engine parcels
     ;;
   *)
-    echo "Usage: bash tests/test_gloens_launcher.sh [--drifter-files YYYYMMDD | --drifters YYYYMMDD | --model YYYYMMDD | --inputs YYYYMMDD | --compare-10 YYYYMMDD | --parcels-smoke | --live-read YYYYMMDD | --run YYYYMMDD]" >&2
+    echo "Usage: bash tests/test_gloens_launcher.sh [--drifter-files YYYYMMDD | --drifters YYYYMMDD | --model YYYYMMDD | --inputs YYYYMMDD | --year-2025 [--step-days N] | --compare-10 YYYYMMDD | --parcels-smoke | --live-read YYYYMMDD | --run YYYYMMDD]" >&2
     exit 2
     ;;
 esac
