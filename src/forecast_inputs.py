@@ -76,7 +76,14 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     selected = ds.sel({time_dim: slice(start, end)})
     times = selected[time_dim].values
     if len(times) != days or times[0].astype("datetime64[ns]") != start or times[-1].astype("datetime64[ns]") != end:
-        raise ValueError(f"Incomplete {days}-day forecast window starting {start}")
+        raise ValueError(
+            f"Incomplete {days}-day forecast window starting {start}; "
+            f"available time count={ds.sizes.get(time_dim, 0)}, "
+            f"first={ds[time_dim].values[0] if ds.sizes.get(time_dim, 0) else None}, "
+            f"last={ds[time_dim].values[-1] if ds.sizes.get(time_dim, 0) else None}, "
+            f"selected count={len(times)}, selected first={times[0] if len(times) else None}, "
+            f"selected last={times[-1] if len(times) else None}"
+        )
     if np.any(np.diff(times) != np.timedelta64(1, "D")):
         raise ValueError("Forecast times must be strictly increasing")
     return selected
