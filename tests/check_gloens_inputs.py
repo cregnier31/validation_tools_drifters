@@ -35,14 +35,23 @@ def main():
         from trajectory_io import retrieve_drifters_for_one_day_traj
         with open(ROOT / "cfg/config_drifters.yaml", encoding="utf-8") as f:
             config = yaml.safe_load(f)
-        # Read observed drifter settings from the same runtime configuration
-        # rather than silently using a synthetic trajectory.
-        print("Config sections:", list(config))
-        raise SystemExit(
-            "Observed drifter retrieval requires runtime settings (region, observation "
-            "source and data path). Use the launcher configuration for this environment; "
-            "no fake observations were substituted."
-        )
+        base = config["config_base"]
+        obs_type = "COPERNICUS_DAILY"
+        obs_path = config["path_data"][obs_type]
+        if not pathlib.Path(obs_path, args.date[:4]).is_dir():
+            raise SystemExit(f"Drifter year directory not found: {obs_path}{args.date[:4]}/")
+        with tempfile.TemporaryDirectory() as out:
+            result = retrieve_drifters_for_one_day_traj(
+                day, 28, base["lon_min"], base["lon_max"],
+                base["lat_min"], base["lat_max"], "global",
+                args.date, (day + pd.Timedelta(days=28)).strftime("%Y%m%d"),
+                obs_type, obs_path, out + "/", logging.getLogger("drifters-test"),
+            )
+            if result is None:
+                raise SystemExit("FAIL: no complete 28-day observed drifter trajectories")
+            trajs, csv = result
+            assert trajs and pathlib.Path(csv).is_file()
+            print(f"PASS: retrieved {len(trajs)} real drifter trajectories; CSV: {csv}")
     if args.model:
         from forecast_inputs import discover_gloens_stores, prepare_ensemble_forecast
         u, v, options = discover_gloens_stores(day)
