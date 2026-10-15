@@ -25,9 +25,16 @@ case "${1:-}" in
       --inputs) "$PYTHON" tests/check_gloens_inputs.py --date "$DATE" --drifters --model ;;
     esac
     ;;
-  --year-2025)
+  --year|--year-2025)
+    MODE="$1"
     shift
-    "$PYTHON" tests/run_gloens_2025.py --year 2025 "$@"
+    if [[ "$MODE" == "--year-2025" ]]; then
+      "$PYTHON" tests/run_gloens_2025.py --year 2025 "$@"
+    else
+      YEAR="${1:?Provide a year, e.g. 2024}"
+      shift
+      "$PYTHON" tests/run_gloens_2025.py --year "$YEAR" "$@"
+    fi
     ;;
   --compare-10)
     DATE="${2:?Provide a forecast initialization date YYYYMMDD}"
@@ -60,7 +67,7 @@ PY
       --lead FCST --sys GLOENS --scheme AdvectionRK4 --engine parcels
     ;;
   *)
-    echo "Usage: bash tests/test_gloens_launcher.sh [--drifter-files YYYYMMDD | --drifters YYYYMMDD | --model YYYYMMDD | --inputs YYYYMMDD | --year-2025 [--step-days N] | --compare-10 YYYYMMDD | --parcels-smoke | --live-read YYYYMMDD | --run YYYYMMDD]" >&2
+    echo "Usage: bash tests/test_gloens_launcher.sh [--drifter-files YYYYMMDD | --drifters YYYYMMDD | --model YYYYMMDD | --inputs YYYYMMDD | --year YYYY [--continue-on-error] | --year-2025 [--step-days N] | --compare-10 YYYYMMDD | --parcels-smoke | --live-read YYYYMMDD | --run YYYYMMDD]" >&2
     exit 2
     ;;
 esac
