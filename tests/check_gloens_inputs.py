@@ -10,6 +10,8 @@ Requires local drifter files/configuration and network access for --model.
 """
 import argparse
 import datetime
+import glob
+import os
 import logging
 import pathlib
 import sys
@@ -25,11 +27,27 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date", required=True, help="YYYYMMDD initialization date")
     parser.add_argument("--drifters", action="store_true")
+    parser.add_argument("--drifter-files", action="store_true", help="Diagnose local Copernicus NetCDF file discovery")
     parser.add_argument("--model", action="store_true")
     args = parser.parse_args()
-    if not args.drifters and not args.model:
-        parser.error("Select --drifters and/or --model")
+    if not args.drifters and not args.model and not args.drifter_files:
+        parser.error("Select --drifters, --drifter-files and/or --model")
     day = pd.Timestamp(datetime.datetime.strptime(args.date, "%Y%m%d"))
+    if args.drifter_files:
+        import yaml
+        with open(ROOT / "cfg/config_drifters.yaml", encoding="utf-8") as f:
+            config = yaml.safe_load(f)
+        root = config["path_data"]["COPERNICUS_DAILY"]
+        pattern = os.path.join(root, args.date[:4], "*", "*.nc")
+        files = sorted(glob.glob(pattern))
+        print("Observation directory:", root)
+        print("Search pattern:", pattern)
+        print(f"{args.date[:4]} NetCDF files:", len(files))
+        print("Example filenames:")
+        for filename in files[:10]:
+            print(" ", os.path.basename(filename))
+        if not files:
+            raise SystemExit("FAIL: no Copernicus NetCDF files match the expected directory structure")
     if args.drifters:
         import yaml
         from trajectory_io import retrieve_drifters_for_one_day_traj
