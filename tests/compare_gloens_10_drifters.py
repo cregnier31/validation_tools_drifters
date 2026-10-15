@@ -156,6 +156,62 @@ def main():
     plt.close(fig)
     print(f"PASS: saved {len(observed)} model trajectories to {zarr_path}")
     print(f"PASS: saved 2D observed/model comparison to {png}")
+
+    # Daily separation and cumulative Liu index, following lagrangian_metrics:
+    # sum(separation from launch) / sum(observed distance from launch).
+    from lagrangian_metrics import SeparationDistance_havers2
+    sample_days = np.arange(28)
+    sep = np.full((len(observed), len(sample_days)), np.nan)
+    liu = np.full_like(sep, np.nan)
+    for i, obs in enumerate(observed):
+        obs_t = pd.to_datetime(obs["time"])
+        obs_lon = np.asarray(obs["lon"], dtype=float)
+        obs_lat = np.asarray(obs["lat"], dtype=float)
+        mod_t = pd.to_datetime(model_time[i])
+        valid = np.isfinite(model_lon[i]) & np.isfinite(model_lat[i]) & ~pd.isna(mod_t)
+        if not np.any(valid):
+            continue
+        mod_frame = pd.DataFrame({"time": mod_t[valid], "lon": model_lon[i, valid],
+                                  "lat": model_lat[i, valid]}).drop_duplicates("time").set_index("time")
+        obs_frame = pd.DataFrame({"time": obs_t, "lon": obs_lon, "lat": obs_lat}).drop_duplicates("time").set_index("time")
+        target = pd.DatetimeIndex([day + pd.Timedelta(days=int(d)) for d in sample_days])
+        o = obs_frame.reindex(target)
+        m = mod_frame.reindex(target, method="nearest", tolerance=pd.Timedelta(minutes=31))
+        ok = np.isfinite(o["lon"].values) & np.isfinite(o["lat"].values) & np.isfinite(m["lon"].values) & np.isfinite(m["lat"].values)
+        if not ok[0]:
+            continue
+        dist = SeparationDistance_havers2(o["lon"].values, o["lat"].values,
+                                          m["lon"].values, m["lat"].values)
+        sep[i, ok] = dist[ok]
+        step = SeparationDistance_havers2(o["lon"].values[:-1], o["lat"].values[:-1],
+                                          o["lon"].values[1:], o["lat"].values[1:])
+        cumulative_obs = np.concatenate([[0.0], np.cumsum(step)])
+        denom = np.cumsum(cumulative_obs[1:])
+        numer = np.cumsum(sep[i, 1:])
+        with np.errstate(divide="ignore", invalid="ignore"):
+            liu[i, 1:] = np.where(denom > 0, numer / denom, np.nan)
+
+    def plot_metric(data, ylabel, name):
+        fig, ax = plt.subplots(figsize=(10, 5), constrained_layout=True)
+        with np.errstate(all="ignore"):
+            avg = np.nanmean(data, axis=0)
+        ax.plot(sample_days, avg, color="black", linewidth=2, label="Mean across drifters")
+        ax.set(xlabel="Lead time (days)", ylabel=ylabel,
+               title=f"GLOENS vs drifters | {args.date} | N={len(observed)}")
+        ax.set_xlim(0, 27)
+        ax.grid(alpha=0.3)
+        ax.legend()
+        path = out / name
+        fig.savefig(path, dpi=180)
+        plt.close(fig)
+        print(f"Saved metric plot: {path}")
+
+    plot_metric(sep, "Mean separation distance (km)", "lagrangian_distance.png")
+    plot_metric(liu, "Cumulative Liu index (lower is better)", "liu_score.png")
+    pd.DataFrame({"lead_day": sample_days,
+                  "mean_distance_km": np.nanmean(sep, axis=0),
+                  "mean_liu_index": np.nanmean(liu, axis=0)}).to_csv(
+                      out / "lagrangian_metrics.csv", index=False)
     print("NOTE: This is an experimental comparison with extrapolated boundary velocities.")
 
 
