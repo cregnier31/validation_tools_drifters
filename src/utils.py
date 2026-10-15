@@ -78,7 +78,9 @@ def build_runtime_config(args, config_path):
     config_info["scheme"] = scheme
     config_info["obs_type"] = obs_type
     config_info["engine"] = engine
-    length_time =int(config_info["drift_time"])
+    if SYSTEM.upper() == "GLOENS" and leadtime == "FCST":
+        config_info["drift_time"] = 28
+    length_time = int(config_info["drift_time"])
     # ------------------------------------------
     # 3. Inject runtime args
     # ------------------------------------------
