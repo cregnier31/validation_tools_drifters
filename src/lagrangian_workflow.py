@@ -194,7 +194,7 @@ def process_one_day(day, config_dict):
             ) as velocities:
                 if MODEL.upper() == "GLOENS":
                     from gloens_parcels import run_gloens_parcels
-                    meshmask = config_dict["config_model_params"][f"{MODEL}_{leadtime}"]["meshmask"]
+                    meshmask = config_info.get("gloens_meshmask", "/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc")
                     run_gloens_parcels(
                         velocities, meshmask, day, lon0, lat0, f_traj,
                         drift_days=DRIFT_TIME,
