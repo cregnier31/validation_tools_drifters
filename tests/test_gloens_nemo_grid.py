@@ -441,7 +441,7 @@ def test_fpoint_parcels4_sgrid_one_day():
         v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
         with xr.open_dataset(MESH) as mesh:
             sgrid = parcels.convert.nemo_to_sgrid(
-                fields={"U": u, "V": v}, coords=mesh
+                fields={"U": u, "V": v}, coords=mesh[["glamf", "gphif"]]
             )
             fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
         fieldset.describe()
