@@ -183,3 +183,27 @@ def test_fpoint_3d_one_day_advection():
         print(f"End position: lon={particle.lon}, lat={particle.lat}, depth={particle.depth}")
         assert np.isfinite(particle.lon) and np.isfinite(particle.lat)
         assert np.isclose(particle.depth, 15.0)
+
+
+def test_fpoint_particle_location_diagnostic():
+    """Inspect F-point coordinate validity near the failed particle, without advection."""
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    with netCDF4.Dataset(MESH) as ds:
+        lon_var, lat_var = ds.variables["glamf"], ds.variables["gphif"]
+        lon = np.ma.filled(lon_var[0] if lon_var.ndim == 3 else lon_var[:], np.nan)
+        lat = np.ma.filled(lat_var[0] if lat_var.ndim == 3 else lat_var[:], np.nan)
+    valid = np.isfinite(lon) & np.isfinite(lat)
+    valid &= (np.abs(lat) <= 90) & (np.abs(lon) <= 360)
+    target_lon, target_lat = -58.001, 23.021
+    dlon = ((lon - target_lon + 180) % 360) - 180
+    distance = dlon**2 * np.cos(np.deg2rad(target_lat))**2 + (lat - target_lat)**2
+    distance[~valid] = np.inf
+    j, i = np.unravel_index(np.argmin(distance), distance.shape)
+    print(f"F-point valid coordinates: {np.count_nonzero(valid)}/{valid.size}")
+    print(f"F-point [0,0]: lon={lon[0,0]}, lat={lat[0,0]}")
+    print(f"Closest F-point to particle: (j={j}, i={i}), lon={lon[j,i]}, lat={lat[j,i]}, distance_deg={np.sqrt(distance[j,i])}")
+    print(f"Neighboring 3x3 F-point longitudes:\\n{lon[max(j-1,0):j+2,max(i-1,0):i+2]}")
+    print(f"Neighboring 3x3 F-point latitudes:\\n{lat[max(j-1,0):j+2,max(i-1,0):i+2]}")
+    assert np.isfinite(distance[j,i])
+    assert np.sqrt(distance[j,i]) < 1, "Particle is not near a valid F-point cell"
