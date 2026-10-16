@@ -29,12 +29,17 @@ def main():
     from pathlib import Path as _Path
     import sys as _sys
     _sys.path.insert(0, str(_Path(__file__).resolve().parents[1] / "src"))
-    from forecast_inputs import GLOENS_BUCKET, GLOENS_ENDPOINT_URL
-    fs = s3fs.S3FileSystem(anon=True, client_kwargs={"endpoint_url": GLOENS_ENDPOINT_URL})
-    pattern = re.compile(r"glo4-ens50_ng_1d-m_(\d{8})-\d{8}_3DU-uo_fcst_R(\d{8})\.zarr$")
+    import yaml
+    with (Path(__file__).resolve().parents[1] / "cfg/config_drifters.yaml").open(encoding="utf-8") as stream:
+        settings = yaml.safe_load(stream)["model_params"]["GLOENS_FCST"]
+    bucket = settings["bucket_name"]
+    endpoint = settings["endpoint_url"]
+    prefix = settings["fname_prefix"]
+    fs = s3fs.S3FileSystem(anon=True, client_kwargs={"endpoint_url": endpoint})
+    pattern = re.compile(re.escape(prefix) + r"(\d{8})-\d{8}_3DU-uo_fcst_R(\d{8})\.zarr$")
     dates = sorted({
         date.fromisoformat(m.group(1)[:4] + "-" + m.group(1)[4:6] + "-" + m.group(1)[6:])
-        for item in fs.ls(GLOENS_BUCKET)
+        for item in fs.ls(bucket)
         if (m := pattern.search(str(item))) and m.group(1) == m.group(2)
     })
     first = date.fromisoformat(args.start[:4] + "-" + args.start[4:6] + "-" + args.start[6:]) if args.start else date(args.year, 1, 1)
