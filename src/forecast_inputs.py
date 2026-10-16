@@ -108,7 +108,7 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
         source = select_forecast_window(ds[[var]], start, days=days)[var]
         if ensemble_dim not in source.dims:
             raise ValueError(f"{var} missing ensemble dimension {ensemble_dim}")
-        dims = tuple(d for d in source.dims if d != ensemble_dim)
+        dims = (time_dim,) + tuple(d for d in source.dims if d not in (ensemble_dim, time_dim))
         shape = tuple(source.sizes[d] for d in dims)
         cache_path = root / f"{key}_{var}_mean.npy"
         meta_path = root / f"{key}_{var}_mean.json"
