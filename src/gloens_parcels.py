@@ -1,6 +1,7 @@
 """Parcels 3.x advection on GLOENS NEMO curvilinear C-grid forecast velocities."""
 from datetime import timedelta
 import math
+import time
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -13,6 +14,9 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     meshmask = Path(meshmask)
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
+    log = __import__("logging").getLogger(__name__)
+    started = time.monotonic()
+    log.debug("GLOENS: reading meshmask coordinates from %s", meshmask)
     with xr.open_dataset(meshmask, decode_times=False) as mesh:
         def coords(name):
             da = mesh[name]
@@ -22,8 +26,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         ulon, ulat = coords("glamu"), coords("gphiu")
         vlon, vlat = coords("glamv"), coords("gphiv")
 
-    import logging
-    log = logging.getLogger(__name__)
+    log.debug("GLOENS: meshmask loaded in %.1fs; U grid=%s V grid=%s", time.monotonic() - started, ulon.shape, vlon.shape)
 
     def materialize_component(var, name):
         field = velocities[var]
@@ -31,9 +34,10 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         if len(vertical) > 1:
             raise ValueError(f"{name} has unsupported extra dimensions: {vertical}")
         dims = ("time", *vertical, "y", "x")
-        log.info("Computing %s velocities separately: dims=%s, shape=%s", name, dims, field.shape)
+        started = time.monotonic()
+        log.debug("GLOENS: materializing %s dims=%s shape=%s dtype=%s", name, dims, field.shape, field.dtype)
         values = np.asarray(field.transpose(*dims).values, dtype=np.float32)
-        log.info("%s velocity materialized: %.1f MiB", name, values.nbytes / 2**20)
+        log.debug("GLOENS: %s materialized in %.1fs (%.1f MiB)", name, time.monotonic() - started, values.nbytes / 2**20)
         return values, vertical[0] if vertical else None
 
     u, u_zdim = materialize_component(u_name, "U")
@@ -48,11 +52,14 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     if u_zdim:
         u_coords["depth"] = np.asarray(velocities[u_zdim].values, dtype=np.float32)
         v_coords["depth"] = np.asarray(velocities[v_zdim].values, dtype=np.float32)
+    started = time.monotonic()
+    log.debug("GLOENS: constructing Parcels FieldSet from U/V arrays")
     fieldset = FieldSet.from_data(
         {"U": u, "V": v},
         {"U": u_coords, "V": v_coords},
         mesh="spherical", allow_time_extrapolation=True,
     )
+    log.debug("GLOENS: FieldSet constructed in %.1fs", time.monotonic() - started)
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
@@ -77,11 +84,14 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             particle.lat += ParcelsRandom.normalvariate(0., 1.) * sigma
             particle.lon += ParcelsRandom.normalvariate(0., 1.) * sigma
 
+    started = time.monotonic()
+    log.debug("GLOENS: initializing %d particles", len(lon0))
     pset = ParticleSet(fieldset=fieldset, pclass=JITParticle,
                        lon=np.asarray(lon0, dtype=np.float64),
                        lat=np.asarray(lat0, dtype=np.float64),
                        depth=np.full(len(lon0), float(depth), dtype=np.float32),
                        time=np.zeros(len(lon0), dtype=np.float64))
+    log.debug("GLOENS: particles initialized in %.1fs", time.monotonic() - started)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=sampling_hours))
@@ -89,6 +99,9 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     if scheme == "K_smag":
         kernel = kernel + pset.Kernel(smagdiff)
     log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
+    log.debug("GLOENS: starting Parcels execution for %d days", drift_days)
+    started = time.monotonic()
     pset.execute(kernel, runtime=timedelta(days=int(drift_days)),
                  dt=timedelta(minutes=dt_minutes), output_file=pfile)
+    log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
