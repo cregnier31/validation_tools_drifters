@@ -97,7 +97,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         pset = ParticleSet(fieldset=fieldset, pclass=parcels.Particle,
                            x=np.asarray(lon0, dtype=np.float64),
                            y=np.asarray(lat0, dtype=np.float64),
-                           t=np.repeat(ds.time.values[0], len(lon0)))
+                           t=[pd.Timestamp(ds.time.values[0]).to_pydatetime()] * len(lon0))
     else:
         pset = ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
                            lon=np.asarray(lon0, dtype=np.float64),
