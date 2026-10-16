@@ -207,3 +207,37 @@ def test_fpoint_particle_location_diagnostic():
     print(f"Neighboring 3x3 F-point latitudes:\\n{lat[max(j-1,0):j+2,max(i-1,0):i+2]}")
     assert np.isfinite(distance[j,i])
     assert np.sqrt(distance[j,i]) < 1, "Particle is not near a valid F-point cell"
+
+
+def test_fpoint_2d_one_day_advection():
+    """Exercise the new 2D nearest-15m F-point setup for one day."""
+    from datetime import timedelta
+    parcels = pytest.importorskip("parcels")
+    xr = pytest.importorskip("xarray")
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    with xr.open_dataset(_daily_file("U")) as u_ds, xr.open_dataset(_daily_file("V")) as v_ds:
+        u = u_ds["uo"].sel(depthu=15.0, method="nearest").reset_coords(drop=True)
+        v = v_ds["vo"].sel(depthv=15.0, method="nearest").reset_coords(drop=True)
+        ds = xr.Dataset({"uo": u, "vo": v})
+        with xr.open_dataset(MESH) as mesh:
+            for name in ("glamf", "gphif"):
+                coord = mesh[name]
+                if "time_counter" in coord.dims:
+                    coord = coord.isel(time_counter=0, drop=True)
+                ds = ds.assign_coords({name: coord.load()})
+        fieldset = parcels.FieldSet.from_xarray_dataset(
+            ds, {"U": "uo", "V": "vo"},
+            {"lon": "glamf", "lat": "gphif", "time": "time"},
+            mesh="spherical", allow_time_extrapolation=True,
+        )
+        assert fieldset.U.grid.zdim == fieldset.V.grid.zdim == 1
+        fieldset.add_periodic_halo(zonal=True)
+        pset = parcels.ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
+                                    lon=[-58.001], lat=[23.021], time=[0.0])
+        pset.execute(parcels.AdvectionRK4, runtime=timedelta(days=1),
+                     dt=timedelta(minutes=5))
+        assert len(pset) == 1
+        particle = next(iter(pset))
+        print(f"2D one-day end position: lon={particle.lon}, lat={particle.lat}")
+        assert np.isfinite(particle.lon) and np.isfinite(particle.lat)
