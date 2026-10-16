@@ -40,17 +40,18 @@ log = runtime["log"]
 #------------------------------------------
 # Compute lagrangian trajectories
 #------------------------------------------
-njobs = 8
+njobs = 1 if runtime["config_info"].get("input_format") == "zarr" else 8
 filtered = True
 log.info(f"Start Lagrangian_tool {runtime['config_info']['PERIOD']} {runtime['config_info']['SYSTEM']}")
-log.info("Running parallel computation...")
+log.info("Running trajectory computation with n_jobs=%d", njobs)
 t0 = perf_counter()
-results = Parallel(n_jobs=njobs)(
-    delayed(process_one_day)(day,
-                             runtime,
-                            )
-    for day in runtime["start_days"]
-)
+if njobs == 1:
+    results = [process_one_day(day, runtime) for day in runtime["start_days"]]
+else:
+    results = Parallel(n_jobs=njobs)(
+        delayed(process_one_day)(day, runtime)
+        for day in runtime["start_days"]
+    )
 
 traj_time = perf_counter() - t0
 log.info(

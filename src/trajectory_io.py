@@ -40,12 +40,11 @@ def retrieve_drifters_for_one_day_traj(
     outfile2 = dir_drifters+fout_driftersZone
     print(obs_type.upper())
     if obs_type.upper() == "COPERNICUS_DAILY":
-        print("Case1")
         # ==========================================================
         # 1. Select files
         # ==========================================================
         log.debug('Select files')
-        file_list = sorted(glob.glob(base_dir + "*/*.nc"))
+        file_list = sorted(glob.glob(base_dir + "*/*.nc") + glob.glob(base_dir + "*.nc"))
         def extract_date(f):
             return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
 

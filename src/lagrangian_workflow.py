@@ -163,41 +163,65 @@ def process_one_day(day, config_dict):
         # ======================================================
         DATE_END_PLUS_DRIFT_TIME = day + datetime.timedelta(days=DRIFT_TIME)
 
-        # Optional 28-day ensemble Zarr input. Legacy NetCDF remains unchanged.
+        # Zarr transport is independent of ensemble selection and model identity.
         if config_info.get("input_format", "netcdf").lower() == "zarr":
             if engine.lower() != "parcels":
-                raise NotImplementedError("Ensemble Zarr currently requires Parcels")
-            from forecast_inputs import prepare_ensemble_forecast
+                raise NotImplementedError("Zarr velocity inputs currently require Parcels")
+            from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             from parcels_tools import run_parcels_Drift_remote
-            u_store = config_info["zarr_u_store"]
-            v_store = config_info.get("zarr_v_store", u_store)
-            if int(DRIFT_TIME) != 28:
-                raise ValueError("Ensemble forecast mode requires drift_time=28")
-            with prepare_ensemble_forecast(
-                u_store, v_store, day, days=28,
-                u_name=config_info.get("zarr_u_var", "uo"),
-                v_name=config_info.get("zarr_v_var", "vo"),
-                ensemble_dim=config_info.get("zarr_ensemble_dim", "ens"),
-                depth=float(DEPTH),
-                u_depth=config_info.get("zarr_u_depth", "depthu"),
-                v_depth=config_info.get("zarr_v_depth", "depthv"),
-            ) as velocities:
-                # Existing xarray runner accepts regular lon/lat coordinates.
-                # Native NEMO staggered/curvilinear grids need a separate adapter.
-                if not ({"lon", "lat"} <= set(velocities.coords) or
-                        {"longitude", "latitude"} <= set(velocities.coords)):
-                    raise NotImplementedError(
-                        "Zarr NEMO curvilinear U/V grids require a Parcels grid adapter"
-                    )
-                run_parcels_Drift_remote(
-                    MODEL, velocities,
-                    config_info.get("zarr_u_var", "uo"),
-                    config_info.get("zarr_v_var", "vo"),
-                    lon0, lat0, id_char, DRIFT_TIME, f_traj,
-                    radius_cloud=0, seeding_resolution=0,
-                    time_period=False, nb_repeats=NB_REPEATS,
-                    AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
+            if config_info.get("zarr_bucket"):
+                log.debug("discover_gloens_stores")
+                u_store, v_store, storage_options = discover_gloens_stores(
+                    day,
+                    bucket=config_info["zarr_bucket"],
+                    endpoint_url=config_info["zarr_endpoint_url"],
+                    prefix=config_info["zarr_prefix"],
+                    log=log
                 )
+                log.debug(f'{u_store=} {v_store=}')
+            else:
+                u_store = config_info["zarr_u_store"]
+                v_store = config_info.get("zarr_v_store") or u_store
+                storage_options = None
+            with prepare_velocity_forecast(
+                u_store, v_store, day, days=int(DRIFT_TIME),
+                storage_options=storage_options,
+                mode=config_info["zarr_velocity_mode"],
+                member=config_info["zarr_ensemble_member"],
+                u_name=config_info["zarr_u_var"],
+                v_name=config_info["zarr_v_var"],
+                ensemble_dim=config_info["zarr_ensemble_dim"],
+                depth=float(DEPTH),
+                u_depth=config_info["zarr_u_depth"],
+                v_depth=config_info["zarr_v_depth"],
+                log=log,
+                cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
+            ) as velocities:
+                if config_info["gridtype"] == "irregular":
+                    from gloens_parcels import run_gloens_parcels
+                    log.debug(f'Run gloens_parcels')
+                    run_gloens_parcels(
+                        velocities, config_info["zarr_meshmask"],
+                        day, lon0, lat0, f_traj, drift_days=DRIFT_TIME,
+                        u_name=config_info["zarr_u_var"],
+                        v_name=config_info["zarr_v_var"],
+                        depth=float(DEPTH),
+                        scheme=config_info["scheme"],
+                        dt_minutes=config_info["parcels_dt_minutes"],
+                        sampling_hours=config_info["parcels_sampling_hours"],
+                        log=log,
+                        cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
+                    )
+                else:
+                    run_parcels_Drift_remote(
+                        MODEL, velocities,
+                        config_info["zarr_u_var"],
+                        config_info["zarr_v_var"],
+                        lon0, lat0, id_char, DRIFT_TIME, f_traj,
+                        radius_cloud=0, seeding_resolution=0,
+                        time_period=False, nb_repeats=NB_REPEATS,
+                        AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
+                    )
         else:
             (u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask) = Retrieve_data_local(
                     config_dict['config_model_params'],
