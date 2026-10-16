@@ -11,7 +11,7 @@ config_base:
   project: "lagrangian_belenos"
   exp_name: "belenos_GLO12"
 
-  dir_work: "/scratch/work/regnierc/WORK_lagrangian/"
+  dir_work: "/scratch/cregnier/WORK_lagrangian/"
   dir_in: "/home/ext/mr/smer/regnierc/SAVE/codes/validation_tools_drifters/"
 
 #  copernicus_drifter: true
@@ -25,7 +25,7 @@ config_base:
 
   dir_imgs:  './imgs/'
   dir_data:  './data/'
-  loglevel: 2
+  loglevel: 1
   nb_repeats: 0
 
   forecast: true
@@ -36,8 +36,8 @@ config_base:
 
 path_data:
 
-  COPERNICUS_DAILY: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
-  AOML : "/scratch/work/regnierc/data/UV_Drifters/PhOD/"
+  COPERNICUS_DAILY: "/scratch/cregnier/DATA/CURRENTS/UV_Drifters/013_048_filtr/"
+  AOML : "/scratch/cregnier/DATA/CURRENTS/UV_Drifters/PhoD/"
 
 model_params:
 

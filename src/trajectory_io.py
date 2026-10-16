@@ -40,7 +40,6 @@ def retrieve_drifters_for_one_day_traj(
     outfile2 = dir_drifters+fout_driftersZone
     print(obs_type.upper())
     if obs_type.upper() == "COPERNICUS_DAILY":
-        print("Case1")
         # ==========================================================
         # 1. Select files
         # ==========================================================

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
-
+import sys
 import xarray as xr
 
 
@@ -134,7 +134,7 @@ def prepare_ensemble_forecast(u_store, v_store, start, **kwargs):
 
 
 def discover_gloens_stores(run_date, *, bucket, endpoint_url,
-                           prefix, storage_options=None):
+                           prefix, storage_options=None, log=None):
     """Find matching U/V forecast stores for exactly one forecast cycle.
 
     CLASS1 names: glo4-ens50_ng_1d-m_YYYYMMDD-YYYYMMDD_
@@ -164,6 +164,7 @@ def discover_gloens_stores(run_date, *, bucket, endpoint_url,
         if key in found:
             raise ValueError(f"Multiple GLOENS {key} stores for run {date}")
         found[key] = (f"s3://{bucket}/{name}", match.group(2))
+        log.debug(f"Found {found[key]}")
     if not {"3DU-uo", "3DV-vo"} <= found.keys():
         raise FileNotFoundError(f"Missing GLOENS U/V Zarr forecast stores for run {date} in s3://{bucket}")
     if found["3DU-uo"][1] != found["3DV-vo"][1]:
