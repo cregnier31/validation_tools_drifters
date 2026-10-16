@@ -117,16 +117,8 @@ def prepare_ensemble_forecast(u_store, v_store, start, *, days=28,
     return opened()
 
 
-# CLASS1 GLOENS operational Zarr location; same settings as
-# class1-comparisons/cfg/config_def_GLOENS.cfg.
-GLOENS_BUCKET = "MOISICEEF"
-GLOENS_ENDPOINT_URL = "https://s3.waw3-1.cloudferro.com"
-GLOENS_PREFIX = "glo4-ens50_ng_1d-m_"
-
-
-def discover_gloens_stores(run_date, *, bucket=GLOENS_BUCKET,
-                           endpoint_url=GLOENS_ENDPOINT_URL,
-                           storage_options=None, prefix=GLOENS_PREFIX):
+def discover_gloens_stores(run_date, *, bucket, endpoint_url,
+                           prefix, storage_options=None):
     """Find matching U/V forecast stores for exactly one forecast cycle.
 
     CLASS1 names: glo4-ens50_ng_1d-m_YYYYMMDD-YYYYMMDD_
