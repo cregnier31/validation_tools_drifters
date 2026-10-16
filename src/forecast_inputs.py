@@ -35,35 +35,45 @@ def open_velocity_dataset(source, *, storage_options=None, chunks=None):
     return xr.open_dataset(source, chunks=chunks)
 
 
-def ensemble_mean_velocity(u_ds, v_ds=None, *, u_name="uo", v_name="vo",
-                           ensemble_dim="ens", depth=0.0,
-                           u_depth="depthu", v_depth="depthv",
-                           time_dim="time"):
-    """Produce mean velocities with no ensemble dimension.
-
-    U/V stores can be separate. Native staggered spatial dimensions are
-    retained; regridding/rotation must be handled by the Parcels grid adapter.
-    """
+def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
+                    u_name="uo", v_name="vo", ensemble_dim="ens",
+                    depth=0.0, u_depth="depthu", v_depth="depthv",
+                    time_dim="time"):
+    """Select deterministic fields, one ensemble member, or ensemble mean."""
+    if mode not in ("mean", "member", "deterministic"):
+        raise ValueError(f"Unsupported velocity mode: {mode}")
     if v_ds is None:
         v_ds = u_ds
     fields = []
     for ds, var, zdim in ((u_ds, u_name, u_depth), (v_ds, v_name, v_depth)):
-        if var not in ds:
-            raise KeyError(f"Missing velocity {var!r}")
         field = ds[var]
         if zdim in field.dims:
             field = field.sel({zdim: depth}, method="nearest")
-        if ensemble_dim not in field.dims:
-            raise ValueError(f"{var!r} has no {ensemble_dim!r} dimension")
         if time_dim not in field.dims:
-            raise ValueError(f"{var!r} has no {time_dim!r} dimension")
-        fields.append(field.mean(ensemble_dim, skipna=True))
+            raise ValueError(f"{var} missing time dimension {time_dim}")
+        has_ensemble = ensemble_dim in field.dims
+        if mode == "mean":
+            if not has_ensemble:
+                raise ValueError(f"{var} has no ensemble dimension {ensemble_dim} for mean")
+            field = field.mean(ensemble_dim, skipna=True)
+        elif mode == "member":
+            if not has_ensemble:
+                raise ValueError(f"{var} has no ensemble dimension {ensemble_dim} for member")
+            if member is None:
+                raise ValueError("ensemble_member is required for velocity_mode: member")
+            field = field.sel({ensemble_dim: member})
+        elif has_ensemble:
+            raise ValueError(f"{var} contains {ensemble_dim}; select mean or member mode")
+        fields.append(field)
     import numpy as np
-    # xarray can attach different scalar depth coordinates to U and V time arrays.
-    # Compare actual timestamps, not unrelated coordinates or attributes.
     if not np.array_equal(fields[0][time_dim].values, fields[1][time_dim].values):
         raise ValueError("U and V forecast valid times do not match")
     return xr.Dataset({u_name: fields[0], v_name: fields[1]})
+
+
+def ensemble_mean_velocity(u_ds, v_ds=None, **kwargs):
+    """Backward-compatible wrapper for ensemble mean selection."""
+    return select_velocity(u_ds, v_ds, mode="mean", **kwargs)
 
 
 def select_forecast_window(ds, start, *, days=28, time_dim="time"):
@@ -92,29 +102,35 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     return selected
 
 
-def prepare_ensemble_forecast(u_store, v_store, start, *, days=28,
-                              storage_options=None, u_name="uo", v_name="vo",
-                              ensemble_dim="ens", depth=0.0,
-                              u_depth="depthu", v_depth="depthv"):
-    """Context manager yielding 28-day ensemble mean U/V dataset."""
+def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
+                              storage_options=None, mode="mean", member=None,
+                              u_name="uo", v_name="vo", ensemble_dim="ens",
+                              depth=0.0, u_depth="depthu", v_depth="depthv"):
+    """Context manager for deterministic, ensemble member, or ensemble mean U/V."""
     from contextlib import contextmanager
 
     @contextmanager
     def opened():
         with open_velocity_dataset(u_store, storage_options=storage_options) as u_ds:
             if str(u_store) == str(v_store):
-                mean = ensemble_mean_velocity(
-                    u_ds, u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
-                    depth=depth, u_depth=u_depth, v_depth=v_depth)
-                yield select_forecast_window(mean, start, days=days)
+                selected = select_velocity(
+                    u_ds, mode=mode, member=member, u_name=u_name, v_name=v_name,
+                    ensemble_dim=ensemble_dim, depth=depth,
+                    u_depth=u_depth, v_depth=v_depth)
+                yield select_forecast_window(selected, start, days=days)
             else:
                 with open_velocity_dataset(v_store, storage_options=storage_options) as v_ds:
-                    mean = ensemble_mean_velocity(
-                        u_ds, v_ds, u_name=u_name, v_name=v_name,
-                        ensemble_dim=ensemble_dim, depth=depth,
-                        u_depth=u_depth, v_depth=v_depth)
-                    yield select_forecast_window(mean, start, days=days)
+                    selected = select_velocity(
+                        u_ds, v_ds, mode=mode, member=member,
+                        u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
+                        depth=depth, u_depth=u_depth, v_depth=v_depth)
+                    yield select_forecast_window(selected, start, days=days)
     return opened()
+
+
+def prepare_ensemble_forecast(u_store, v_store, start, **kwargs):
+    """Backward-compatible ensemble-mean forecast context manager."""
+    return prepare_velocity_forecast(u_store, v_store, start, mode="mean", **kwargs)
 
 
 def discover_gloens_stores(run_date, *, bucket, endpoint_url,
