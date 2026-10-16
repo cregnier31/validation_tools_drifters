@@ -86,6 +86,31 @@ def test_meshmask_interior_coordinates():
 
 
 
+
+def test_meshmask_vertical_coordinate_metadata():
+    """Report NEMO vertical variables without reading large arrays or changing cache."""
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    names = ("depthu", "depthv", "gdept_0", "gdepu_0", "gdepv_0")
+    with netCDF4.Dataset(MESH) as ds:
+        for name in names:
+            if name in ds.variables:
+                var = ds.variables[name]
+                print(f"meshmask {name}: dims={var.dimensions}, shape={var.shape}")
+            else:
+                print(f"meshmask {name}: MISSING")
+    for prefix, varname in (("U", "uo"), ("V", "vo")):
+        path = _daily_file(prefix)
+        with netCDF4.Dataset(path) as ds:
+            depth_dim = ds.variables[varname].dimensions[1]
+            print(f"daily {prefix}: depth dimension={depth_dim}, "
+                  f"coordinate variable present={depth_dim in ds.variables}")
+            if depth_dim in ds.variables:
+                coord = ds.variables[depth_dim]
+                print(f"daily {prefix} {depth_dim}: dims={coord.dimensions}, shape={coord.shape}")
+
+
+
 def test_parcels_nemo_fieldset_construction():
     """Reproduce the reported assertion without running trajectories or writing files."""
     parcels = pytest.importorskip("parcels")
