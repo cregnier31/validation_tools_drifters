@@ -202,6 +202,7 @@ def process_one_day(day, config_dict):
                         day, lon0, lat0, f_traj, drift_days=DRIFT_TIME,
                         u_name=config_info["zarr_u_var"],
                         v_name=config_info["zarr_v_var"],
+                        depth=float(DEPTH),
                     )
                 else:
                     run_parcels_Drift_remote(
