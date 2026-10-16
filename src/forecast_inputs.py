@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
+import time
+import logging
 import sys
 import xarray as xr
 
@@ -38,14 +40,17 @@ def open_velocity_dataset(source, *, storage_options=None, chunks=None):
 def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
                     u_name="uo", v_name="vo", ensemble_dim="ens",
                     depth=None, u_depth="depthu", v_depth="depthv",
-                    time_dim="time"):
+                    time_dim="time", log=None):
     """Preserve all vertical levels; reduce U and V independently."""
     if mode not in ("mean", "member", "deterministic"):
         raise ValueError(f"Unsupported velocity mode: {mode}")
+    log = log or logging.getLogger(__name__)
     if v_ds is None:
         v_ds = u_ds
 
     def process(ds, var):
+        started = time.monotonic()
+        log.info("Zarr %s: selecting mode=%s, input dims=%s shape=%s", var, mode, ds[var].dims, ds[var].shape)
         field = ds[var]
         if time_dim not in field.dims:
             raise ValueError(f"{var} missing time dimension {time_dim}")
@@ -53,7 +58,9 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
         if mode == "mean":
             if not has_ensemble:
                 raise ValueError(f"{var} has no ensemble dimension {ensemble_dim} for mean")
+            log.info("Zarr %s: building lazy ensemble mean across %s (%d members)", var, ensemble_dim, field.sizes[ensemble_dim])
             field = field.mean(ensemble_dim, skipna=True)
+            log.info("Zarr %s: mean graph built in %.1fs; actual S3 reads occur when materialized", var, time.monotonic() - started)
         elif mode == "member":
             if not has_ensemble:
                 raise ValueError(f"{var} has no ensemble dimension {ensemble_dim} for member")
@@ -62,6 +69,7 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
             field = field.sel({ensemble_dim: member})
         elif has_ensemble:
             raise ValueError(f"{var} contains {ensemble_dim}; select mean or member mode")
+        log.info("Zarr %s: selection ready, dims=%s shape=%s elapsed=%.1fs", var, field.dims, field.shape, time.monotonic() - started)
         return field
 
     # Each component is an independent lazy reduction. No vertical slicing.
@@ -107,25 +115,32 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
 def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
                               storage_options=None, mode="mean", member=None,
                               u_name="uo", v_name="vo", ensemble_dim="ens",
-                              depth=0.0, u_depth="depthu", v_depth="depthv"):
+                              depth=0.0, u_depth="depthu", v_depth="depthv", log=None):
     """Context manager for deterministic, ensemble member, or ensemble mean U/V."""
     from contextlib import contextmanager
 
+    log = log or logging.getLogger(__name__)
+
     @contextmanager
     def opened():
+        log.info("Zarr: opening U store %s", u_store)
         with open_velocity_dataset(u_store, storage_options=storage_options) as u_ds:
+            log.info("Zarr: U store opened")
             if str(u_store) == str(v_store):
                 selected = select_velocity(
                     u_ds, mode=mode, member=member, u_name=u_name, v_name=v_name,
                     ensemble_dim=ensemble_dim, depth=depth,
-                    u_depth=u_depth, v_depth=v_depth)
+                    u_depth=u_depth, v_depth=v_depth, log=log)
+                log.info("Zarr: selecting %d-day window", days)
                 yield select_forecast_window(selected, start, days=days)
             else:
+                log.info("Zarr: opening V store %s", v_store)
                 with open_velocity_dataset(v_store, storage_options=storage_options) as v_ds:
+                    log.info("Zarr: V store opened")
                     selected = select_velocity(
                         u_ds, v_ds, mode=mode, member=member,
                         u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
-                        depth=depth, u_depth=u_depth, v_depth=v_depth)
+                        depth=depth, u_depth=u_depth, v_depth=v_depth, log=log)
                     yield select_forecast_window(selected, start, days=days)
     return opened()
 
