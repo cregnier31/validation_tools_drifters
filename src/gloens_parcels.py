@@ -49,8 +49,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     log.debug("GLOENS: 2D FieldSet constructed in %.1fs", time.monotonic() - started)
     if fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1:
         raise ValueError("Expected a 2D (single-level) GLOENS FieldSet")
-    # Follow the supplied NEMO implementation's periodic halo configuration.
-    fieldset.add_periodic_halo(zonal=True)
+    # Parcels 3.1.4 CurvilinearGrid does not support periodic halos.
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
