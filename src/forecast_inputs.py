@@ -119,7 +119,7 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
         shape = tuple(source.sizes[d] for d in dims)
         cache_path = root / f"{filename_prefix}_{var}_ensmean_{days}days.npy"
         meta_path = root / f"{filename_prefix}_{var}_ensmean_{days}days.json"
-        meta = dict(identity=identity, var=var, dims=dims, shape=shape,
+        meta = dict(identity=identity, var=var, dims=list(dims), shape=list(shape),
                     times=[str(t) for t in source[time_dim].values],
                     ensemble_size=source.sizes[ensemble_dim])
         valid = False
