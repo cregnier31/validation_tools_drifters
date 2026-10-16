@@ -205,6 +205,9 @@ def process_one_day(day, config_dict):
                         u_name=config_info["zarr_u_var"],
                         v_name=config_info["zarr_v_var"],
                         depth=float(DEPTH),
+                        scheme=config_info["scheme"],
+                        dt_minutes=config_info["parcels_dt_minutes"],
+                        sampling_hours=config_info["parcels_sampling_hours"],
                     )
                 else:
                     run_parcels_Drift_remote(
