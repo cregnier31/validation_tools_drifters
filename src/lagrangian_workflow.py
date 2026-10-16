@@ -199,6 +199,7 @@ def process_one_day(day, config_dict):
             ) as velocities:
                 if config_info["gridtype"] == "irregular":
                     from gloens_parcels import run_gloens_parcels
+                    log.debug(f'Run gloens_parcels')
                     run_gloens_parcels(
                         velocities, config_info["zarr_meshmask"],
                         day, lon0, lat0, f_traj, drift_days=DRIFT_TIME,

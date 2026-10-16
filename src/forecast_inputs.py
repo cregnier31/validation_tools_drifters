@@ -73,8 +73,11 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
         return field
 
     # Each component is an independent lazy reduction. No vertical slicing.
+    log.info("Process U")
     u = process(u_ds, u_name)
+    log.info("Process V")
     v = process(v_ds, v_name)
+    sys.exit(1)
     import numpy as np
     if not np.array_equal(u[time_dim].values, v[time_dim].values):
         raise ValueError("U and V forecast valid times do not match")
@@ -208,8 +211,10 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
         else:
             log.info("Zarr %s: reusing cached ensemble mean %s", var, cache_path)
         coords = {d: source[d] for d in dims if d in source.coords}
+        log.debug(f"Load {var}")
         output[var] = xr.DataArray(np.load(cache_path, mmap_mode="r"),
                                    dims=dims, coords=coords, name=var)
+        log.debug(f"Load ok {var}")
     return xr.Dataset(output)
 
 
@@ -223,14 +228,17 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     import numpy as np
     if days <= 0:
         raise ValueError("days must be positive")
+    print("select_forecast_window")
     start = np.datetime64(start, "D")
     # Daily mean GLOENS fields are stamped at 12:00 UTC, not midnight.
     # Select by calendar date and preserve their native timestamps.
     dates = ds[time_dim].values.astype("datetime64[D]")
     indices = np.flatnonzero((dates >= start) & (dates < start + np.timedelta64(days, "D")))
+    print("OK1")
     selected = ds.isel({time_dim: indices})
     times = selected[time_dim].values.astype("datetime64[ns]")
     expected_dates = start + np.arange(days).astype("timedelta64[D]")
+    print("OK2")
     if len(times) != days or not np.array_equal(times.astype("datetime64[D]"), expected_dates):
         raise ValueError(
             f"Incomplete {days}-day forecast window starting {start}; "
@@ -241,6 +249,7 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
         )
     if np.any(np.diff(times) != np.timedelta64(1, "D")):
         raise ValueError("Forecast times must be strictly daily with a consistent time of day")
+    print("OK3")
     return selected
 
 
@@ -273,7 +282,9 @@ def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
                         u_ds, v_ds, mode=mode, member=member,
                         u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
                         depth=depth, u_depth=u_depth, v_depth=v_depth, log=log))
+                    log.debug("Load or creation ok")
                     yield select_forecast_window(selected, start, days=days)
+                    log.debug("select_forecast_window ok")
     return opened()
 
 
