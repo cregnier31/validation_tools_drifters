@@ -425,3 +425,32 @@ def test_parcels_execution_backend_control(particle_type):
     p = next(iter(pset))
     print(f"{particle_type} after 10min:", p.lon, p.lat, p.time, p.state)
     assert float(p.time) >= 600., f"{particle_type} did not advance"
+
+
+def test_fpoint_parcels4_sgrid_one_day():
+    """Parcels 4 NEMO SGRID smoke test: one cached day, nearest 15m only."""
+    from datetime import timedelta
+    parcels = pytest.importorskip("parcels")
+    if int(parcels.__version__.split(".")[0]) < 4:
+        pytest.skip("Parcels 4 test")
+    xr = pytest.importorskip("xarray")
+    if not MESH.is_file():
+        pytest.skip(f"Missing meshmask: {MESH}")
+    with xr.open_dataset(_daily_file("U")) as ud, xr.open_dataset(_daily_file("V")) as vd:
+        u = ud["uo"].sel(depthu=15., method="nearest").reset_coords(drop=True)
+        v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
+        with xr.open_dataset(MESH) as mesh:
+            sgrid = parcels.convert.nemo_to_sgrid(
+                fields={"U": u, "V": v}, coords=mesh
+            )
+            fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
+        fieldset.describe()
+        pset = parcels.ParticleSet(
+            fieldset, x=[-58.001], y=[23.021], t=[u.time.values[0]]
+        )
+        print("Parcels 4 before:", pset.x, pset.y, pset.t)
+        pset.execute([parcels.kernels.AdvectionRK4],
+                     runtime=timedelta(minutes=10), dt=timedelta(minutes=5))
+        print("Parcels 4 after:", pset.x, pset.y, pset.t)
+        assert np.isfinite(pset.x).all() and np.isfinite(pset.y).all()
+        assert abs(float(pset.x[0]) + 58.001) + abs(float(pset.y[0]) - 23.021) > 1e-6
