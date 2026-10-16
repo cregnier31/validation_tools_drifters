@@ -210,6 +210,7 @@ def process_one_day(day, config_dict):
                         dt_minutes=config_info["parcels_dt_minutes"],
                         sampling_hours=config_info["parcels_sampling_hours"],
                         log=log,
+                        cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
                     )
                 else:
                     run_parcels_Drift_remote(
