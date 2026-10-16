@@ -8,6 +8,7 @@ def run_lagrangian(engine, *args, **kwargs):
     engine = engine.lower()
 
     if engine == "parcels":
+        from parcels_tools import run_parcels_Drift
         return run_parcels_Drift(
             *args,
             **kwargs
