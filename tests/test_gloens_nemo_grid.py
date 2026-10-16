@@ -440,8 +440,12 @@ def test_fpoint_parcels4_sgrid_one_day():
         u = ud["uo"].sel(depthu=15., method="nearest").reset_coords(drop=True)
         v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
         with xr.open_dataset(MESH) as mesh:
+            mesh_coords = mesh[["glamf", "gphif"]]
+            if "time_counter" in mesh_coords.dims:
+                mesh_coords = mesh_coords.isel(time_counter=0, drop=True)
+            print("SGRID coordinate dimensions:", dict(mesh_coords.sizes))
             sgrid = parcels.convert.nemo_to_sgrid(
-                fields={"U": u, "V": v}, coords=mesh[["glamf", "gphif"]]
+                fields={"U": u, "V": v}, coords=mesh_coords
             )
             fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
         fieldset.describe()
