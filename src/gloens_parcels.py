@@ -40,7 +40,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             coord = grid[name]
             if "time_counter" in coord.dims:
                 coord = coord.isel(time_counter=0, drop=True)
-            ds[name] = coord.load()
+            ds = ds.assign_coords({name: coord.load()})
     log.debug("GLOENS: constructing 3D xarray FieldSet at all 75 depths")
     started = time.monotonic()
     fieldset = FieldSet.from_xarray_dataset(
