@@ -378,3 +378,27 @@ def test_fpoint_2d_seeded_two_timestamps():
         print("Before-reference after execute:", p.lon, p.lat, p.time, p.state)
         assert float(p_after.time) >= 300., "Particle did not advance in time"
         assert abs(float(p_after.lon) + 58.001) + abs(float(p_after.lat) - 23.021) > 1e-6
+
+
+def test_parcels_minimal_execution_control():
+    """Independent Parcels 3.1.4 control with a tiny regular grid."""
+    from datetime import timedelta
+    parcels = pytest.importorskip("parcels")
+    fieldset = parcels.FieldSet.from_data(
+        {"U": np.full((2, 3, 3), 0.2, dtype=np.float32),
+         "V": np.full((2, 3, 3), 0.1, dtype=np.float32)},
+        {"lon": np.array([-59., -58., -57.], dtype=np.float32),
+         "lat": np.array([22., 23., 24.], dtype=np.float32),
+         "time": np.array([0., 86400.], dtype=np.float64)},
+        mesh="spherical", allow_time_extrapolation=False,
+    )
+    pset = parcels.ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
+                               lon=[-58.001], lat=[23.021], time=[0.])
+    before = next(iter(pset))
+    print("Control before:", before.lon, before.lat, before.time, before.state)
+    pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
+                 dt=timedelta(minutes=5))
+    after = next(iter(pset))
+    print("Control after:", after.lon, after.lat, after.time, after.state)
+    assert float(after.time) >= 300., "Even the independent regular-grid control did not execute"
+    assert abs(float(after.lon) + 58.001) + abs(float(after.lat) - 23.021) > 1e-6
