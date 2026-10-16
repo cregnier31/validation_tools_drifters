@@ -1,13 +1,14 @@
 """Parcels 3.x advection on GLOENS NEMO curvilinear C-grid forecast velocities."""
 from datetime import timedelta
+import math
 from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
 
 
-def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0):
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4
+def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1):
+    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
 
     meshmask = Path(meshmask)
     if not meshmask.is_file():
@@ -52,6 +53,30 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         {"U": u_coords, "V": v_coords},
         mesh="spherical", allow_time_extrapolation=True,
     )
+    if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
+        raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
+    if scheme == "K_smag":
+        fieldset.add_field(Field(name="cell_areas", data=fieldset.U.cell_areas(),
+                                 lon=fieldset.U.grid.lon, lat=fieldset.U.grid.lat))
+        fieldset.add_constant("Cs", 0.1)
+
+        def smagdiff(particle, fieldset, time):
+            dx = 0.01
+            updx, vpdx = fieldset.UV[time, particle.depth, particle.lat, particle.lon + dx]
+            umdx, vmdx = fieldset.UV[time, particle.depth, particle.lat, particle.lon - dx]
+            updy, vpdy = fieldset.UV[time, particle.depth, particle.lat + dx, particle.lon]
+            umdy, vmdy = fieldset.UV[time, particle.depth, particle.lat - dx, particle.lon]
+            dudx = (updx - umdx) / (2 * dx)
+            dudy = (updy - umdy) / (2 * dx)
+            dvdx = (vpdx - vmdx) / (2 * dx)
+            dvdy = (vpdy - vmdy) / (2 * dx)
+            area = fieldset.cell_areas[time, 0, particle.lat, particle.lon]
+            area /= (1852 * 60) ** 2 * math.cos(particle.lat * math.pi / 180)
+            kh = fieldset.Cs * area * math.sqrt(dudx ** 2 + 0.5 * (dudy + dvdx) ** 2 + dvdy ** 2)
+            sigma = math.sqrt(2 * math.fabs(particle.dt) * kh)
+            particle.lat += ParcelsRandom.normalvariate(0., 1.) * sigma
+            particle.lon += ParcelsRandom.normalvariate(0., 1.) * sigma
+
     pset = ParticleSet(fieldset=fieldset, pclass=JITParticle,
                        lon=np.asarray(lon0, dtype=np.float64),
                        lat=np.asarray(lat0, dtype=np.float64),
@@ -59,7 +84,11 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                        time=np.zeros(len(lon0), dtype=np.float64))
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=1))
-    pset.execute(AdvectionRK4, runtime=timedelta(days=int(drift_days)),
-                 dt=timedelta(minutes=30), output_file=pfile)
+    pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=sampling_hours))
+    kernel = AdvectionEE if scheme == "AdvectionEE" else AdvectionRK4
+    if scheme == "K_smag":
+        kernel = kernel + pset.Kernel(smagdiff)
+    log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
+    pset.execute(kernel, runtime=timedelta(days=int(drift_days)),
+                 dt=timedelta(minutes=dt_minutes), output_file=pfile)
     return str(output_path)
