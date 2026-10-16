@@ -140,3 +140,46 @@ def test_fpoint_3d_xarray_one_day():
             grid = getattr(fieldset, name).grid
             print(f"{name}: xdim={grid.xdim} ydim={grid.ydim} zdim={grid.zdim} tdim={grid.tdim}")
             assert grid.zdim == 75
+
+
+def test_fpoint_3d_one_day_advection():
+    """Advect one particle for one day on a single 75-level GLOENS forecast slice."""
+    from datetime import timedelta
+    parcels = pytest.importorskip("parcels")
+    xr = pytest.importorskip("xarray")
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    with xr.open_dataset(_daily_file("U")) as u_ds, xr.open_dataset(_daily_file("V")) as v_ds:
+        u_depth = u_ds["depthu"].values
+        v_depth = v_ds["depthv"].values
+        assert len(u_depth) == len(v_depth) == 75
+        np.testing.assert_allclose(u_depth, v_depth, rtol=1e-6, atol=1e-4)
+        ds = xr.Dataset({
+            "uo": u_ds["uo"].rename({"depthu": "depth"}),
+            "vo": v_ds["vo"].rename({"depthv": "depth"}).assign_coords(depth=u_depth),
+        })
+        with xr.open_dataset(MESH) as mesh:
+            for name in ("glamf", "gphif"):
+                coord = mesh[name]
+                if "time_counter" in coord.dims:
+                    coord = coord.isel(time_counter=0, drop=True)
+                ds = ds.assign_coords({name: coord.load()})
+        fieldset = parcels.FieldSet.from_xarray_dataset(
+            ds, {"U": "uo", "V": "vo"},
+            {"lon": "glamf", "lat": "gphif", "depth": "depth", "time": "time"},
+            mesh="spherical", allow_time_extrapolation=True,
+        )
+        assert fieldset.U.grid.zdim == fieldset.V.grid.zdim == 75
+        # Interior ocean position previously used in GLOENS trajectory diagnostics.
+        pset = parcels.ParticleSet(
+            fieldset=fieldset, pclass=parcels.JITParticle,
+            lon=[-58.001], lat=[23.021], depth=[15.0], time=[0.0],
+        )
+        print("Starting one-day RK4 advection at lon=-58.001, lat=23.021, depth=15 m")
+        pset.execute(parcels.AdvectionRK4, runtime=timedelta(days=1),
+                     dt=timedelta(minutes=5))
+        assert len(pset) == 1
+        particle = next(iter(pset))
+        print(f"End position: lon={particle.lon}, lat={particle.lat}, depth={particle.depth}")
+        assert np.isfinite(particle.lon) and np.isfinite(particle.lat)
+        assert np.isclose(particle.depth, 15.0)
