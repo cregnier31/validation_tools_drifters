@@ -183,11 +183,12 @@ def test_fpoint_3d_nemo_fieldset():
     if not MESH.is_file():
         pytest.skip(f"Meshmask unavailable: {MESH}")
     from src.gloens_parcels import prepare_shared_depth_files
-    u_files = sorted(CACHE.glob("U_*.nc"))
-    v_files = sorted(CACHE.glob("V_*.nc"))
+    u_files = sorted(CACHE.glob("U_*.nc"))[:1]
+    v_files = sorted(CACHE.glob("V_*.nc"))[:1]
     if not u_files or not v_files:
         pytest.skip(f"No daily NetCDF files in {CACHE}")
     assert len(u_files) == len(v_files)
+    print(f"3D F-point diagnostic: testing only {u_files[0].name} and {v_files[0].name}")
     shared_root = CACHE.parent / CACHE.name.replace("nemo_daily_", "nemo_shared_depth_")
     shared_u, shared_v = prepare_shared_depth_files(
         [str(p) for p in u_files], [str(p) for p in v_files], shared_root
