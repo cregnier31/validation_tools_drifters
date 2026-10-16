@@ -69,14 +69,14 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     v_files = write_daily(v_name, "V")
     filenames = {
         "U": {"lon": str(meshmask), "lat": str(meshmask),
-              "depth": str(meshmask), "data": u_files},
+              "depth": u_files, "data": u_files},
         "V": {"lon": str(meshmask), "lat": str(meshmask),
-              "depth": str(meshmask), "data": v_files},
+              "depth": v_files, "data": v_files},
     }
     variables = {"U": u_name, "V": v_name}
     dimensions = {
-        "U": {"lon": "nav_lon", "lat": "nav_lat", "time": "time"},
-        "V": {"lon": "nav_lon", "lat": "nav_lat", "time": "time"},
+        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthu", "time": "time"},
+        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthv", "time": "time"},
     }
     started = time.monotonic()
     log.debug("GLOENS: constructing NEMO FieldSet with deferred time loading")
@@ -86,6 +86,10 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         deferred_load=True,
     )
     log.debug("GLOENS: NEMO FieldSet constructed in %.1fs", time.monotonic() - started)
+    for component in ("U", "V"):
+        nz = getattr(fieldset, component).grid.zdim
+        if nz != 75:
+            raise ValueError(f"GLOENS {component} Parcels grid has {nz} depth levels; expected 75")
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
