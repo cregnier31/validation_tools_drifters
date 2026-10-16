@@ -130,7 +130,7 @@ def test_fpoint_3d_xarray_one_day():
                 coord = mesh[name]
                 if "time_counter" in coord.dims:
                     coord = coord.isel(time_counter=0, drop=True)
-                ds[name] = coord.load()
+                ds = ds.assign_coords({name: coord.load()})
         fieldset = parcels.FieldSet.from_xarray_dataset(
             ds, {"U": "uo", "V": "vo"},
             {"lon": "glamf", "lat": "gphif", "depth": "depth", "time": "time"},
