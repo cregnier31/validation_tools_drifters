@@ -123,18 +123,46 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
                     times=[str(t) for t in source[time_dim].values],
                     ensemble_size=source.sizes[ensemble_dim])
         valid = False
+        if not cache_path.exists():
+            log.info("Zarr %s: cache miss: NumPy file missing: %s", var, cache_path)
+        if not meta_path.exists():
+            log.info("Zarr %s: cache miss: metadata JSON missing: %s", var, meta_path)
         if cache_path.exists() and meta_path.exists():
             try:
-                valid = json.loads(meta_path.read_text()) == meta
-                if valid:
+                stored_meta = json.loads(meta_path.read_text())
+                for field in sorted(set(meta) | set(stored_meta)):
+                    expected = meta.get(field, "<missing>")
+                    actual = stored_meta.get(field, "<missing>")
+                    if expected != actual:
+                        if field == "identity":
+                            try:
+                                expected_identity = json.loads(expected)
+                                actual_identity = json.loads(actual)
+                                for k in sorted(set(expected_identity) | set(actual_identity)):
+                                    if expected_identity.get(k) != actual_identity.get(k):
+                                        log.warning("Zarr %s: cache identity mismatch %s: cached=%r requested=%r",
+                                                    var, k, actual_identity.get(k), expected_identity.get(k))
+                            except (TypeError, ValueError):
+                                log.warning("Zarr %s: cache identity mismatch: cached=%r requested=%r",
+                                            var, actual, expected)
+                        else:
+                            log.warning("Zarr %s: cache metadata mismatch %s: cached=%r requested=%r",
+                                        var, field, actual, expected)
+                if stored_meta == meta:
                     arr = np.load(cache_path, mmap_mode="r")
                     valid = arr.shape == shape and arr.dtype == np.float32
+                    if arr.shape != shape:
+                        log.warning("Zarr %s: cache shape mismatch: cached=%s requested=%s",
+                                    var, arr.shape, shape)
+                    if arr.dtype != np.float32:
+                        log.warning("Zarr %s: cache dtype mismatch: cached=%s requested=float32",
+                                    var, arr.dtype)
                     del arr
-            except (OSError, ValueError, json.JSONDecodeError):
-                valid = False
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                log.warning("Zarr %s: cannot validate cache %s: %s", var, cache_path, exc)
         if not valid:
             if cache_path.exists() or meta_path.exists():
-                log.warning("Zarr %s: cache exists but is incomplete or metadata does not match: %s", var, cache_path)
+                log.warning("Zarr %s: cache invalid; see preceding cache-miss/mismatch details: %s", var, cache_path)
             tmp = root / f"{filename_prefix}_{var}_ensmean_{days}days.partial.npy"
             progress = root / f"{filename_prefix}_{var}_ensmean_{days}days.progress.json"
             completed = 0
