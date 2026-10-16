@@ -6,7 +6,7 @@ import pandas as pd
 import xarray as xr
 
 
-def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28):
+def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo"):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4
 
     meshmask = Path(meshmask)
@@ -21,8 +21,8 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         ulon, ulat = coords("glamu"), coords("gphiu")
         vlon, vlat = coords("glamv"), coords("gphiv")
 
-    u = np.asarray(velocities["uo"].transpose("time", "y", "x").values, dtype=np.float32)
-    v = np.asarray(velocities["vo"].transpose("time", "y", "x").values, dtype=np.float32)
+    u = np.asarray(velocities[u_name].transpose("time", "y", "x").values, dtype=np.float32)
+    v = np.asarray(velocities[v_name].transpose("time", "y", "x").values, dtype=np.float32)
     if u.shape[1:] != ulon.shape or v.shape[1:] != vlon.shape:
         raise ValueError("GLOENS velocity arrays and NEMO U/V meshmask shapes differ")
     times = np.asarray((pd.to_datetime(velocities.time.values) - pd.Timestamp(day)).total_seconds(), dtype=np.float64)
