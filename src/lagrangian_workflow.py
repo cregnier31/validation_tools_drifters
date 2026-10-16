@@ -168,7 +168,6 @@ def process_one_day(day, config_dict):
             if engine.lower() != "parcels":
                 raise NotImplementedError("Zarr velocity inputs currently require Parcels")
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
-            from parcels_tools import run_parcels_Drift_remote
             if config_info.get("zarr_bucket"):
                 log.debug("discover_gloens_stores")
                 u_store, v_store, storage_options = discover_gloens_stores(
@@ -213,6 +212,7 @@ def process_one_day(day, config_dict):
                         cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
                     )
                 else:
+                    from parcels_tools import run_parcels_Drift_remote
                     run_parcels_Drift_remote(
                         MODEL, velocities,
                         config_info["zarr_u_var"],
