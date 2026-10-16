@@ -195,6 +195,7 @@ def process_one_day(day, config_dict):
                 u_depth=config_info["zarr_u_depth"],
                 v_depth=config_info["zarr_v_depth"],
                 log=log,
+                cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
             ) as velocities:
                 if config_info["gridtype"] == "irregular":
                     from gloens_parcels import run_gloens_parcels
