@@ -172,9 +172,9 @@ def process_one_day(day, config_dict):
             if MODEL.upper() == "GLOENS":
                 u_store, v_store, storage_options = discover_gloens_stores(
                     day,
-                    bucket=config_info.get("zarr_bucket", "MOISICEEF"),
-                    endpoint_url=config_info.get(
-                        "zarr_endpoint_url", "https://s3.waw3-1.cloudferro.com"),
+                    bucket=config_info["zarr_bucket"],
+                    endpoint_url=config_info["zarr_endpoint_url"],
+                    prefix=config_info["zarr_prefix"],
                 )
             else:
                 u_store = config_info["zarr_u_store"]
@@ -194,7 +194,7 @@ def process_one_day(day, config_dict):
             ) as velocities:
                 if MODEL.upper() == "GLOENS":
                     from gloens_parcels import run_gloens_parcels
-                    meshmask = config_info.get("gloens_meshmask", "/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc")
+                    meshmask = config_info["gloens_meshmask"]
                     run_gloens_parcels(
                         velocities, meshmask, day, lon0, lat0, f_traj,
                         drift_days=DRIFT_TIME,
