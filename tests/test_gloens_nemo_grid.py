@@ -4,7 +4,7 @@ Run: python -m pytest -s tests/test_gloens_nemo_grid.py
 Optional: GLOENS_CACHE_DIR=/scratch/.../nemo_daily_R20240104
           GLOENS_MESHMASK=/scratch/.../iORCA025_meshmask_v3.1.nc
 
-Reads NetCDF metadata and small meshmask coordinate arrays only; never rewrites cache.
+Reads original NetCDF files without changing them. FieldSet test creates/reuses\na separate shared-depth NetCDF cache (requires additional disk space).
 """
 import os
 from pathlib import Path
@@ -121,15 +121,20 @@ def test_parcels_nemo_fieldset_construction():
     if not u_files or not v_files:
         pytest.skip(f"No complete daily files in {CACHE}")
     assert len(u_files) == len(v_files), "U/V day counts differ"
+    from src.gloens_parcels import prepare_shared_depth_files
+    shared_root = CACHE.parent / CACHE.name.replace("nemo_daily_", "nemo_shared_depth_")
+    shared_u, shared_v = prepare_shared_depth_files(
+        [str(p) for p in u_files], [str(p) for p in v_files], shared_root
+    )
     filenames = {
-        "U": {"lon": str(MESH), "lat": str(MESH), "depth": [str(p) for p in u_files],
-              "data": [str(p) for p in u_files]},
-        "V": {"lon": str(MESH), "lat": str(MESH), "depth": [str(p) for p in v_files],
-              "data": [str(p) for p in v_files]},
+        "U": {"lon": str(MESH), "lat": str(MESH), "depth": shared_u,
+              "data": shared_u},
+        "V": {"lon": str(MESH), "lat": str(MESH), "depth": shared_v,
+              "data": shared_v},
     }
     dims = {
-        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthu", "time": "time"},
-        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthv", "time": "time"},
+        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
+        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
     }
     fieldset = parcels.FieldSet.from_nemo(
         filenames, {"U": "uo", "V": "vo"}, dims,
