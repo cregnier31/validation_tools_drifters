@@ -9,6 +9,52 @@ import pandas as pd
 import xarray as xr
 
 
+
+def prepare_shared_depth_files(u_files, v_files, cache_root):
+    """Create a separate, reusable 75-level NetCDF cache with a shared depth axis."""
+    from netCDF4 import Dataset
+
+    root = Path(cache_root)
+    root.mkdir(parents=True, exist_ok=True)
+    result = []
+    for label, paths, var, old_depth in (
+        ("U", u_files, "uo", "depthu"),
+        ("V", v_files, "vo", "depthv"),
+    ):
+        converted = []
+        for source in paths:
+            source = Path(source)
+            target = root / source.name
+            with Dataset(source) as ds:
+                if var not in ds.variables or old_depth not in ds.variables:
+                    raise ValueError(f"Missing {var}/{old_depth} in {source}")
+                shape = ds.variables[var].shape
+                if len(shape) != 4 or shape[1] != 75:
+                    raise ValueError(f"Expected 75 depth levels in {source}, got {shape}")
+                source_depth = np.asarray(ds.variables[old_depth][:])
+            if target.exists():
+                with Dataset(target) as check:
+                    valid = (var in check.variables and "depth" in check.variables
+                             and check.variables[var].shape == shape
+                             and np.array_equal(np.asarray(check.variables["depth"][:]), source_depth))
+                if not valid:
+                    raise ValueError(f"Incompatible shared-depth cache {target}; refusing overwrite")
+                converted.append(str(target))
+                continue
+            # Process only one day's 75 levels at a time, never all forecast days.
+            with xr.open_dataset(source, engine="netcdf4") as ds:
+                renamed = ds.rename({old_depth: "depth"})
+                temp = target.with_suffix(".partial.nc")
+                if temp.exists():
+                    temp.unlink()
+                renamed.to_netcdf(temp, engine="netcdf4",
+                                  encoding={var: {"dtype": "float32"}})
+                temp.replace(target)
+            converted.append(str(target))
+        result.append(converted)
+    return tuple(result)
+
+
 def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
 
@@ -67,6 +113,9 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
 
     u_files = write_daily(u_name, "U")
     v_files = write_daily(v_name, "V")
+    u_files, v_files = prepare_shared_depth_files(
+        u_files, v_files, cache_root / f"nemo_shared_depth_R{run_key}"
+    )
     filenames = {
         "U": {"lon": str(meshmask), "lat": str(meshmask),
               "depth": u_files, "data": u_files},
@@ -75,8 +124,8 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     }
     variables = {"U": u_name, "V": v_name}
     dimensions = {
-        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthu", "time": "time"},
-        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthv", "time": "time"},
+        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
+        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
     }
     started = time.monotonic()
     log.debug("GLOENS: constructing NEMO FieldSet with deferred time loading")
