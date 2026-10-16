@@ -81,6 +81,81 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
     return xr.Dataset({u_name: u, v_name: v})
 
 
+def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
+                         u_store, v_store, u_name="uo", v_name="vo",
+                         ensemble_dim="ens", time_dim="time", log=None):
+    """Reduce one forecast lead day at a time into reusable float32 .npy files.
+
+    Files are written atomically and validated by an input/configuration fingerprint.
+    Only one (ensemble, depth, y, x) slab is evaluated at a time.
+    """
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+    import numpy as np
+
+    log = log or logging.getLogger(__name__)
+    root = Path(cache_dir)
+    root.mkdir(parents=True, exist_ok=True)
+    identity = json.dumps(dict(u=str(u_store), v=str(v_store),
+                               start=str(start), days=int(days),
+                               ensemble_dim=ensemble_dim, u_name=u_name,
+                               v_name=v_name), sort_keys=True)
+    key = hashlib.sha256(identity.encode()).hexdigest()[:20]
+    output = {}
+    for ds, var in ((u_ds, u_name), (v_ds, v_name)):
+        source = select_forecast_window(ds[[var]], start, days=days)[var]
+        if ensemble_dim not in source.dims:
+            raise ValueError(f"{var} missing ensemble dimension {ensemble_dim}")
+        dims = tuple(d for d in source.dims if d != ensemble_dim)
+        shape = tuple(source.sizes[d] for d in dims)
+        cache_path = root / f"{key}_{var}_mean.npy"
+        meta_path = root / f"{key}_{var}_mean.json"
+        meta = dict(identity=identity, var=var, dims=dims, shape=shape,
+                    times=[str(t) for t in source[time_dim].values],
+                    ensemble_size=source.sizes[ensemble_dim])
+        valid = False
+        if cache_path.exists() and meta_path.exists():
+            try:
+                valid = json.loads(meta_path.read_text()) == meta
+                if valid:
+                    arr = np.load(cache_path, mmap_mode="r")
+                    valid = arr.shape == shape and arr.dtype == np.float32
+                    del arr
+            except (OSError, ValueError, json.JSONDecodeError):
+                valid = False
+        if not valid:
+            log.info("Zarr %s: building per-leadtime mean cache %s", var, cache_path)
+            tmp = root / f"{key}_{var}_mean.partial.npy"
+            target = np.lib.format.open_memmap(tmp, mode="w+", dtype=np.float32, shape=shape)
+            try:
+                for i in range(days):
+                    started = time.monotonic()
+                    slab = source.isel({time_dim: i}).mean(ensemble_dim, skipna=True)
+                    # Preserve source dimension order in the cache.
+                    slab = slab.transpose(*(d for d in dims if d != time_dim))
+                    target[i] = np.asarray(slab.compute().values, dtype=np.float32)
+                    target.flush()
+                    log.info("Zarr %s: ensemble mean lead %d/%d completed in %.1fs",
+                             var, i + 1, days, time.monotonic() - started)
+                del target
+                os.replace(tmp, cache_path)
+                meta_tmp = meta_path.with_suffix(".json.tmp")
+                meta_tmp.write_text(json.dumps(meta))
+                os.replace(meta_tmp, meta_path)
+            except BaseException:
+                del target
+                tmp.unlink(missing_ok=True)
+                raise
+        else:
+            log.info("Zarr %s: reusing cached ensemble mean %s", var, cache_path)
+        coords = {d: source[d] for d in dims if d in source.coords}
+        output[var] = xr.DataArray(np.load(cache_path, mmap_mode="r"),
+                                   dims=dims, coords=coords, name=var)
+    return xr.Dataset(output)
+
+
 def ensemble_mean_velocity(u_ds, v_ds=None, **kwargs):
     """Backward-compatible wrapper for ensemble mean selection."""
     return select_velocity(u_ds, v_ds, mode="mean", **kwargs)
@@ -115,7 +190,7 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
 def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
                               storage_options=None, mode="mean", member=None,
                               u_name="uo", v_name="vo", ensemble_dim="ens",
-                              depth=0.0, u_depth="depthu", v_depth="depthv", log=None):
+                              depth=0.0, u_depth="depthu", v_depth="depthv", log=None, cache_dir=None):
     """Context manager for deterministic, ensemble member, or ensemble mean U/V."""
     from contextlib import contextmanager
 
@@ -127,20 +202,20 @@ def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
         with open_velocity_dataset(u_store, storage_options=storage_options) as u_ds:
             log.info("Zarr: U store opened")
             if str(u_store) == str(v_store):
-                selected = select_velocity(
+                selected = (cached_leadtime_mean(u_ds, u_ds, start, days=days, cache_dir=cache_dir, u_store=u_store, v_store=v_store, u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim, log=log) if mode == "mean" and cache_dir else select_velocity(
                     u_ds, mode=mode, member=member, u_name=u_name, v_name=v_name,
                     ensemble_dim=ensemble_dim, depth=depth,
-                    u_depth=u_depth, v_depth=v_depth, log=log)
+                    u_depth=u_depth, v_depth=v_depth, log=log))
                 log.info("Zarr: selecting %d-day window", days)
                 yield select_forecast_window(selected, start, days=days)
             else:
                 log.info("Zarr: opening V store %s", v_store)
                 with open_velocity_dataset(v_store, storage_options=storage_options) as v_ds:
                     log.info("Zarr: V store opened")
-                    selected = select_velocity(
+                    selected = (cached_leadtime_mean(u_ds, v_ds, start, days=days, cache_dir=cache_dir, u_store=u_store, v_store=v_store, u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim, log=log) if mode == "mean" and cache_dir else select_velocity(
                         u_ds, v_ds, mode=mode, member=member,
                         u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
-                        depth=depth, u_depth=u_depth, v_depth=v_depth, log=log)
+                        depth=depth, u_depth=u_depth, v_depth=v_depth, log=log))
                     yield select_forecast_window(selected, start, days=days)
     return opened()
 
