@@ -149,3 +149,62 @@ def test_parcels_nemo_fieldset_construction():
     assert fieldset.U.grid.ydim == fieldset.V.grid.ydim
     assert fieldset.U.grid.zdim == 75
     assert fieldset.V.grid.zdim == 75
+
+
+def test_fpoint_2d_fieldset_at_15m():
+    """Diagnostic: one daily slice, nearest 15 m, using NEMO F-point coordinates."""
+    parcels = pytest.importorskip("parcels")
+    xr = pytest.importorskip("xarray")
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    arrays = []
+    for label, var, zdim in (("U", "uo", "depthu"), ("V", "vo", "depthv")):
+        with xr.open_dataset(_daily_file(label)) as source:
+            chosen = source[zdim].sel({zdim: 15.0}, method="nearest").item()
+            print(f"{label}: nearest model depth to 15 m = {chosen}")
+            arrays.append(source[var].sel({zdim: 15.0}, method="nearest").load())
+    with xr.open_dataset(MESH) as mesh:
+        lon = mesh["glamf"].isel(time_counter=0).load() if "time_counter" in mesh["glamf"].dims else mesh["glamf"].load()
+        lat = mesh["gphif"].isel(time_counter=0).load() if "time_counter" in mesh["gphif"].dims else mesh["gphif"].load()
+    ds = xr.Dataset({"uo": arrays[0], "vo": arrays[1], "glamf": lon, "gphif": lat})
+    fieldset = parcels.FieldSet.from_xarray_dataset(
+        ds, {"U": "uo", "V": "vo"},
+        {"lon": "glamf", "lat": "gphif", "time": "time"},
+        mesh="spherical", allow_time_extrapolation=True,
+    )
+    print(f"2D F-point: U zdim={fieldset.U.grid.zdim}, V zdim={fieldset.V.grid.zdim}")
+    assert fieldset.U.grid.xdim == fieldset.V.grid.xdim == 1440
+    assert fieldset.U.grid.ydim == fieldset.V.grid.ydim == 1049
+
+
+def test_fpoint_3d_nemo_fieldset():
+    """Diagnostic: 75-level deferred NEMO FieldSet using F-point coordinates."""
+    parcels = pytest.importorskip("parcels")
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    from src.gloens_parcels import prepare_shared_depth_files
+    u_files = sorted(CACHE.glob("U_*.nc"))
+    v_files = sorted(CACHE.glob("V_*.nc"))
+    if not u_files or not v_files:
+        pytest.skip(f"No daily NetCDF files in {CACHE}")
+    assert len(u_files) == len(v_files)
+    shared_root = CACHE.parent / CACHE.name.replace("nemo_daily_", "nemo_shared_depth_")
+    shared_u, shared_v = prepare_shared_depth_files(
+        [str(p) for p in u_files], [str(p) for p in v_files], shared_root
+    )
+    filenames = {
+        "U": {"lon": str(MESH), "lat": str(MESH), "depth": shared_u, "data": shared_u},
+        "V": {"lon": str(MESH), "lat": str(MESH), "depth": shared_v, "data": shared_v},
+    }
+    dims = {"lon": "glamf", "lat": "gphif", "depth": "depth", "time": "time"}
+    fieldset = parcels.FieldSet.from_nemo(
+        filenames, {"U": "uo", "V": "vo"}, dims,
+        allow_time_extrapolation=True, time_periodic=False, deferred_load=True,
+    )
+    for name in ("U", "V"):
+        grid = getattr(fieldset, name).grid
+        print(f"3D F-point {name}: xdim={grid.xdim}, ydim={grid.ydim}, "
+              f"zdim={grid.zdim}, tdim={grid.tdim}")
+        assert grid.zdim == 75
+    assert fieldset.U.grid.xdim == fieldset.V.grid.xdim
+    assert fieldset.U.grid.ydim == fieldset.V.grid.ydim
