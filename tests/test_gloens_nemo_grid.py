@@ -282,3 +282,43 @@ def test_fpoint_2d_wet_cell_and_search_diagnostic():
             else:
                 p = next(iter(pset))
                 print(f"{label}: OK lon={p.lon} lat={p.lat}")
+
+
+def test_fpoint_2d_seeded_grid_indices():
+    """Check whether seeding the initial curvilinear cell bypasses (0,0)."""
+    from datetime import timedelta
+    xr = pytest.importorskip("xarray")
+    parcels = pytest.importorskip("parcels")
+    if not MESH.is_file():
+        pytest.skip(f"Missing meshmask: {MESH}")
+    with xr.open_dataset(_daily_file("U")) as ud, xr.open_dataset(_daily_file("V")) as vd:
+        u = ud["uo"].sel(depthu=15., method="nearest").reset_coords(drop=True)
+        v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
+        with xr.open_dataset(MESH) as mesh:
+            coords = {}
+            for name in ("glamf", "gphif"):
+                coord = mesh[name]
+                if "time_counter" in coord.dims:
+                    coord = coord.isel(time_counter=0, drop=True)
+                coords[name] = coord.load()
+        ds = xr.Dataset({"uo": u, "vo": v}).assign_coords(coords)
+        fs = parcels.FieldSet.from_xarray_dataset(
+            ds, {"U":"uo","V":"vo"},
+            {"lon":"glamf","lat":"gphif","time":"time"},
+            mesh="spherical", allow_time_extrapolation=True)
+        pset = parcels.ParticleSet(fieldset=fs, pclass=parcels.JITParticle,
+                                   lon=[-58.001], lat=[23.021], time=[0.])
+        p = next(iter(pset))
+        print("Particle index variables:", [name for name in ("xi", "yi") if hasattr(p, name)])
+        print("Grid count:", len(fs.gridset.grids))
+        print("Initial indices:", p.xi, p.yi)
+        # In Parcels 3.x indices are arrays indexed by the grid ID.
+        for grid in fs.gridset.grids:
+            gid = grid._gtype if False else fs.gridset.grids.index(grid)
+            p.xi[gid] = 915
+            p.yi[gid] = 621
+        print("Seeded indices:", p.xi, p.yi)
+        pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
+                     dt=timedelta(minutes=5))
+        print("Seeded particle after 5 minutes:", p.lon, p.lat)
+        assert np.isfinite(p.lon) and np.isfinite(p.lat)
