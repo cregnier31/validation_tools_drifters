@@ -103,6 +103,14 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
                                ensemble_dim=ensemble_dim, u_name=u_name,
                                v_name=v_name), sort_keys=True)
     key = hashlib.sha256(identity.encode()).hexdigest()[:20]
+    run_match = re.search(r"_R(\\d{8})\\.zarr/?$", str(u_store))
+    run_date = run_match.group(1) if run_match else str(start).replace("-", "")[:8]
+    import numpy as np
+    start_date = np.datetime64(start, "D")
+    first_date = str(start_date).replace("-", "")
+    last_date = str(start_date + np.timedelta64(int(days) - 1, "D")).replace("-", "")
+    # Human-readable identity; full input fingerprint stays in JSON metadata.
+    filename_prefix = f"FCST_R{run_date}_{first_date}-{last_date}"
     output = {}
     for ds, var in ((u_ds, u_name), (v_ds, v_name)):
         source = select_forecast_window(ds[[var]], start, days=days)[var]
@@ -110,8 +118,8 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
             raise ValueError(f"{var} missing ensemble dimension {ensemble_dim}")
         dims = (time_dim,) + tuple(d for d in source.dims if d not in (ensemble_dim, time_dim))
         shape = tuple(source.sizes[d] for d in dims)
-        cache_path = root / f"{key}_{var}_mean.npy"
-        meta_path = root / f"{key}_{var}_mean.json"
+        cache_path = root / f"{filename_prefix}_{var}_ensmean_{days}days.npy"
+        meta_path = root / f"{filename_prefix}_{var}_ensmean_{days}days.json"
         meta = dict(identity=identity, var=var, dims=dims, shape=shape,
                     times=[str(t) for t in source[time_dim].values],
                     ensemble_size=source.sizes[ensemble_dim])
