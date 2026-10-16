@@ -402,3 +402,26 @@ def test_parcels_minimal_execution_control():
     print("Control after:", after.lon, after.lat, after.time, after.state)
     assert float(after.time) >= 300., "Even the independent regular-grid control did not execute"
     assert abs(float(after.lon) + 58.001) + abs(float(after.lat) - 23.021) > 1e-6
+
+
+@pytest.mark.parametrize("particle_type", ["JITParticle", "ScipyParticle"])
+def test_parcels_execution_backend_control(particle_type):
+    """Check both Parcels execution backends without GLOENS dependencies."""
+    from datetime import timedelta
+    parcels = pytest.importorskip("parcels")
+    fieldset = parcels.FieldSet.from_data(
+        {"U": np.full((2, 3, 3), 0.2, dtype=np.float32),
+         "V": np.full((2, 3, 3), 0.1, dtype=np.float32)},
+        {"lon": np.array([-59., -58., -57.], dtype=np.float32),
+         "lat": np.array([22., 23., 24.], dtype=np.float32),
+         "time": np.array([0., 86400.], dtype=np.float64)},
+        mesh="spherical", allow_time_extrapolation=False,
+    )
+    cls = getattr(parcels, particle_type)
+    pset = parcels.ParticleSet(fieldset=fieldset, pclass=cls,
+                               lon=[-58.001], lat=[23.021], time=[0.])
+    pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=10),
+                 dt=timedelta(minutes=5))
+    p = next(iter(pset))
+    print(f"{particle_type} after 10min:", p.lon, p.lat, p.time, p.state)
+    assert float(p.time) >= 600., f"{particle_type} did not advance"
