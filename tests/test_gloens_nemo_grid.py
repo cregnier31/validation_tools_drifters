@@ -232,7 +232,6 @@ def test_fpoint_2d_one_day_advection():
             mesh="spherical", allow_time_extrapolation=True,
         )
         assert fieldset.U.grid.zdim == fieldset.V.grid.zdim == 1
-        fieldset.add_periodic_halo(zonal=True)
         pset = parcels.ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
                                     lon=[-58.001], lat=[23.021], time=[0.0])
         pset.execute(parcels.AdvectionRK4, runtime=timedelta(days=1),
