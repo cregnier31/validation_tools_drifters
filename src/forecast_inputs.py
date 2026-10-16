@@ -37,18 +37,16 @@ def open_velocity_dataset(source, *, storage_options=None, chunks=None):
 
 def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
                     u_name="uo", v_name="vo", ensemble_dim="ens",
-                    depth=0.0, u_depth="depthu", v_depth="depthv",
+                    depth=None, u_depth="depthu", v_depth="depthv",
                     time_dim="time"):
-    """Select deterministic fields, one ensemble member, or ensemble mean."""
+    """Preserve all vertical levels; reduce U and V independently."""
     if mode not in ("mean", "member", "deterministic"):
         raise ValueError(f"Unsupported velocity mode: {mode}")
     if v_ds is None:
         v_ds = u_ds
-    fields = []
-    for ds, var, zdim in ((u_ds, u_name, u_depth), (v_ds, v_name, v_depth)):
+
+    def process(ds, var):
         field = ds[var]
-        if zdim in field.dims:
-            field = field.sel({zdim: depth}, method="nearest")
         if time_dim not in field.dims:
             raise ValueError(f"{var} missing time dimension {time_dim}")
         has_ensemble = ensemble_dim in field.dims
@@ -64,11 +62,15 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
             field = field.sel({ensemble_dim: member})
         elif has_ensemble:
             raise ValueError(f"{var} contains {ensemble_dim}; select mean or member mode")
-        fields.append(field)
+        return field
+
+    # Each component is an independent lazy reduction. No vertical slicing.
+    u = process(u_ds, u_name)
+    v = process(v_ds, v_name)
     import numpy as np
-    if not np.array_equal(fields[0][time_dim].values, fields[1][time_dim].values):
+    if not np.array_equal(u[time_dim].values, v[time_dim].values):
         raise ValueError("U and V forecast valid times do not match")
-    return xr.Dataset({u_name: fields[0], v_name: fields[1]})
+    return xr.Dataset({u_name: u, v_name: v})
 
 
 def ensemble_mean_velocity(u_ds, v_ds=None, **kwargs):
