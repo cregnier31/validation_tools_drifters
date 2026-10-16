@@ -454,9 +454,11 @@ def test_fpoint_parcels4_sgrid_one_day():
         print("Parcels 4 ParticleSet signature:", inspect.signature(parcels.ParticleSet))
         print("Release time:", repr(release_time), "type:", type(release_time))
         print("FieldSet time coordinates:", repr(sgrid.coords.get("time", None)))
+        # Parcels 4 requires a time interval for absolute datetime releases.
+        # A single-frame smoke test has no interval, so use a relative timedelta.
         pset = parcels.ParticleSet(
             fieldset=fieldset, x=[-58.001], y=[23.021],
-            t=release_time
+            t=np.array([timedelta(0)], dtype=object)
         )
         print("Parcels 4 before:", pset.x, pset.y, pset.t)
         pset.execute([parcels.kernels.AdvectionRK4],
