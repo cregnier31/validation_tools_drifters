@@ -91,22 +91,27 @@ def build_runtime_config(args, config_path):
     config_info["lat"] = config_model_params[f'{SYSTEM}_{leadtime}']['lat']
     config_info["time"] = config_model_params[f'{SYSTEM}_{leadtime}']['time']
     config_info["path_data"] = config_path_data[obs_type]
-    # GLOENS uses CLASS1 S3 Zarr; GLO12 retains its NetCDF directory.
-    if SYSTEM.upper() == "GLOENS":
-        config_info["input_format"] = "zarr"
-        model_settings = config_model_params[f"{SYSTEM}_{leadtime}"]
-        for key in ("bucket_name", "endpoint_url", "fname_prefix", "meshmask", "var_u", "var_v"):
-            if not model_settings.get(key):
-                raise ValueError(f"Missing model_params.{SYSTEM}_{leadtime}.{key} in {config_path}")
-        config_info["zarr_bucket"] = model_settings["bucket_name"]
-        config_info["zarr_endpoint_url"] = model_settings["endpoint_url"]
-        config_info["zarr_prefix"] = model_settings["fname_prefix"]
-        config_info["gloens_meshmask"] = model_settings["meshmask"]
+    # Input format and forecast selection are model settings, not model-name rules.
+    model_settings = config_model_params[f"{SYSTEM}_{leadtime}"]
+    config_info["input_format"] = model_settings.get("input_format", "netcdf").lower()
+    if config_info["input_format"] == "zarr":
+        config_info["zarr_bucket"] = model_settings.get("bucket_name")
+        config_info["zarr_endpoint_url"] = model_settings.get("endpoint_url")
+        config_info["zarr_prefix"] = model_settings.get("fname_prefix")
+        config_info["zarr_u_store"] = model_settings.get("u_store")
+        config_info["zarr_v_store"] = model_settings.get("v_store")
         config_info["zarr_u_var"] = model_settings["var_u"]
         config_info["zarr_v_var"] = model_settings["var_v"]
-    else:
-        config_info["input_format"] = "netcdf"
-
+        config_info["zarr_meshmask"] = model_settings.get("meshmask")
+        config_info["zarr_velocity_mode"] = model_settings.get("velocity_mode", "deterministic")
+        config_info["zarr_ensemble_dim"] = model_settings.get("ensemble_dim", "ens")
+        config_info["zarr_ensemble_member"] = model_settings.get("ensemble_member")
+        config_info["zarr_u_depth"] = model_settings.get("u_depth", "depthu")
+        config_info["zarr_v_depth"] = model_settings.get("v_depth", "depthv")
+        if not ((config_info["zarr_bucket"] and config_info["zarr_endpoint_url"] and config_info["zarr_prefix"]) or config_info["zarr_u_store"]):
+            raise ValueError(f"Configure either S3 discovery or u_store in model_params.{SYSTEM}_{leadtime}")
+        if config_info["zarr_velocity_mode"] not in ("mean", "member", "deterministic"):
+            raise ValueError("velocity_mode must be mean, member or deterministic")
     # ------------------------------------------
     # 4. Dates
     # ------------------------------------------
