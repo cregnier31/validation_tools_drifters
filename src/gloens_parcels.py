@@ -9,59 +9,80 @@ import pandas as pd
 import xarray as xr
 
 
-def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None):
+def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
 
     meshmask = Path(meshmask)
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
     log = log if log is not None else logging.getLogger(__name__)
-    started = time.monotonic()
-    log.debug("GLOENS: reading meshmask coordinates from %s", meshmask)
-    with xr.open_dataset(meshmask, decode_times=False) as mesh:
-        def coords(name):
-            da = mesh[name]
-            if "time_counter" in da.dims:
-                da = da.isel(time_counter=0)
-            return np.asarray(da.transpose("y", "x").values, dtype=np.float32)
-        ulon, ulat = coords("glamu"), coords("gphiu")
-        vlon, vlat = coords("glamv"), coords("gphiv")
+    # The legacy irregular-grid workflow uses FieldSet.from_nemo with meshmask
+    # coordinates and NEMO-specific interpolation. Reuse that path here.
+    # Write one lead day per file so Parcels can defer reading time slices.
+    from netCDF4 import Dataset
 
-    log.debug("GLOENS: meshmask loaded in %.1fs; U grid=%s V grid=%s", time.monotonic() - started, ulon.shape, vlon.shape)
+    cache_root = Path(cache_dir) if cache_dir else Path(output_path).parent / "gloens_nemo_daily"
+    run_key = pd.Timestamp(day).strftime("%Y%m%d")
+    daily_root = cache_root / f"nemo_daily_R{run_key}"
+    daily_root.mkdir(parents=True, exist_ok=True)
+    times = pd.to_datetime(velocities.time.values)
+    if len(times) != int(drift_days):
+        raise ValueError(f"Expected {drift_days} daily velocity samples, got {len(times)}")
 
-    def materialize_component(var, name):
+    def write_daily(var, label):
         field = velocities[var]
         vertical = [dim for dim in field.dims if dim not in ("time", "y", "x")]
-        if len(vertical) > 1:
-            raise ValueError(f"{name} has unsupported extra dimensions: {vertical}")
-        dims = ("time", *vertical, "y", "x")
-        started = time.monotonic()
-        log.debug("GLOENS: materializing %s dims=%s shape=%s dtype=%s", name, dims, field.shape, field.dtype)
-        # Parcels replaces NaNs in-place; cached .npy arrays are read-only memmaps.
-        values = np.array(field.transpose(*dims).values, dtype=np.float32, copy=True)
-        log.debug("GLOENS: %s materialized in %.1fs (%.1f MiB)", name, time.monotonic() - started, values.nbytes / 2**20)
-        return values, vertical[0] if vertical else None
+        if len(vertical) != 1:
+            raise ValueError(f"{label} requires one vertical dimension, got {vertical}")
+        zdim = vertical[0]
+        if field.sizes[zdim] != 75:
+            log.warning("GLOENS %s: expected 75 depths, found %d", label, field.sizes[zdim])
+        paths = []
+        for i, timestamp in enumerate(times):
+            path = daily_root / f"{label}_{timestamp.strftime('%Y%m%d')}.nc"
+            if path.exists():
+                with Dataset(path) as check:
+                    expected_shape = (1, field.sizes[zdim], field.sizes["y"], field.sizes["x"])
+                    if var in check.variables and check.variables[var].shape == expected_shape:
+                        log.debug("GLOENS: reuse daily %s %d/%d: %s", label, i + 1, len(times), path)
+                        paths.append(str(path))
+                        continue
+                log.warning("GLOENS: rebuilding invalid daily file %s", path)
+            started = time.monotonic()
+            slab = field.isel(time=slice(i, i + 1)).transpose("time", zdim, "y", "x")
+            # A single day is loaded at a time, retaining all vertical levels.
+            temp = path.with_suffix(".partial.nc")
+            if temp.exists():
+                temp.unlink()
+            slab.to_dataset(name=var).to_netcdf(temp, engine="netcdf4",
+                                                encoding={var: {"dtype": "float32"}})
+            temp.replace(path)
+            log.debug("GLOENS: wrote daily %s %d/%d in %.1fs: %s",
+                      label, i + 1, len(times), time.monotonic() - started, path)
+            paths.append(str(path))
+        return paths
 
-    u, u_zdim = materialize_component(u_name, "U")
-    v, v_zdim = materialize_component(v_name, "V")
-    if u.shape[-2:] != ulon.shape or v.shape[-2:] != vlon.shape:
-        raise ValueError("GLOENS velocity arrays and NEMO U/V meshmask shapes differ")
-    if bool(u_zdim) != bool(v_zdim):
-        raise ValueError("U/V must both be 3D or both be 2D")
-    times = np.asarray((pd.to_datetime(velocities.time.values) - pd.Timestamp(day)).total_seconds(), dtype=np.float64)
-    u_coords = {"lon": ulon, "lat": ulat, "time": times}
-    v_coords = {"lon": vlon, "lat": vlat, "time": times}
-    if u_zdim:
-        u_coords["depth"] = np.asarray(velocities[u_zdim].values, dtype=np.float32)
-        v_coords["depth"] = np.asarray(velocities[v_zdim].values, dtype=np.float32)
+    u_files = write_daily(u_name, "U")
+    v_files = write_daily(v_name, "V")
+    filenames = {
+        "U": {"lon": str(meshmask), "lat": str(meshmask),
+              "depth": str(meshmask), "data": u_files},
+        "V": {"lon": str(meshmask), "lat": str(meshmask),
+              "depth": str(meshmask), "data": v_files},
+    }
+    variables = {"U": u_name, "V": v_name}
+    dimensions = {
+        "U": {"lon": "nav_lon", "lat": "nav_lat", "time": "time"},
+        "V": {"lon": "nav_lon", "lat": "nav_lat", "time": "time"},
+    }
     started = time.monotonic()
-    log.debug("GLOENS: constructing Parcels FieldSet from U/V arrays")
-    fieldset = FieldSet.from_data(
-        {"U": u, "V": v},
-        {"U": u_coords, "V": v_coords},
-        mesh="spherical", allow_time_extrapolation=True,
+    log.debug("GLOENS: constructing NEMO FieldSet with deferred time loading")
+    fieldset = FieldSet.from_nemo(
+        filenames, variables, dimensions,
+        allow_time_extrapolation=True, time_periodic=False,
+        deferred_load=True,
     )
-    log.debug("GLOENS: FieldSet constructed in %.1fs", time.monotonic() - started)
+    log.debug("GLOENS: NEMO FieldSet constructed in %.1fs", time.monotonic() - started)
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
