@@ -240,3 +240,45 @@ def test_fpoint_2d_one_day_advection():
         particle = next(iter(pset))
         print(f"2D one-day end position: lon={particle.lon}, lat={particle.lat}")
         assert np.isfinite(particle.lon) and np.isfinite(particle.lat)
+
+
+def test_fpoint_2d_wet_cell_and_search_diagnostic():
+    """One-day read-only comparison: observed start versus nearby wet F point."""
+    from datetime import timedelta
+    xr = pytest.importorskip("xarray")
+    parcels = pytest.importorskip("parcels")
+    if not MESH.is_file():
+        pytest.skip(f"Missing meshmask: {MESH}")
+    j0, i0 = 621, 915
+    with xr.open_dataset(_daily_file("U")) as ud, xr.open_dataset(_daily_file("V")) as vd:
+        u = ud["uo"].sel(depthu=15., method="nearest").reset_coords(drop=True)
+        v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
+        with xr.open_dataset(MESH) as mesh:
+            lon = mesh["glamf"].isel(time_counter=0, drop=True).load()
+            lat = mesh["gphif"].isel(time_counter=0, drop=True).load()
+            print("Meshmask masks available:", [n for n in ("tmask", "umask", "vmask", "fmask") if n in mesh])
+            for name in ("tmask", "umask", "vmask", "fmask"):
+                if name in mesh:
+                    mask = mesh[name]
+                    sel = {d: (0 if d == "time_counter" else 0) for d in mask.dims if d not in ("y", "x")}
+                    print(name, "near start:", mask.isel(y=slice(j0-1,j0+2), x=slice(i0-1,i0+2), **sel).values)
+            print("U near start:", u.isel(y=slice(j0-1,j0+2), x=slice(i0-1,i0+2)).values)
+            print("V near start:", v.isel(y=slice(j0-1,j0+2), x=slice(i0-1,i0+2)).values)
+            ds = xr.Dataset({"uo": u, "vo": v}).assign_coords(glamf=lon, gphif=lat)
+        fs = parcels.FieldSet.from_xarray_dataset(
+            ds, {"U":"uo","V":"vo"},
+            {"lon":"glamf","lat":"gphif","time":"time"},
+            mesh="spherical", allow_time_extrapolation=True)
+        print("Parcels grid dimensions:", fs.U.grid.xdim, fs.U.grid.ydim)
+        for label, x, y in (("drifter", -58.001, 23.021),
+                            ("nearest_F_point", float(lon[j0,i0]), float(lat[j0,i0]))):
+            pset = parcels.ParticleSet(fieldset=fs, pclass=parcels.JITParticle,
+                                       lon=[x], lat=[y], time=[0.])
+            try:
+                pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
+                             dt=timedelta(minutes=5))
+            except Exception as exc:
+                print(f"{label}: FAILED {type(exc).__name__}: {exc}")
+            else:
+                p = next(iter(pset))
+                print(f"{label}: OK lon={p.lon} lat={p.lat}")
