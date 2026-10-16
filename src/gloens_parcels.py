@@ -36,7 +36,8 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         dims = ("time", *vertical, "y", "x")
         started = time.monotonic()
         log.debug("GLOENS: materializing %s dims=%s shape=%s dtype=%s", name, dims, field.shape, field.dtype)
-        values = np.asarray(field.transpose(*dims).values, dtype=np.float32)
+        # Parcels replaces NaNs in-place; cached .npy arrays are read-only memmaps.
+        values = np.array(field.transpose(*dims).values, dtype=np.float32, copy=True)
         log.debug("GLOENS: %s materialized in %.1fs (%.1f MiB)", name, time.monotonic() - started, values.nbytes / 2**20)
         return values, vertical[0] if vertical else None
 
