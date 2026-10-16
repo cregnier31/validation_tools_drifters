@@ -1,6 +1,7 @@
 """Parcels 3.x advection on GLOENS NEMO curvilinear C-grid forecast velocities."""
 from datetime import timedelta
 import math
+import logging
 import time
 from pathlib import Path
 import numpy as np
@@ -8,13 +9,13 @@ import pandas as pd
 import xarray as xr
 
 
-def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1):
+def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
 
     meshmask = Path(meshmask)
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
-    log = __import__("logging").getLogger(__name__)
+    log = log if log is not None else logging.getLogger(__name__)
     started = time.monotonic()
     log.debug("GLOENS: reading meshmask coordinates from %s", meshmask)
     with xr.open_dataset(meshmask, decode_times=False) as mesh:
