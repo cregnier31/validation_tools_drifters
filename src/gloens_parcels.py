@@ -10,51 +10,6 @@ import xarray as xr
 
 
 
-def prepare_shared_depth_files(u_files, v_files, cache_root):
-    """Create a separate, reusable 75-level NetCDF cache with a shared depth axis."""
-    from netCDF4 import Dataset
-
-    root = Path(cache_root)
-    root.mkdir(parents=True, exist_ok=True)
-    result = []
-    for label, paths, var, old_depth in (
-        ("U", u_files, "uo", "depthu"),
-        ("V", v_files, "vo", "depthv"),
-    ):
-        converted = []
-        for source in paths:
-            source = Path(source)
-            target = root / source.name
-            with Dataset(source) as ds:
-                if var not in ds.variables or old_depth not in ds.variables:
-                    raise ValueError(f"Missing {var}/{old_depth} in {source}")
-                shape = ds.variables[var].shape
-                if len(shape) != 4 or shape[1] != 75:
-                    raise ValueError(f"Expected 75 depth levels in {source}, got {shape}")
-                source_depth = np.asarray(ds.variables[old_depth][:])
-            if target.exists():
-                with Dataset(target) as check:
-                    valid = (var in check.variables and "depth" in check.variables
-                             and check.variables[var].shape == shape
-                             and np.array_equal(np.asarray(check.variables["depth"][:]), source_depth))
-                if not valid:
-                    raise ValueError(f"Incompatible shared-depth cache {target}; refusing overwrite")
-                converted.append(str(target))
-                continue
-            # Process only one day's 75 levels at a time, never all forecast days.
-            with xr.open_dataset(source, engine="netcdf4") as ds:
-                renamed = ds.rename({old_depth: "depth"})
-                temp = target.with_suffix(".partial.nc")
-                if temp.exists():
-                    temp.unlink()
-                renamed.to_netcdf(temp, engine="netcdf4",
-                                  encoding={var: {"dtype": "float32"}})
-                temp.replace(target)
-            converted.append(str(target))
-        result.append(converted)
-    return tuple(result)
-
-
 def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
     from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
 
@@ -62,83 +17,42 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
     log = log if log is not None else logging.getLogger(__name__)
-    # The legacy irregular-grid workflow uses FieldSet.from_nemo with meshmask
-    # coordinates and NEMO-specific interpolation. Reuse that path here.
-    # Write one lead day per file so Parcels can defer reading time slices.
-    from netCDF4 import Dataset
-
-    cache_root = Path(cache_dir) if cache_dir else Path(output_path).parent / "gloens_nemo_daily"
-    run_key = pd.Timestamp(day).strftime("%Y%m%d")
-    daily_root = cache_root / f"nemo_daily_R{run_key}"
-    daily_root.mkdir(parents=True, exist_ok=True)
-    times = pd.to_datetime(velocities.time.values)
-    if len(times) != int(drift_days):
-        raise ValueError(f"Expected {drift_days} daily velocity samples, got {len(times)}")
-
-    def write_daily(var, label):
-        field = velocities[var]
-        vertical = [dim for dim in field.dims if dim not in ("time", "y", "x")]
-        if len(vertical) != 1:
-            raise ValueError(f"{label} requires one vertical dimension, got {vertical}")
-        zdim = vertical[0]
-        if field.sizes[zdim] != 75:
-            log.warning("GLOENS %s: expected 75 depths, found %d", label, field.sizes[zdim])
-        paths = []
-        for i, timestamp in enumerate(times):
-            path = daily_root / f"{label}_{timestamp.strftime('%Y%m%d')}.nc"
-            if path.exists():
-                with Dataset(path) as check:
-                    expected_shape = (1, field.sizes[zdim], field.sizes["y"], field.sizes["x"])
-                    if var in check.variables and check.variables[var].shape == expected_shape:
-                        log.debug("GLOENS: reuse daily %s %d/%d: %s", label, i + 1, len(times), path)
-                        paths.append(str(path))
-                        continue
-                raise ValueError(
-                    f"Existing daily NetCDF cache is incompatible: {path}. "
-                    "Refusing to overwrite it; remove it manually to regenerate."
-                )
-            started = time.monotonic()
-            slab = field.isel(time=slice(i, i + 1)).transpose("time", zdim, "y", "x")
-            # A single day is loaded at a time, retaining all vertical levels.
-            temp = path.with_suffix(".partial.nc")
-            if temp.exists():
-                temp.unlink()
-            slab.to_dataset(name=var).to_netcdf(temp, engine="netcdf4",
-                                                encoding={var: {"dtype": "float32"}})
-            temp.replace(path)
-            log.debug("GLOENS: wrote daily %s %d/%d in %.1fs: %s",
-                      label, i + 1, len(times), time.monotonic() - started, path)
-            paths.append(str(path))
-        return paths
-
-    u_files = write_daily(u_name, "U")
-    v_files = write_daily(v_name, "V")
-    u_files, v_files = prepare_shared_depth_files(
-        u_files, v_files, cache_root / f"nemo_shared_depth_R{run_key}"
-    )
-    filenames = {
-        "U": {"lon": str(meshmask), "lat": str(meshmask),
-              "depth": u_files, "data": u_files},
-        "V": {"lon": str(meshmask), "lat": str(meshmask),
-              "depth": v_files, "data": v_files},
-    }
-    variables = {"U": u_name, "V": v_name}
-    dimensions = {
-        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
-        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depth", "time": "time"},
-    }
+    # Build directly from the disk-backed ensemble-mean DataArrays, following
+    # the working xarray/F-point workflow. No additional daily NetCDF copies.
+    u = velocities[u_name]
+    v = velocities[v_name]
+    u_z = [d for d in u.dims if d not in ("time", "y", "x")]
+    v_z = [d for d in v.dims if d not in ("time", "y", "x")]
+    if len(u_z) != 1 or len(v_z) != 1:
+        raise ValueError(f"Expected one depth dimension for U/V: {u_z}, {v_z}")
+    if u.sizes[u_z[0]] != 75 or v.sizes[v_z[0]] != 75:
+        raise ValueError("GLOENS requires all 75 depth levels")
+    u_depth = np.asarray(u[u_z[0]].values)
+    v_depth = np.asarray(v[v_z[0]].values)
+    if not np.allclose(u_depth, v_depth, rtol=1e-6, atol=1e-4):
+        raise ValueError("U and V depth coordinates differ; cannot share a 3D grid")
+    u = u.rename({u_z[0]: "depth"})
+    v = v.rename({v_z[0]: "depth"}).assign_coords(depth=u_depth)
+    # Avoid xarray aligning distinct coordinates or materializing full velocity arrays.
+    ds = xr.Dataset({u_name: u, v_name: v})
+    with xr.open_dataset(meshmask, engine="netcdf4") as grid:
+        for name in ("glamf", "gphif"):
+            coord = grid[name]
+            if "time_counter" in coord.dims:
+                coord = coord.isel(time_counter=0, drop=True)
+            ds[name] = coord.load()
+    log.debug("GLOENS: constructing 3D xarray FieldSet at all 75 depths")
     started = time.monotonic()
-    log.debug("GLOENS: constructing NEMO FieldSet with deferred time loading")
-    fieldset = FieldSet.from_nemo(
-        filenames, variables, dimensions,
-        allow_time_extrapolation=True, time_periodic=False,
-        deferred_load=True,
+    fieldset = FieldSet.from_xarray_dataset(
+        ds, {"U": u_name, "V": v_name},
+        {"lon": "glamf", "lat": "gphif", "depth": "depth", "time": "time"},
+        mesh="spherical", allow_time_extrapolation=True,
     )
-    log.debug("GLOENS: NEMO FieldSet constructed in %.1fs", time.monotonic() - started)
+    log.debug("GLOENS: 3D xarray FieldSet constructed in %.1fs", time.monotonic() - started)
     for component in ("U", "V"):
         nz = getattr(fieldset, component).grid.zdim
         if nz != 75:
-            raise ValueError(f"GLOENS {component} Parcels grid has {nz} depth levels; expected 75")
+            raise ValueError(f"GLOENS {component} grid has {nz} depth levels; expected 75")
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
