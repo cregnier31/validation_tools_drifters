@@ -105,7 +105,6 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
     key = hashlib.sha256(identity.encode()).hexdigest()[:20]
     run_match = re.search(r"_R(\\d{8})\\.zarr/?$", str(u_store))
     run_date = run_match.group(1) if run_match else str(start).replace("-", "")[:8]
-    import numpy as np
     start_date = np.datetime64(start, "D")
     first_date = str(start_date).replace("-", "")
     last_date = str(start_date + np.timedelta64(int(days) - 1, "D")).replace("-", "")
@@ -134,17 +133,38 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
             except (OSError, ValueError, json.JSONDecodeError):
                 valid = False
         if not valid:
-            log.info("Zarr %s: building per-leadtime mean cache %s", var, cache_path)
-            tmp = root / f"{key}_{var}_mean.partial.npy"
-            target = np.lib.format.open_memmap(tmp, mode="w+", dtype=np.float32, shape=shape)
+            if cache_path.exists() or meta_path.exists():
+                log.warning("Zarr %s: cache exists but is incomplete or metadata does not match: %s", var, cache_path)
+            tmp = root / f"{filename_prefix}_{var}_ensmean_{days}days.partial.npy"
+            progress = root / f"{filename_prefix}_{var}_ensmean_{days}days.progress.json"
+            completed = 0
+            if tmp.exists() and progress.exists():
+                try:
+                    checkpoint = json.loads(progress.read_text())
+                    if checkpoint.get("meta") == meta:
+                        prior = np.load(tmp, mmap_mode="r")
+                        if prior.shape == shape and prior.dtype == np.float32:
+                            completed = int(checkpoint["completed"])
+                            if not 0 <= completed <= days:
+                                completed = 0
+                        del prior
+                except (OSError, ValueError, KeyError, json.JSONDecodeError):
+                    completed = 0
+            log.info("Zarr %s: %s mean cache %s from lead %d/%d", var,
+                     "resuming" if completed else "building", cache_path, completed, days)
+            target = (np.load(tmp, mmap_mode="r+") if completed
+                      else np.lib.format.open_memmap(tmp, mode="w+", dtype=np.float32, shape=shape))
             try:
-                for i in range(days):
+                for i in range(completed, days):
                     started = time.monotonic()
                     slab = source.isel({time_dim: i}).mean(ensemble_dim, skipna=True)
                     # Preserve source dimension order in the cache.
                     slab = slab.transpose(*(d for d in dims if d != time_dim))
                     target[i] = np.asarray(slab.compute().values, dtype=np.float32)
                     target.flush()
+                    checkpoint_tmp = progress.with_suffix(".json.tmp")
+                    checkpoint_tmp.write_text(json.dumps({"meta": meta, "completed": i + 1}))
+                    os.replace(checkpoint_tmp, progress)
                     log.info("Zarr %s: ensemble mean lead %d/%d completed in %.1fs",
                              var, i + 1, days, time.monotonic() - started)
                 del target
@@ -152,9 +172,10 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
                 meta_tmp = meta_path.with_suffix(".json.tmp")
                 meta_tmp.write_text(json.dumps(meta))
                 os.replace(meta_tmp, meta_path)
+                progress.unlink(missing_ok=True)
             except BaseException:
                 del target
-                tmp.unlink(missing_ok=True)
+                # Keep completed lead days for the next Slurm run.
                 raise
         else:
             log.info("Zarr %s: reusing cached ensemble mean %s", var, cache_path)
