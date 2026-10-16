@@ -373,6 +373,8 @@ def test_fpoint_2d_seeded_two_timestamps():
         print("Before:", p.lon, p.lat, p.time, p.state)
         pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
                      dt=timedelta(minutes=5))
-        print("After:", p.lon, p.lat, p.time, p.state)
-        assert float(p.time) >= 300., "Particle did not advance in time"
-        assert abs(float(p.lon) + 58.001) + abs(float(p.lat) - 23.021) > 1e-6
+        p_after = next(iter(pset))
+        print("After (fresh ParticleSet lookup):", p_after.lon, p_after.lat, p_after.time, p_after.state)
+        print("Before-reference after execute:", p.lon, p.lat, p.time, p.state)
+        assert float(p_after.time) >= 300., "Particle did not advance in time"
+        assert abs(float(p_after.lon) + 58.001) + abs(float(p_after.lat) - 23.021) > 1e-6
