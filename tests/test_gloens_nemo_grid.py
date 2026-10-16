@@ -450,7 +450,8 @@ def test_fpoint_parcels4_sgrid_one_day():
             fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
         fieldset.describe()
         pset = parcels.ParticleSet(
-            fieldset, x=[-58.001], y=[23.021], t=[u.time.values[0]]
+            fieldset, x=[-58.001], y=[23.021],
+            t=[u.time.to_index()[0].to_pydatetime()]
         )
         print("Parcels 4 before:", pset.x, pset.y, pset.t)
         pset.execute([parcels.kernels.AdvectionRK4],
