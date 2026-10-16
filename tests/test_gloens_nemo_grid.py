@@ -321,4 +321,9 @@ def test_fpoint_2d_seeded_grid_indices():
         pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
                      dt=timedelta(minutes=5))
         print("Seeded particle after 5 minutes:", p.lon, p.lat)
+        print("Particle time:", p.time, "state:", p.state)
+        print("Particle grid indices after step:", p.xi, p.yi)
         assert np.isfinite(p.lon) and np.isfinite(p.lat)
+        assert abs(float(p.lon) + 58.001) + abs(float(p.lat) - 23.021) > 1e-6, (
+            "Particle did not advect despite finite local U/V; inspect time and kernel execution"
+        )
