@@ -1,4 +1,4 @@
-"""Parcels 3.x advection on GLOENS NEMO curvilinear C-grid forecast velocities."""
+"""GLOENS NEMO curvilinear C-grid advection (Parcels 3 and 4)."""
 from datetime import timedelta
 import math
 import logging
@@ -11,7 +11,9 @@ import xarray as xr
 
 
 def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
-    from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, Field, ParcelsRandom
+    import parcels
+    from parcels import FieldSet, ParticleSet
+    parcels_v4 = int(parcels.__version__.split(".")[0]) >= 4
 
     meshmask = Path(meshmask)
     if not meshmask.is_file():
@@ -41,18 +43,29 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             ds = ds.assign_coords({name: coord.load()})
     started = time.monotonic()
     log.debug("GLOENS: constructing 2D F-point xarray FieldSet at %.2f m", depth)
-    fieldset = FieldSet.from_xarray_dataset(
-        ds, {"U": u_name, "V": v_name},
-        {"lon": "glamf", "lat": "gphif", "time": "time"},
-        mesh="spherical", allow_time_extrapolation=True,
-    )
+    if parcels_v4:
+        # Parcels 4 uses SGRID metadata and xarray-native NEMO conversion.
+        with xr.open_dataset(meshmask, engine="netcdf4") as grid:
+            sgrid = parcels.convert.nemo_to_sgrid(
+                fields={"U": ds[u_name], "V": ds[v_name]}, coords=grid
+            )
+            fieldset = FieldSet.from_sgrid_conventions(sgrid)
+    else:
+        fieldset = FieldSet.from_xarray_dataset(
+            ds, {"U": u_name, "V": v_name},
+            {"lon": "glamf", "lat": "gphif", "time": "time"},
+            mesh="spherical", allow_time_extrapolation=True,
+        )
     log.debug("GLOENS: 2D FieldSet constructed in %.1fs", time.monotonic() - started)
-    if fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1:
+    if not parcels_v4 and (fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1):
         raise ValueError("Expected a 2D (single-level) GLOENS FieldSet")
     # Parcels 3.1.4 CurvilinearGrid does not support periodic halos.
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
+    if scheme == "K_smag" and parcels_v4:
+        raise NotImplementedError("K_smag kernel requires migration to the Parcels 4 vectorized API")
     if scheme == "K_smag":
+        from parcels import Field, ParcelsRandom
         fieldset.add_field(Field(name="cell_areas", data=fieldset.U.cell_areas(),
                                  lon=fieldset.U.grid.lon, lat=fieldset.U.grid.lat))
         fieldset.add_constant("Cs", 0.1)
@@ -76,16 +89,28 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
 
     started = time.monotonic()
     log.debug("GLOENS: initializing %d particles", len(lon0))
-    pset = ParticleSet(fieldset=fieldset, pclass=JITParticle,
-                       lon=np.asarray(lon0, dtype=np.float64),
-                       lat=np.asarray(lat0, dtype=np.float64),
-                       depth=np.zeros(len(lon0), dtype=np.float32),
-                       time=np.zeros(len(lon0), dtype=np.float64))
+    if parcels_v4:
+        pset = ParticleSet(fieldset=fieldset, pclass=parcels.Particle,
+                           x=np.asarray(lon0, dtype=np.float64),
+                           y=np.asarray(lat0, dtype=np.float64),
+                           t=np.repeat(ds.time.values[0], len(lon0)))
+    else:
+        pset = ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
+                           lon=np.asarray(lon0, dtype=np.float64),
+                           lat=np.asarray(lat0, dtype=np.float64),
+                           depth=np.zeros(len(lon0), dtype=np.float32),
+                           time=np.zeros(len(lon0), dtype=np.float64))
     log.debug("GLOENS: particles initialized in %.1fs", time.monotonic() - started)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=sampling_hours))
-    kernel = AdvectionEE if scheme == "AdvectionEE" else AdvectionRK4
+    if parcels_v4:
+        if output_path.suffix != ".parquet":
+            output_path = output_path.with_suffix(".parquet")
+        pfile = parcels.ParticleFile(str(output_path), outputdt=timedelta(hours=sampling_hours))
+        kernel = parcels.kernels.AdvectionEE if scheme == "AdvectionEE" else parcels.kernels.AdvectionRK4
+    else:
+        pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=sampling_hours))
+        kernel = parcels.AdvectionEE if scheme == "AdvectionEE" else parcels.AdvectionRK4
     if scheme == "K_smag":
         kernel = kernel + pset.Kernel(smagdiff)
     log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
