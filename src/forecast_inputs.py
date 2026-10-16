@@ -272,8 +272,8 @@ def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
                     u_ds, mode=mode, member=member, u_name=u_name, v_name=v_name,
                     ensemble_dim=ensemble_dim, depth=depth,
                     u_depth=u_depth, v_depth=v_depth, log=log))
-                log.info("Zarr: selecting %d-day window", days)
-                yield select_forecast_window(selected, start, days=days)
+                log.debug("Zarr: cached mean already windowed; skipping extra selection" if mode == "mean" and cache_dir else "Zarr: selecting %d-day window", *(() if mode == "mean" and cache_dir else (days,)))
+                yield selected if mode == "mean" and cache_dir else select_forecast_window(selected, start, days=days)
             else:
                 log.info("Zarr: opening V store %s", v_store)
                 with open_velocity_dataset(v_store, storage_options=storage_options) as v_ds:
@@ -282,8 +282,8 @@ def prepare_velocity_forecast(u_store, v_store, start, *, days=28,
                         u_ds, v_ds, mode=mode, member=member,
                         u_name=u_name, v_name=v_name, ensemble_dim=ensemble_dim,
                         depth=depth, u_depth=u_depth, v_depth=v_depth, log=log))
-                    log.debug("Load or creation ok")
-                    yield select_forecast_window(selected, start, days=days)
+                    log.debug("Load or creation ok; cached mean already windowed=%s", bool(mode == "mean" and cache_dir))
+                    yield selected if mode == "mean" and cache_dir else select_forecast_window(selected, start, days=days)
                     log.debug("select_forecast_window ok")
     return opened()
 
