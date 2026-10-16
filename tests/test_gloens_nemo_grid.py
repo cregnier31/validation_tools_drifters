@@ -122,13 +122,15 @@ def test_parcels_nemo_fieldset_construction():
         pytest.skip(f"No complete daily files in {CACHE}")
     assert len(u_files) == len(v_files), "U/V day counts differ"
     filenames = {
-        "U": {"lon": str(MESH), "lat": str(MESH), "depth": str(MESH),
+        "U": {"lon": str(MESH), "lat": str(MESH), "depth": [str(p) for p in u_files],
               "data": [str(p) for p in u_files]},
-        "V": {"lon": str(MESH), "lat": str(MESH), "depth": str(MESH),
+        "V": {"lon": str(MESH), "lat": str(MESH), "depth": [str(p) for p in v_files],
               "data": [str(p) for p in v_files]},
     }
-    dims = {name: {"lon": "nav_lon", "lat": "nav_lat", "time": "time"}
-            for name in ("U", "V")}
+    dims = {
+        "U": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthu", "time": "time"},
+        "V": {"lon": "nav_lon", "lat": "nav_lat", "depth": "depthv", "time": "time"},
+    }
     fieldset = parcels.FieldSet.from_nemo(
         filenames, {"U": "uo", "V": "vo"}, dims,
         allow_time_extrapolation=True, time_periodic=False, deferred_load=True,
@@ -140,4 +142,5 @@ def test_parcels_nemo_fieldset_construction():
               f"lon_shape={np.shape(grid.lon)}, lat_shape={np.shape(grid.lat)}")
     assert fieldset.U.grid.xdim == fieldset.V.grid.xdim
     assert fieldset.U.grid.ydim == fieldset.V.grid.ydim
-    assert fieldset.U.grid.zdim == fieldset.V.grid.zdim
+    assert fieldset.U.grid.zdim == 75
+    assert fieldset.V.grid.zdim == 75
