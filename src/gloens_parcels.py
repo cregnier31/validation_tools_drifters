@@ -17,23 +17,21 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
     log = log if log is not None else logging.getLogger(__name__)
-    # Build directly from the disk-backed ensemble-mean DataArrays, following
-    # the working xarray/F-point workflow. No additional daily NetCDF copies.
+    # Match the working NEMO 2D workflow: select the nearest model level
+    # before constructing Parcels fields. The 75-level source cache is untouched.
     u = velocities[u_name]
     v = velocities[v_name]
     u_z = [d for d in u.dims if d not in ("time", "y", "x")]
     v_z = [d for d in v.dims if d not in ("time", "y", "x")]
     if len(u_z) != 1 or len(v_z) != 1:
-        raise ValueError(f"Expected one depth dimension for U/V: {u_z}, {v_z}")
-    if u.sizes[u_z[0]] != 75 or v.sizes[v_z[0]] != 75:
-        raise ValueError("GLOENS requires all 75 depth levels")
-    u_depth = np.asarray(u[u_z[0]].values)
-    v_depth = np.asarray(v[v_z[0]].values)
-    if not np.allclose(u_depth, v_depth, rtol=1e-6, atol=1e-4):
-        raise ValueError("U and V depth coordinates differ; cannot share a 3D grid")
-    u = u.rename({u_z[0]: "depth"})
-    v = v.rename({v_z[0]: "depth"}).assign_coords(depth=u_depth)
-    # Avoid xarray aligning distinct coordinates or materializing full velocity arrays.
+        raise ValueError(f"Expected one depth axis per component: {u_z}, {v_z}")
+    u = u.sel({u_z[0]: float(depth)}, method="nearest")
+    v = v.sel({v_z[0]: float(depth)}, method="nearest")
+    log.info("GLOENS 2D: requested depth %.2f m; U=%.3f m, V=%.3f m",
+             depth, float(u[u_z[0]]), float(v[v_z[0]]))
+    u = u.reset_coords(drop=True)
+    v = v.reset_coords(drop=True)
+    # The disk-backed ensemble-mean arrays are sliced at one depth only.
     ds = xr.Dataset({u_name: u, v_name: v})
     with xr.open_dataset(meshmask, engine="netcdf4") as grid:
         for name in ("glamf", "gphif"):
@@ -41,18 +39,18 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             if "time_counter" in coord.dims:
                 coord = coord.isel(time_counter=0, drop=True)
             ds = ds.assign_coords({name: coord.load()})
-    log.debug("GLOENS: constructing 3D xarray FieldSet at all 75 depths")
     started = time.monotonic()
+    log.debug("GLOENS: constructing 2D F-point xarray FieldSet at %.2f m", depth)
     fieldset = FieldSet.from_xarray_dataset(
         ds, {"U": u_name, "V": v_name},
-        {"lon": "glamf", "lat": "gphif", "depth": "depth", "time": "time"},
+        {"lon": "glamf", "lat": "gphif", "time": "time"},
         mesh="spherical", allow_time_extrapolation=True,
     )
-    log.debug("GLOENS: 3D xarray FieldSet constructed in %.1fs", time.monotonic() - started)
-    for component in ("U", "V"):
-        nz = getattr(fieldset, component).grid.zdim
-        if nz != 75:
-            raise ValueError(f"GLOENS {component} grid has {nz} depth levels; expected 75")
+    log.debug("GLOENS: 2D FieldSet constructed in %.1fs", time.monotonic() - started)
+    if fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1:
+        raise ValueError("Expected a 2D (single-level) GLOENS FieldSet")
+    # Follow the supplied NEMO implementation's periodic halo configuration.
+    fieldset.add_periodic_halo(zonal=True)
     if scheme not in ("AdvectionRK4", "AdvectionEE", "K_smag"):
         raise ValueError(f"Unknown GLOENS Parcels scheme: {scheme}")
     if scheme == "K_smag":
@@ -82,7 +80,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     pset = ParticleSet(fieldset=fieldset, pclass=JITParticle,
                        lon=np.asarray(lon0, dtype=np.float64),
                        lat=np.asarray(lat0, dtype=np.float64),
-                       depth=np.full(len(lon0), float(depth), dtype=np.float32),
+                       depth=np.zeros(len(lon0), dtype=np.float32),
                        time=np.zeros(len(lon0), dtype=np.float64))
     log.debug("GLOENS: particles initialized in %.1fs", time.monotonic() - started)
     output_path = Path(output_path)
