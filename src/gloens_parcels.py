@@ -47,7 +47,10 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                         log.debug("GLOENS: reuse daily %s %d/%d: %s", label, i + 1, len(times), path)
                         paths.append(str(path))
                         continue
-                log.warning("GLOENS: rebuilding invalid daily file %s", path)
+                raise ValueError(
+                    f"Existing daily NetCDF cache is incompatible: {path}. "
+                    "Refusing to overwrite it; remove it manually to regenerate."
+                )
             started = time.monotonic()
             slab = field.isel(time=slice(i, i + 1)).transpose("time", zdim, "y", "x")
             # A single day is loaded at a time, retaining all vertical levels.
