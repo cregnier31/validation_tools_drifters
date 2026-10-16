@@ -209,6 +209,7 @@ def process_one_day(day, config_dict):
                         scheme=config_info["scheme"],
                         dt_minutes=config_info["parcels_dt_minutes"],
                         sampling_hours=config_info["parcels_sampling_hours"],
+                        log=log,
                     )
                 else:
                     run_parcels_Drift_remote(
