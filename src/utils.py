@@ -95,9 +95,15 @@ def build_runtime_config(args, config_path):
     if SYSTEM.upper() == "GLOENS":
         config_info["input_format"] = "zarr"
         model_settings = config_model_params[f"{SYSTEM}_{leadtime}"]
-        config_info["zarr_bucket"] = model_settings.get("bucket_name", "MOISICEEF")
-        config_info["zarr_endpoint_url"] = model_settings.get(
-            "endpoint_url", "https://s3.waw3-1.cloudferro.com")
+        for key in ("bucket_name", "endpoint_url", "fname_prefix", "meshmask", "var_u", "var_v"):
+            if not model_settings.get(key):
+                raise ValueError(f"Missing model_params.{SYSTEM}_{leadtime}.{key} in {config_path}")
+        config_info["zarr_bucket"] = model_settings["bucket_name"]
+        config_info["zarr_endpoint_url"] = model_settings["endpoint_url"]
+        config_info["zarr_prefix"] = model_settings["fname_prefix"]
+        config_info["gloens_meshmask"] = model_settings["meshmask"]
+        config_info["zarr_u_var"] = model_settings["var_u"]
+        config_info["zarr_v_var"] = model_settings["var_v"]
     else:
         config_info["input_format"] = "netcdf"
 
