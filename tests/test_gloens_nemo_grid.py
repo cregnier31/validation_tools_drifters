@@ -322,6 +322,9 @@ def test_fpoint_2d_seeded_grid_indices():
                      dt=timedelta(minutes=5))
         print("Seeded particle after 5 minutes:", p.lon, p.lat)
         print("Particle time:", p.time, "state:", p.state)
+        print("Field time axis:", fs.U.grid.time, "time_origin:", fs.U.grid.time_origin)
+        print("Particle initial time was explicitly 0.0; inspect whether it lies in field time range")
+        print("Particle state meanings:", {name: getattr(parcels.StatusCode, name, None) for name in ("Success", "Evaluate", "Repeat", "Delete", "StopExecution", "Error") } if hasattr(parcels, "StatusCode") else "StatusCode not exported")
         print("Particle grid indices after step:", p.xi, p.yi)
         assert np.isfinite(p.lon) and np.isfinite(p.lat)
         assert abs(float(p.lon) + 58.001) + abs(float(p.lat) - 23.021) > 1e-6, (
