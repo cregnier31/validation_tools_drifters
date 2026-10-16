@@ -70,6 +70,22 @@ def test_meshmask_horizontal_coordinates():
             print(f"  corners: {var[..., 0, 0]}, {var[..., -1, -1]}")
 
 
+
+def test_meshmask_interior_coordinates():
+    """Print interior geographic coordinates, not just masked boundary corners."""
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    with netCDF4.Dataset(MESH) as ds:
+        for name in ("glamu", "gphiu", "glamv", "gphiv", "nav_lon", "nav_lat"):
+            if name not in ds.variables:
+                pytest.fail(f"Meshmask missing coordinate {name}")
+            var = ds.variables[name]
+            value = var[..., 500, 700]
+            print(f"meshmask {name} center [500,700]: {value}")
+            assert np.all(np.isfinite(value)), f"{name}: nonfinite interior coordinate"
+
+
+
 def test_parcels_nemo_fieldset_construction():
     """Reproduce the reported assertion without running trajectories or writing files."""
     parcels = pytest.importorskip("parcels")
