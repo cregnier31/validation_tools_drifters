@@ -337,3 +337,42 @@ def test_fpoint_2d_seeded_grid_indices():
         assert abs(float(p.lon) + 58.001) + abs(float(p.lat) - 23.021) > 1e-6, (
             "Particle did not advect despite finite local U/V; inspect time and kernel execution"
         )
+
+
+def test_fpoint_2d_seeded_two_timestamps():
+    """Check whether a genuine time interval enables one RK4 step."""
+    from datetime import timedelta
+    xr = pytest.importorskip("xarray")
+    parcels = pytest.importorskip("parcels")
+    if not MESH.is_file():
+        pytest.skip(f"Missing meshmask: {MESH}")
+    with xr.open_dataset(_daily_file("U")) as ud, xr.open_dataset(_daily_file("V")) as vd:
+        u = ud["uo"].sel(depthu=15., method="nearest").reset_coords(drop=True)
+        v = vd["vo"].sel(depthv=15., method="nearest").reset_coords(drop=True)
+        with xr.open_dataset(MESH) as mesh:
+            coords = {}
+            for name in ("glamf", "gphif"):
+                c = mesh[name]
+                if "time_counter" in c.dims:
+                    c = c.isel(time_counter=0, drop=True)
+                coords[name] = c.load()
+        ds = xr.Dataset({"uo": u, "vo": v}).assign_coords(coords)
+        # Duplicate the single day's field in memory only; do not modify NetCDF.
+        t0 = ds.time.values[0]
+        t1 = t0 + np.timedelta64(1, "D")
+        ds = xr.concat([ds, ds], dim="time").assign_coords(time=[t0, t1])
+        fs = parcels.FieldSet.from_xarray_dataset(
+            ds, {"U":"uo","V":"vo"},
+            {"lon":"glamf","lat":"gphif","time":"time"},
+            mesh="spherical", allow_time_extrapolation=False)
+        pset = parcels.ParticleSet(fieldset=fs, pclass=parcels.JITParticle,
+                                   lon=[-58.001], lat=[23.021], time=[0.])
+        p = next(iter(pset))
+        p.xi[0], p.yi[0] = 915, 621
+        print("Two-timestamp field time axis:", fs.U.grid.time)
+        print("Before:", p.lon, p.lat, p.time, p.state)
+        pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
+                     dt=timedelta(minutes=5))
+        print("After:", p.lon, p.lat, p.time, p.state)
+        assert float(p.time) >= 300., "Particle did not advance in time"
+        assert abs(float(p.lon) + 58.001) + abs(float(p.lat) - 23.021) > 1e-6
