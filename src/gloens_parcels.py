@@ -47,7 +47,8 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         # Parcels 4 uses SGRID metadata and xarray-native NEMO conversion.
         with xr.open_dataset(meshmask, engine="netcdf4") as grid:
             sgrid = parcels.convert.nemo_to_sgrid(
-                fields={"U": ds[u_name], "V": ds[v_name]}, coords=grid
+                fields={"U": ds[u_name], "V": ds[v_name]},
+                coords=grid[["glamf", "gphif"]]
             )
             fieldset = FieldSet.from_sgrid_conventions(sgrid)
     else:
