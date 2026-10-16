@@ -1,0 +1,102 @@
+"""HPC diagnostic for GLOENS daily NetCDF / NEMO meshmask compatibility.
+
+Run: python -m pytest -s tests/test_gloens_nemo_grid.py
+Optional: GLOENS_CACHE_DIR=/scratch/.../nemo_daily_R20240104
+          GLOENS_MESHMASK=/scratch/.../iORCA025_meshmask_v3.1.nc
+
+Reads NetCDF metadata and small meshmask coordinate arrays only; never rewrites cache.
+"""
+import os
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+netCDF4 = pytest.importorskip("netCDF4")
+
+CACHE = Path(os.environ.get(
+    "GLOENS_CACHE_DIR",
+    "/scratch/cregnier/WORK_lagrangian/zarr_ensemble_mean_cache/nemo_daily_R20240104",
+))
+MESH = Path(os.environ.get(
+    "GLOENS_MESHMASK", "/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc"
+))
+
+
+def _daily_file(prefix):
+    files = sorted(CACHE.glob(f"{prefix}_*.nc"))
+    if not files:
+        pytest.skip(f"No {prefix} daily NetCDF files in {CACHE}")
+    return files[0]
+
+
+def _metadata(prefix, variable):
+    path = _daily_file(prefix)
+    with netCDF4.Dataset(path) as ds:
+        assert variable in ds.variables, f"{path}: missing {variable}"
+        data = ds.variables[variable]
+        dims, shape = data.dimensions, data.shape
+        print(f"{prefix}: {path.name} {variable} dims={dims} shape={shape}")
+        assert len(shape) == 4, f"{prefix}: expected time/depth/y/x"
+        assert shape[0] == 1
+        assert shape[1] == 75, f"{prefix}: must retain all 75 depths"
+        assert dims[-2:] == ("y", "x")
+        return dims, shape
+
+
+def test_daily_velocity_dimensions():
+    u_dims, u_shape = _metadata("U", "uo")
+    v_dims, v_shape = _metadata("V", "vo")
+    assert u_shape == v_shape, f"U/V shape mismatch: {u_shape} vs {v_shape}"
+    assert u_dims[1] == "depthu"
+    assert v_dims[1] == "depthv"
+
+
+def test_meshmask_horizontal_coordinates():
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    _, shape = _metadata("U", "uo")
+    with netCDF4.Dataset(MESH) as ds:
+        for name in ("glamu", "gphiu", "glamv", "gphiv", "nav_lon", "nav_lat"):
+            if name not in ds.variables:
+                print(f"Meshmask does not contain {name}")
+                continue
+            var = ds.variables[name]
+            print(f"meshmask {name}: dims={var.dimensions}, shape={var.shape}")
+            assert var.shape[-2:] == shape[-2:], (
+                f"{name}: meshmask horizontal shape {var.shape[-2:]} != velocity {shape[-2:]}"
+            )
+            # Inspect just a few grid coordinates, without reading whole 2D arrays.
+            print(f"  corners: {var[..., 0, 0]}, {var[..., -1, -1]}")
+
+
+def test_parcels_nemo_fieldset_construction():
+    """Reproduce the reported assertion without running trajectories or writing files."""
+    parcels = pytest.importorskip("parcels")
+    if not MESH.is_file():
+        pytest.skip(f"Meshmask unavailable: {MESH}")
+    u_files = sorted(CACHE.glob("U_*.nc"))
+    v_files = sorted(CACHE.glob("V_*.nc"))
+    if not u_files or not v_files:
+        pytest.skip(f"No complete daily files in {CACHE}")
+    assert len(u_files) == len(v_files), "U/V day counts differ"
+    filenames = {
+        "U": {"lon": str(MESH), "lat": str(MESH), "depth": str(MESH),
+              "data": [str(p) for p in u_files]},
+        "V": {"lon": str(MESH), "lat": str(MESH), "depth": str(MESH),
+              "data": [str(p) for p in v_files]},
+    }
+    dims = {name: {"lon": "nav_lon", "lat": "nav_lat", "time": "time"}
+            for name in ("U", "V")}
+    fieldset = parcels.FieldSet.from_nemo(
+        filenames, {"U": "uo", "V": "vo"}, dims,
+        allow_time_extrapolation=True, time_periodic=False, deferred_load=True,
+    )
+    for name in ("U", "V"):
+        grid = getattr(fieldset, name).grid
+        print(f"{name} grid: xdim={grid.xdim}, ydim={grid.ydim}, "
+              f"zdim={grid.zdim}, tdim={grid.tdim}, "
+              f"lon_shape={np.shape(grid.lon)}, lat_shape={np.shape(grid.lat)}")
+    assert fieldset.U.grid.xdim == fieldset.V.grid.xdim
+    assert fieldset.U.grid.ydim == fieldset.V.grid.ydim
+    assert fieldset.U.grid.zdim == fieldset.V.grid.zdim
