@@ -318,6 +318,13 @@ def test_fpoint_2d_seeded_grid_indices():
             p.xi[gid] = 915
             p.yi[gid] = 621
         print("Seeded indices:", p.xi, p.yi)
+        for label, field in (("U", fs.U), ("V", fs.V)):
+            try:
+                value = field[0., 0., float(p.lat), float(p.lon)]
+                print(f"Direct {label} sample:", value)
+            except Exception as exc:
+                print(f"Direct {label} sample FAILED: {type(exc).__name__}: {exc}")
+        print("Before execution: time=", p.time, "state=", p.state)
         pset.execute(parcels.AdvectionRK4, runtime=timedelta(minutes=5),
                      dt=timedelta(minutes=5))
         print("Seeded particle after 5 minutes:", p.lon, p.lat)
