@@ -521,7 +521,21 @@ def Traj_filter_parcels(
         traj_lon = traj_lon[..., :length_drift]
         traj_lat = traj_lat[..., :length_drift]
         Tm = traj_lon.shape[-1]
-    factor = Td // Tm  # e.g. 240 // 40 = 6
+    # Forecast may cover 27 days while observations cover 28. Compare
+    # only the common period; never reshape 672 observed hours into 648.
+    if Tm <= 0 or Tm > Td:
+        raise ValueError(f"Incompatible trajectory lengths: observed={Td}, model={Tm}")
+    factor = Td // Tm
+    if factor < 1:
+        raise ValueError("Model has more samples than observations")
+    common = Tm * factor
+    if common != Td:
+        log.info("Trimming observed trajectories from %d to %d samples to match model", Td, common)
+        traj_drifter_lon = traj_drifter_lon[:, :common]
+        traj_drifter_lat = traj_drifter_lat[:, :common]
+        traj_drifter_date = traj_drifter_date[:, :common]
+        traj_drifter_time = traj_drifter_time[:, :common]
+        Td = common
     # --- Compute resampling factor automatically
     log.info(f"Sampling factor {factor}")
     log.debug(f"Sampling factor {factor}")
