@@ -60,12 +60,10 @@ def read_traj_compute_scores(day,
     dir_work_mod = f"{dir_out_parcels}{str_date_sim}"
     threshold = 500.00  # threshold in km to filter out suspicious drifters
     save = False # Save suspicious drifter paths
-    if sampling == 1:
-        factor = 1
-    elif sampling == 6:
-        factor = 4
-    elif sampling == 12:
-        factor = 2
+    if sampling <= 0 or 24 % sampling:
+        raise ValueError(f"Sampling interval must divide 24 hours: {sampling}")
+    # Number of model output samples per forecast lead day.
+    factor = 24 // sampling
     #if MODEL == "SMOC":
     #    factor = 24
     #else:
