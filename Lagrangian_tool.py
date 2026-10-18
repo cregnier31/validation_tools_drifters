@@ -107,10 +107,10 @@ with open(runtime['pickle_file'], "wb") as f:
         log.info(f"Results saved to {runtime['pickle_file']}")
 
 
-# The three-month launcher aggregates all forecast cycles once at the end.
-# Per-cycle sums/counts are saved in pickle_file above for that final pass.
+# Batch mode stores raw per-cycle sums/counts only; the launcher computes
+# cumulative means and plots once after the entire period.
 if os.environ.get("GLOENS_DEFER_PLOTS") == "1":
-    log.info("Deferred cumulative score maps and histograms to batch finalization")
+    log.info("Saved per-cycle sums/counts; deferring final scores and plots")
     sys.exit(0)
 
 #------------------------------------------
