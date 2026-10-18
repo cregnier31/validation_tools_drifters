@@ -555,3 +555,42 @@ def Traj_filter_parcels(
     drifter_date = np.broadcast_to(drifter_date_2d, traj_lat.shape)
 
     return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td, traj_lon, traj_lat
+
+
+def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
+    """Read Parcels 4 particle records as legacy (1, 1, particle, time) arrays.
+
+    Parcels 4 particle_id is the zero-based initialization index, not the
+    observed platform code. observed_ids must be in the original seeding order.
+    """
+    paths = sorted(glob.glob(os.path.join(
+        dir_out, f"*Trajectories_{MODEL}_*at_SVPloc*.parquet")))
+    if len(paths) != 1:
+        raise FileNotFoundError(
+            f"Expected exactly one Parcels 4 Parquet trajectory in {dir_out}; found {paths}")
+    path = paths[0]
+    df = pd.read_parquet(path, columns=["t", "x", "y", "particle_id"])
+    if df.empty:
+        raise ValueError(f"Empty Parcels trajectory output: {path}")
+    expected = np.asarray(observed_ids)
+    if len(np.unique(expected)) != len(expected):
+        raise ValueError("Observed drifter IDs are not unique")
+    df = df.sort_values(["particle_id", "t"])
+    particle_ids = np.sort(df.particle_id.unique())
+    if np.any(particle_ids < 0) or np.any(particle_ids >= len(expected)):
+        raise ValueError("Parcels particle_id is outside the original drifter seed range")
+    # All particles must share one output-time axis for legacy score calculations.
+    counts = df.groupby("particle_id").size()
+    if counts.nunique() != 1:
+        raise ValueError("Parcels particles have different output lengths; cannot align scores")
+    ntime = int(counts.iloc[0])
+    times = df.t.to_numpy().reshape(len(particle_ids), ntime)
+    if not np.allclose(times, times[0], rtol=0, atol=1e-5):
+        raise ValueError("Parcels particle output timestamps are not aligned")
+    lon = df.x.to_numpy().reshape(len(particle_ids), ntime)[None, None, :, :]
+    lat = df.y.to_numpy().reshape(len(particle_ids), ntime)[None, None, :, :]
+    time_values = times[None, None, :, :]
+    ids = expected[particle_ids][None, None, :]
+    log.info("Read Parcels 4 Parquet %s: %d particles, %d time samples",
+             path, len(particle_ids), ntime)
+    return lon, lat, time_values, ids, particle_ids
