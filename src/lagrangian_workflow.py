@@ -140,7 +140,19 @@ def process_one_day(day, config_dict):
     # Compute Lagrangian dispersion of the model with Parcels
     # ========================================================
     f_traj = f"{dir_work_mod}/Trajectories_{MODEL}_{str_date_sim}_{srt_date_end}_at_SVPloc_smag.zarr"
-    if not os.path.exists(f_traj):
+    # Parcels 4 writes Parquet, while legacy Parcels 3 writes Zarr.
+    # Reuse existing output rather than attempting to recreate it.
+    f_traj_parquet = os.path.splitext(f_traj)[0] + ".parquet"
+    is_gloens_parquet = (
+        config_info.get("input_format", "netcdf").lower() == "zarr"
+        and config_info.get("gridtype") == "irregular"
+    )
+    existing_traj = (
+        f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
+        else f_traj if os.path.exists(f_traj)
+        else None
+    )
+    if existing_traj is None:
         #return 'skipped'
         log.debug(f"\nProcessing drift with parcel for {day}")
         # ======================================================
@@ -250,6 +262,6 @@ def process_one_day(day, config_dict):
             del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
     else:
-        log.info(f"\nExisting parcels trajectory {f_traj}")
+        log.info(f"\nExisting parcels trajectory {existing_traj}; skipping advection")
     gc.collect()
     return outfile2
