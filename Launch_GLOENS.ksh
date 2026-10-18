@@ -31,5 +31,5 @@ if [[ "${DATE2:0:4}" != "$YEAR" ]]; then
 fi
 "$PYTHON" tests/run_gloens_2025.py \
   --year "$YEAR" --start "$DATE1" --end "$DATE2" \
-  --continue-on-error \
+  --continue-on-error --live-output \
   --output "outputs/gloens_${DATE1}_${DATE2}"
