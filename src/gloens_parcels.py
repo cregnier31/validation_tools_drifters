@@ -118,9 +118,24 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     if scheme == "K_smag":
         kernel = kernel + pset.Kernel(smagdiff)
     log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
-    log.debug("GLOENS: starting Parcels execution for %d days", drift_days)
+    # Forecast has 28 daily timestamps, but only 27 days between them.
+    times = ds.time.values.astype("datetime64[ns]")
+    if len(times) < 2 or np.any(np.diff(times) <= np.timedelta64(0, "ns")):
+        raise ValueError("Expected at least two increasing GLOENS forecast times")
+    dt_seconds = timedelta(minutes=dt_minutes).total_seconds()
+    if dt_seconds <= 0:
+        raise ValueError("dt_minutes must be positive")
+    available_seconds = (times[-1] - times[0]) / np.timedelta64(1, "s")
+    # Stop one timestep before the last sample to avoid an out-of-range RK4 lookup.
+    steps = int(max(0, min(timedelta(days=drift_days).total_seconds(),
+                           available_seconds - dt_seconds)) // dt_seconds)
+    if steps == 0:
+        raise ValueError("Forecast time coverage is shorter than two timesteps")
+    runtime = timedelta(seconds=steps * dt_seconds)
+    log.info("GLOENS available %s to %s; requested %s days; running %s",
+             times[0], times[-1], drift_days, runtime)
     started = time.monotonic()
-    pset.execute(kernel, runtime=timedelta(days=int(drift_days)),
+    pset.execute(kernel, runtime=runtime,
                  dt=timedelta(minutes=dt_minutes), output_file=pfile)
     log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
