@@ -78,7 +78,7 @@ def main():
                   DATE_START=args.start[:4]+"-"+args.start[4:6]+"-"+args.start[6:],
                   DATE_END=args.end[:4]+"-"+args.end[4:6]+"-"+args.end[6:])
     plot_scores(str(image_dir) + "/", str(outfile), config, log,
-                list_days=[1, 3, 5, 7, 10, 15, 20, 25, 27, 28])
+                list_days=[1, 3, 5, 10])
     print(f"Aggregated {len(used)} forecast initializations: {', '.join(used)}", flush=True)
     print(f"Final cumulative scores: {outfile}", flush=True)
     print(f"Final plots: {image_dir}", flush=True)
