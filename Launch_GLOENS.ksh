@@ -29,7 +29,12 @@ if [[ "${DATE2:0:4}" != "$YEAR" ]]; then
   echo "This launcher currently requires DATE1 and DATE2 in the same year." >&2
   exit 2
 fi
-"$PYTHON" tests/run_gloens_2025.py \
+GLOENS_DEFER_PLOTS=1 "$PYTHON" tests/run_gloens_2025.py \
   --year "$YEAR" --start "$DATE1" --end "$DATE2" \
   --continue-on-error --live-output \
   --output "outputs/gloens_${DATE1}_${DATE2}"
+
+# Aggregate all successful forecast initializations by lead day, once.
+"$PYTHON" tests/aggregate_gloens_period.py \
+  --summary "outputs/gloens_${DATE1}_${DATE2}/summary.csv" \
+  --start "$DATE1" --end "$DATE2" --days 28
