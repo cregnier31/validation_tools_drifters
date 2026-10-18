@@ -22,6 +22,7 @@ def main():
     p.add_argument("--end", default=None, help="Optional YYYYMMDD last cycle")
     p.add_argument("--output", default=None)
     p.add_argument("--continue-on-error", action="store_true", help="Continue after failed cycle")
+    p.add_argument("--live-output", action="store_true", help="Stream each cycle to terminal and run.log")
     args = p.parse_args()
     if args.step_days is not None and args.step_days < 1:
         p.error("--step-days must be positive")
@@ -74,10 +75,20 @@ def main():
                        "--typeobs", "COPERNICUS_DAILY"]
             print(f"Running {stamp} (all valid particles, 28 days)", flush=True)
             with log_path.open("w", encoding="utf-8") as log:
-                result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=False)
+                if args.live_output:
+                    with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                          text=True, bufsize=1) as proc:
+                        for line in proc.stdout:
+                            print(line, end="", flush=True)
+                            log.write(line)
+                            log.flush()
+                        returncode = proc.wait()
+                else:
+                    result = subprocess.run(command, stdout=log, stderr=subprocess.STDOUT, check=False)
+                    returncode = result.returncode
             plot = None  # Lagrangian_tool.py manages its own figures and output paths.
-            ok = result.returncode == 0
-            writer.writerow([stamp, "PASS" if ok else "FAIL", result.returncode,
+            ok = returncode == 0
+            writer.writerow([stamp, "PASS" if ok else "FAIL", returncode,
                              str(log_path), ""])
             f.flush()
             print(f"{stamp}: {'PASS' if ok else 'FAIL'}; log: {log_path}", flush=True)
