@@ -2,7 +2,7 @@ import sys
 import os
 import numpy as np
 import xarray as xr
-from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
+from trajectory_io import Retrieve_traj_files, Retrieve_traj_parquet, Retrieve_drifters_traj,\
                      Traj_filter_parcels
 from spatial_binning import bin_spatial, bin_spatial_weighted
 from lagrangian_metrics import SeparationDistance,\
@@ -86,7 +86,22 @@ def read_traj_compute_scores(day,
     # --------------------------------------------
     log.debug('Retrieve model trajectories')
     log.debug('--------------------------------------------')
-    traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod, log)
+    parquet_files = __import__("glob").glob(
+        os.path.join(dir_work_mod, f"*Trajectories_{MODEL}_*at_SVPloc*.parquet"))
+    if parquet_files:
+        # Observed rows retain the same sorted drifter order used at seeding.
+        observed_ids = traj_drifter_id_temp[:, 0]
+        traj_lon, traj_lat, traj_time, traj_IDS, particle_indices = Retrieve_traj_parquet(
+            MODEL, dir_work_mod, log, observed_ids)
+        # Align observations to particle order even if some particles are absent.
+        traj_drifter_lon_temp = traj_drifter_lon_temp[particle_indices]
+        traj_drifter_lat_temp = traj_drifter_lat_temp[particle_indices]
+        traj_drifter_date_temp = traj_drifter_date_temp[particle_indices]
+        traj_drifter_time_temp = traj_drifter_time_temp[particle_indices]
+        traj_drifter_id_temp = traj_drifter_id_temp[particle_indices]
+        nb_drifters_temp = len(particle_indices)
+    else:
+        traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod, log)
     if nb_drifters_temp  != len(traj_IDS.squeeze()):
         drifter_traj_ids = np.unique(traj_IDS)
         traj_drifter_lon  = []
