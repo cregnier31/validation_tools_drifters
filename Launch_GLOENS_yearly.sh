@@ -28,8 +28,15 @@ cd "$ROOT"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 # Keep the batch and aggregation diagnostics in files, not on screen.
 mkdir -p "outputs/gloens_${DATE1}_${DATE2}"
-exec 3>&1  # Preserve SLURM stdout for concise per-cycle OK/FAIL messages.
-exec >> "outputs/gloens_${DATE1}_${DATE2}/batch.log" 2>&1
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+  # Batch mode: statuses go to SLURM stdout; diagnostics go to batch.log.
+  exec 3>&1
+  exec >> "outputs/gloens_${DATE1}_${DATE2}/batch.log" 2>&1
+else
+  # Interactive mode: statuses go directly to the terminal in real time.
+  exec 3>&1
+  exec >> "outputs/gloens_${DATE1}_${DATE2}/batch.log" 2>&1
+fi
 
 # Single GLOENS Python process: discover Zarr cycles, run trajectories,
 # append all per-cycle scores to results_stats, aggregate and plot once.
