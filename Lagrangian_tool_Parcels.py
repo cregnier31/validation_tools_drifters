@@ -3,6 +3,7 @@
 import argparse
 import csv
 import pickle
+import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,8 @@ def main():
     parser.add_argument("--typeobs", default="COPERNICUS_DAILY")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--remove-old-trajectories", action="store_true",
+                        help="Delete only existing model trajectory outputs for selected cycles before rerunning")
     args = parser.parse_args()
     first = datetime.strptime(args.date1, "%Y%m%d")
     last = datetime.strptime(args.date2, "%Y%m%d")
@@ -59,6 +62,24 @@ def main():
             try:
                 # Isolate each cycle's output paths while retaining annual aggregation.
                 cycle_runtime = build_runtime_config((day, day, *base), config_path)
+                if args.remove_old_trajectories:
+                    info = cycle_runtime["config_info"]
+                    workdir = Path(info["DIR_OUT"]) / stamp
+                    end_stamp = (day + __import__("datetime").timedelta(
+                        days=int(info["drift_time"]))).strftime("%Y%m%d")
+                    stem = f"Trajectories_{info['SYSTEM']}_{stamp}_{end_stamp}_at_SVPloc_smag"
+                    for suffix in (".parquet", ".zarr"):
+                        target = workdir / (stem + suffix)
+                        if target.is_symlink():
+                            raise ValueError(f"Refusing to remove symlink: {target}")
+                        if target.is_file():
+                            target.unlink()
+                            print(f"[{args.system}] Removed old trajectory: {target}", flush=True)
+                        elif target.is_dir():
+                            if suffix != ".zarr":
+                                raise ValueError(f"Unexpected trajectory directory: {target}")
+                            shutil.rmtree(target)
+                            print(f"[{args.system}] Removed old trajectory: {target}", flush=True)
                 result = process_one_day(day, cycle_runtime)
                 if result is None:
                     raise ValueError("No valid drifter observations")
