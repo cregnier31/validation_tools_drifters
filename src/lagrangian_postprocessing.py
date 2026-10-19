@@ -245,10 +245,10 @@ def read_traj_compute_scores(day,
         usable = Ndays * factor
         log.info("Number of complete lead days %d (model samples %d, used %d)",
                  Ndays, Tm, usable)
-        sep_dist_daily = sep_dist[..., :usable].reshape(Nd, Ndays, factor).mean(axis=2)
+        sep_dist_daily = np.nanmean(sep_dist[..., :usable].reshape(Nd, Ndays, factor), axis=-1)
         # reshape + mean
-        traj_lon_daily_tmp = lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
-        traj_lat_daily_tmp = lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
+        traj_lon_daily_tmp = np.nanmean(lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
+        traj_lat_daily_tmp = np.nanmean(lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
         # put back original structure → For example (1, 1, 1019, 10)
         traj_lon_daily = traj_lon_daily_tmp[np.newaxis, np.newaxis, :, :]
         traj_lat_daily = traj_lat_daily_tmp[np.newaxis, np.newaxis, :, :]
@@ -279,19 +279,12 @@ def read_traj_compute_scores(day,
         #skill_score = 1-liu_daily
         skill_score = liu_daily
 
-    if True:# np.prod(np.shape(np.where(np.isnan(traj_lon)))):
-        nans = np.unique(np.where(np.isnan(traj_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
-        nans = np.unique(np.where(np.isnan(drifter_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
+    # Preserve incomplete trajectories: missing observations/model points
+    # must not cause entire drifters to be dropped from the diagnostics.
+    valid_pairs = (np.isfinite(traj_lon) & np.isfinite(traj_lat) &
+                   np.isfinite(drifter_lon) & np.isfinite(drifter_lat))
+    log.info("Valid model/observation position pairs: %d / %d",
+             np.count_nonzero(valid_pairs), valid_pairs.size)
 
     # ---------------------------------------------------------
     # Remove singleton dimensions
@@ -317,14 +310,16 @@ def read_traj_compute_scores(day,
         for t in range(2, ntime + 1):
             # need at least 2 points for correlation
             try:
-                corr_lon[k, t-1] = pearsonr(
-                    lon_drift[k, :t],
-                    lon_model[k, :t]
-                )[0]
-                corr_lat[k, t-1] = pearsonr(
-                    lat_drift[k, :t],
-                    lat_model[k, :t]
-                )[0]
+                valid_lon = np.isfinite(lon_drift[k, :t]) & np.isfinite(lon_model[k, :t])
+                valid_lat = np.isfinite(lat_drift[k, :t]) & np.isfinite(lat_model[k, :t])
+                if valid_lon.sum() >= 2:
+                    corr_lon[k, t-1] = pearsonr(
+                        lon_drift[k, :t][valid_lon], lon_model[k, :t][valid_lon]
+                    )[0]
+                if valid_lat.sum() >= 2:
+                    corr_lat[k, t-1] = pearsonr(
+                        lat_drift[k, :t][valid_lat], lat_model[k, :t][valid_lat]
+                    )[0]
             except:
                 pass
 
