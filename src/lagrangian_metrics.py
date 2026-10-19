@@ -736,22 +736,35 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log)
     return S1, S3, S5, S7
     #sys.exit(1)
     
-def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
+def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod):
+    """Cumulative separation/path ratio, masking missing observation intervals.
 
-    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
-
-    #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
-    di_SVP_MOD = SepDistanceEachTimestep(traj_drifter_lon[:,1:],
-                                         traj_drifter_lat[:,1:],
-                                         traj_lon_mod[:,1:],
-                                         traj_lat_mod[:,1:]
-                                         )
-    liu_index = []
-    den = np.zeros(di_SVP_MOD.shape[0])
-    for i in range(di_SVP_MOD.shape[1]):
-        den += np.sum(dli_drifters[:,:i], axis=1)
-        liu_index.append(np.sum(di_SVP_MOD[:,:i], axis=1)/den)   
-    return np.array(liu_index)
+    An interval contributes only when both observed endpoints and the
+    modeled endpoint are finite. A gap is never bridged/interpolated.
+    """
+    obs0 = (np.isfinite(traj_drifter_lon[:, :-1]) &
+            np.isfinite(traj_drifter_lat[:, :-1]))
+    obs1 = (np.isfinite(traj_drifter_lon[:, 1:]) &
+            np.isfinite(traj_drifter_lat[:, 1:]))
+    model1 = (np.isfinite(traj_lon_mod[:, 1:]) &
+              np.isfinite(traj_lat_mod[:, 1:]))
+    valid = obs0 & obs1 & model1
+    distance = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+    separation = SepDistanceEachTimestep(
+        traj_drifter_lon[:, 1:], traj_drifter_lat[:, 1:],
+        traj_lon_mod[:, 1:], traj_lat_mod[:, 1:])
+    valid &= np.isfinite(distance) & np.isfinite(separation)
+    distance = np.where(valid, distance, 0.0)
+    separation = np.where(valid, separation, 0.0)
+    # Preserve the original exclusive-end cumulative convention.
+    cumulative_path = np.cumsum(distance, axis=1) - distance
+    cumulative_sep = np.cumsum(separation, axis=1) - separation
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.where(cumulative_path > 0,
+                         cumulative_sep / cumulative_path, np.nan)
+    # Do not report a score at timestamps without a valid pair.
+    ratio = np.where(valid, ratio, np.nan)
+    return ratio.T
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
