@@ -296,17 +296,24 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         if output_path.suffix != ".parquet":
             output_path = output_path.with_suffix(".parquet")
         pfile = parcels.ParticleFile(str(output_path), outputdt=timedelta(hours=sampling_hours))
-        if scheme == "AdvectionRK4" and __import__("os").environ.get(
-            "GLOENS_EXPERIMENTAL_PERIODIC_RK4", "0"
-        ).strip() == "1":
-            try:
-                from .gloens_periodic_kernel import AdvectionRK4_periodicBC
-            except ImportError:
-                from gloens_periodic_kernel import AdvectionRK4_periodicBC
-            kernel = AdvectionRK4_periodicBC
-            log.warning("GLOENS EXPERIMENT: using periodic RK4 kernel (not production validated)")
+        if scheme == "AdvectionRK4":
+            periodic_setting = __import__("os").environ.get(
+                "GLOENS_PERIODIC_RK4", "1"
+            ).strip().lower()
+            if periodic_setting not in ("0", "1"):
+                raise ValueError("GLOENS_PERIODIC_RK4 must be 0 or 1")
+            if periodic_setting == "1":
+                try:
+                    from .gloens_periodic_kernel import AdvectionRK4_periodicBC
+                except ImportError:
+                    from gloens_periodic_kernel import AdvectionRK4_periodicBC
+                kernel = AdvectionRK4_periodicBC
+                log.info("GLOENS: using periodic RK4 kernel (default for Parcels 4)")
+            else:
+                kernel = parcels.kernels.AdvectionRK4
+                log.info("GLOENS: using standard Parcels RK4 (GLOENS_PERIODIC_RK4=0)")
         else:
-            kernel = parcels.kernels.AdvectionEE if scheme == "AdvectionEE" else parcels.kernels.AdvectionRK4
+            kernel = parcels.kernels.AdvectionEE
             log.info("GLOENS: using standard Parcels kernel %s", scheme)
     else:
         pfile = pset.ParticleFile(name=str(output_path), outputdt=timedelta(hours=sampling_hours))
