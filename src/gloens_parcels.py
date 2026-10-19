@@ -50,7 +50,21 @@ def _diagnose_particle_failure(pset, seed_lon, seed_lat, log, output_path, error
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
-            fig, axes = plt.subplots(2, 1, figsize=(14, 9), sharex=True, sharey=True)
+            try:
+                import cartopy.crs as ccrs
+                import cartopy.feature as cfeature
+                fig, axes = plt.subplots(
+                    2, 1, figsize=(14, 9),
+                    subplot_kw={"projection": ccrs.PlateCarree()})
+                for ax in axes:
+                    ax.add_feature(cfeature.LAND, facecolor="0.88", zorder=0)
+                    ax.coastlines(resolution="110m", linewidth=0.6, zorder=1)
+                    ax.set_global()
+                log.info("GLOENS diagnostic map: land and coastlines enabled")
+            except ImportError:
+                log.warning("Cartopy not installed; diagnostic map has no continents")
+                fig, axes = plt.subplots(2, 1, figsize=(14, 9),
+                                         sharex=True, sharey=True)
             for ax, prefix, title in zip(
                 axes, ("seed", "current"), ("Initial positions", "Positions at failure")
             ):
