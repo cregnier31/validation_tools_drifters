@@ -27,3 +27,9 @@ def AdvectionRK4_periodicBC(particles, fieldset):
     dy = (v1 + 2 * v2 + 2 * v3 + v4) / 6.0 * particles.dt
     particles.dx += ((particles.x + particles.dx + dx + 180.0) % 360.0) - 180.0 - (particles.x + particles.dx)
     particles.dy += dy
+
+
+def DeleteFailedParticles(particles, fieldset):
+    """Retire particles in Parcels 4 error states; preserve healthy particles."""
+    failed = particles.state >= 50
+    particles[failed].state = 30
