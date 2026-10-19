@@ -593,18 +593,34 @@ def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
     particle_ids = np.sort(df.particle_id.unique())
     if np.any(particle_ids < 0) or np.any(particle_ids >= len(expected)):
         raise ValueError("Parcels particle_id is outside the original drifter seed range")
-    # All particles must share one output-time axis for legacy score calculations.
-    counts = df.groupby("particle_id").size()
-    if counts.nunique() != 1:
-        raise ValueError("Parcels particles have different output lengths; cannot align scores")
-    ntime = int(counts.iloc[0])
-    times = df.t.to_numpy().reshape(len(particle_ids), ntime)
-    if not np.allclose(times, times[0], rtol=0, atol=1e-5):
-        raise ValueError("Parcels particle output timestamps are not aligned")
-    lon = df.x.to_numpy().reshape(len(particle_ids), ntime)[None, None, :, :]
-    lat = df.y.to_numpy().reshape(len(particle_ids), ntime)[None, None, :, :]
-    time_values = times[None, None, :, :]
+    # Recovered/deleted particles have shorter records. Align on the common
+    # output clock, leaving missing positions as NaN (never interpolate them).
+    # The first valid sample may be missing for a particle, so use the union.
+    if df[["t", "x", "y"]].isna().any().any():
+        log.warning("Parcels Parquet contains missing time/position values")
+    df = df.dropna(subset=["t"])
+    if df.empty:
+        raise ValueError("No valid Parcels output timestamps")
+    if df.duplicated(["particle_id", "t"]).any():
+        raise ValueError("Duplicate Parcels particle/time records")
+    clock = np.sort(df.t.unique())
+    ntime = len(clock)
+    if ntime < 1:
+        raise ValueError("Empty Parcels output time axis")
+    # A pivot makes the missing records explicit and preserves the seeded IDs.
+    lon2d = df.pivot(index="particle_id", columns="t", values="x")
+    lat2d = df.pivot(index="particle_id", columns="t", values="y")
+    lon2d = lon2d.reindex(index=particle_ids, columns=clock)
+    lat2d = lat2d.reindex(index=particle_ids, columns=clock)
+    lon = lon2d.to_numpy(dtype=float)[None, None, :, :]
+    lat = lat2d.to_numpy(dtype=float)[None, None, :, :]
+    time_values = np.broadcast_to(clock, (1, 1, len(particle_ids), ntime))
     ids = expected[particle_ids][None, None, :]
-    log.info("Read Parcels 4 Parquet %s: %d particles, %d time samples",
-             path, len(particle_ids), ntime)
+    missing = np.count_nonzero(~np.isfinite(lon) | ~np.isfinite(lat))
+    short = int((df.groupby("particle_id").size() < ntime).sum())
+    log.info(
+        "Read Parcels 4 Parquet %s: %d particles, %d time samples, "
+        "%d incomplete particles, %d missing/nonfinite position pairs",
+        path, len(particle_ids), ntime, short, missing,
+    )
     return lon, lat, time_values, ids, particle_ids
