@@ -262,6 +262,8 @@ def read_traj_compute_scores(day,
         log.debug("Compute Liu score")
         liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T \
                     for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
+        # Undefined or infinite Liu values must never enter means or bin counts.
+        liu_score = np.where(np.isfinite(liu_score), liu_score, np.nan)
         # Add missing value for the first step
         liu_score = np.insert(liu_score, 0, np.nan, axis=-1)
         Nt = liu_score.shape[-1]
@@ -341,8 +343,12 @@ def read_traj_compute_scores(day,
     log.debug("Compute spatially bins statistics on a regular lon/lat grid")
     mean_sep, count_sep = bin_spatial(sep_dist_daily, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     sum_sep = mean_sep * count_sep
-    lui_score_bin, count_liu_score = bin_spatial(skill_score.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_liu = lui_score_bin * count_liu_score
+    finite_skill = np.where(np.isfinite(skill_score), skill_score, np.nan)
+    lui_score_bin, count_liu_score = bin_spatial(finite_skill.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
+    # Empty bins can have NaN means: avoid NaN * 0 contaminating aggregation.
+    sum_liu = np.where(count_liu_score > 0, lui_score_bin * count_liu_score, 0.0)
+    sum_liu = np.where(np.isfinite(sum_liu), sum_liu, 0.0)
+    count_liu_score = np.where(np.isfinite(lui_score_bin), count_liu_score, 0)
     #corr_lon_bin, count_corr_lon = bin_spatial(corr_lon, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     #sum_corr_lon = corr_lon_bin, * count_corr_lon
     # corr_lat_bin, count_corr_lat = bin_spatial(corr_lat, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
@@ -460,8 +466,10 @@ def aggregate_and_save_results(results,
     mean_sep_total = sum_sep_total / count_sep_total
     mean_sep_total[count_sep_total == 0] = np.nan
 
-    mean_liu_total = sum_liu_total / count_liu_total
-    mean_liu_total[count_liu_total == 0] = np.nan
+    mean_liu_total = np.full_like(sum_liu_total, np.nan, dtype=float)
+    np.divide(sum_liu_total, count_liu_total, out=mean_liu_total,
+              where=count_liu_total > 0)
+    mean_liu_total[~np.isfinite(mean_liu_total)] = np.nan
 
     #sum_corr_lon_total = sum_corr_lon_total / count_corr_lon_total
     #sum_corr_lat_total = sum_corr_lat_total / count_corr_lat_total
