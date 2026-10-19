@@ -75,6 +75,7 @@ def main():
     image_dir = ROOT / "imgs" / "AdvectionRK4"
     image_dir.mkdir(parents=True, exist_ok=True)
     config = dict(cfg["config_base"], SYSTEM="GLOENS", leadtime="FCST",
+                  scheme="AdvectionRK4", parcels_dt_minutes=5,
                   DATE_START=args.start[:4]+"-"+args.start[4:6]+"-"+args.start[6:],
                   DATE_END=args.end[:4]+"-"+args.end[4:6]+"-"+args.end[6:])
     plot_scores(str(image_dir) + "/", str(outfile), config, log,
