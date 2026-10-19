@@ -123,7 +123,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                 coord = coord.isel(time_counter=0, drop=True)
             ds = ds.assign_coords({name: coord.load()})
     import os
-    construction = os.environ.get("GLOENS_FIELDSET_CONSTRUCTION", "direct").strip().lower()
+    construction = os.environ.get("GLOENS_FIELDSET_CONSTRUCTION", "sgrid").strip().lower()
     if construction not in ("sgrid", "direct"):
         raise ValueError("GLOENS_FIELDSET_CONSTRUCTION must be 'sgrid' or 'direct'")
     log.warning("GLOENS FieldSet construction=%s (Parcels %s)", construction, parcels.__version__)
