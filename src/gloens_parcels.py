@@ -320,6 +320,20 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         kernel = parcels.AdvectionEE if scheme == "AdvectionEE" else parcels.AdvectionRK4
     if scheme == "K_smag":
         kernel = kernel + pset.Kernel(smagdiff)
+    # Parcels 4 recovery is an appended vectorized kernel, not the legacy
+    # pset.execute(recovery=...) argument. Opt in explicitly for validation.
+    recover_failed = parcels_v4 and __import__("os").environ.get(
+        "GLOENS_DELETE_FAILED_PARTICLES", "0"
+    ).strip() == "1"
+    if recover_failed:
+        try:
+            from .gloens_periodic_kernel import DeleteFailedParticles
+        except ImportError:
+            from gloens_periodic_kernel import DeleteFailedParticles
+        kernel = [kernel, DeleteFailedParticles]
+        log.warning("GLOENS recovery ENABLED: delete particles with Parcels error state >=50")
+    else:
+        log.info("GLOENS recovery disabled: strict error handling")
     log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
     # Forecast has 28 daily timestamps, but only 27 days between them.
     times = ds.time.values.astype("datetime64[ns]")
@@ -346,5 +360,13 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                       times[0], times[-1])
         _diagnose_particle_failure(pset, seed_lon, seed_lat, log, output_path, error)
         raise
+    if recover_failed:
+        survivors = len(pset.x)
+        removed = len(seed_lon) - survivors
+        log.warning("GLOENS recovery result: seeded=%d remaining=%d removed=%d (%.2f%%)",
+                    len(seed_lon), survivors, removed,
+                    100.0 * removed / max(1, len(seed_lon)))
+        if survivors == 0:
+            raise RuntimeError("GLOENS recovery deleted every particle; refusing empty successful cycle")
     log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
