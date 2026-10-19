@@ -10,6 +10,39 @@ import xarray as xr
 
 
 
+def _diagnose_particle_failure(pset, seed_lon, seed_lat, log):
+    """Report individual Parcels 4 particle states after an execution failure.
+
+    Read-only: does not delete particles, retry integration, or change fields.
+    """
+    try:
+        states = np.asarray(pset.state).ravel()
+        x = np.asarray(pset.x).ravel()
+        y = np.asarray(pset.y).ravel()
+        log.error("GLOENS particle diagnostics: %d particles; state counts=%s",
+                  len(states),
+                  {str(code): int(np.count_nonzero(states == code))
+                   for code in np.unique(states)})
+        # Parcels status 0 means success; other states indicate failures.
+        bad = np.flatnonzero(states != 0)
+        if not len(bad):
+            log.error("GLOENS particle diagnostics: no nonzero states available; "
+                      "grid search may fail before states are updated")
+        for idx in bad[:100]:
+            log.error("GLOENS suspect particle index=%d state=%s "
+                      "seed=(%.6f, %.6f) current=(%.6f, %.6f) "
+                      "near_dateline=%s near_zero_zero=%s",
+                      int(idx), states[idx],
+                      seed_lon[idx], seed_lat[idx], x[idx], y[idx],
+                      abs(x[idx]) >= 170,
+                      abs(x[idx]) < 0.001 and abs(y[idx]) < 0.001)
+        if len(bad) > 100:
+            log.error("GLOENS particle diagnostics: %d more suspect particles omitted",
+                      len(bad) - 100)
+    except Exception:
+        log.exception("Could not read Parcels particle states after failure")
+
+
 def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
     import parcels
     from parcels import FieldSet, ParticleSet
@@ -151,6 +184,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     except Exception:
         log.exception("GLOENS failure during pset.execute; model time range %s to %s",
                       times[0], times[-1])
+        _diagnose_particle_failure(pset, seed_lon, seed_lat, log)
         raise
     log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
