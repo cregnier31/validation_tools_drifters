@@ -5,6 +5,7 @@ Example: python Lagrangian_tool_GLOENS.py --year 2024
 """
 import argparse
 import csv
+import os
 import pickle
 import re
 import sys
@@ -46,7 +47,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--status-fd", type=int, default=None)
     args = parser.parse_args()
+
+    def report(message):
+        print(message, flush=True)
+        if args.status_fd is not None:
+            os.write(args.status_fd, (message + "\n").encode("utf-8"))
     first = datetime(args.year, 1, 1)
     last = datetime(args.year, 12, 31)
     with (ROOT / "cfg/config_drifters.yaml").open(encoding="utf-8") as f:
@@ -85,10 +92,12 @@ def main():
                     raise ValueError("No valid drifter scores")
                 results_stats.append(stats)
                 succeeded.append(stamp)
+                report(f"[GLOENS] {stamp}: OK")
                 writer.writerow([stamp, "PASS", ""])
                 log.info("Finished %s (%d cumulative forecast cycles)", stamp, len(results_stats))
             except Exception as exc:
                 failed.append(stamp)
+                report(f"[GLOENS] {stamp}: FAIL - {exc}")
                 writer.writerow([stamp, "FAIL", str(exc)])
                 log.exception("Failed forecast initialization %s", stamp)
                 if not args.continue_on_error:
@@ -112,6 +121,7 @@ def main():
         results_stats, annual["dir_out_imgs"], annual["config_info"],
         log, days=[1, 3, 5, 7, 10]
     )
+    report(f"[GLOENS] Annual summary: {len(succeeded)} OK, {len(failed)} FAIL")
     log.info("Completed %d cycles; failed %d; annual NetCDF: %s",
              len(succeeded), len(failed), annual["stats_out"])
 
