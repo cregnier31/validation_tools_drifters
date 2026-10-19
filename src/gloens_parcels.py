@@ -123,7 +123,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                 coord = coord.isel(time_counter=0, drop=True)
             ds = ds.assign_coords({name: coord.load()})
     import os
-    construction = os.environ.get("GLOENS_FIELDSET_CONSTRUCTION", "sgrid").strip().lower()
+    construction = os.environ.get("GLOENS_FIELDSET_CONSTRUCTION", "direct").strip().lower()
     if construction not in ("sgrid", "direct"):
         raise ValueError("GLOENS_FIELDSET_CONSTRUCTION must be 'sgrid' or 'direct'")
     log.warning("GLOENS FieldSet construction=%s (Parcels %s)", construction, parcels.__version__)
@@ -159,6 +159,19 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                 "Direct xarray FieldSet construction failed; this Parcels version "
                 "may require a different API. The SGRID path was not changed."
             ) from exc
+    # Reproduce the legacy NEMO zonal halo where the installed API supports it.
+    # Parcels 4 SGRID fields do not expose the legacy FieldSet halo method.
+    halo_method = getattr(fieldset, "add_periodic_halo", None)
+    if callable(halo_method):
+        try:
+            halo_method(zonal=True)
+            log.info("GLOENS: zonal periodic halo enabled")
+        except (NotImplementedError, AttributeError, TypeError, ValueError) as exc:
+            log.warning("GLOENS: periodic halo unsupported for this grid/API: %s", exc)
+    else:
+        log.warning("GLOENS: this Parcels FieldSet API has no add_periodic_halo method")
+    # A periodic longitude correction is applied to initial seeds below.
+    # Do not blindly apply the legacy fmod kernel to Parcels 4 x/y particles.
     log.debug("GLOENS: 2D FieldSet constructed in %.1fs", time.monotonic() - started)
     if not parcels_v4 and (fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1):
         raise ValueError("Expected a 2D (single-level) GLOENS FieldSet")
@@ -193,6 +206,24 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     started = time.monotonic()
     seed_lon = np.asarray(lon0, dtype=np.float64)
     seed_lat = np.asarray(lat0, dtype=np.float64)
+    # Map longitude-equivalent initial positions into the native grid interval.
+    # Do not wrap into a narrow bounding box if it is not a global domain.
+    try:
+        grid_lon = np.asarray(fieldset.U.grid.lon)
+        lon_min = float(np.nanmin(grid_lon))
+        lon_max = float(np.nanmax(grid_lon))
+        lon_width = lon_max - lon_min
+        if 359.0 <= lon_width <= 361.0:
+            original = seed_lon.copy()
+            seed_lon = lon_min + np.mod(seed_lon - lon_min, 360.0)
+            # Preserve the upper seam when the original longitude was at that edge.
+            log.info("GLOENS: periodic longitude normalization [%.3f, %.3f], adjusted %d seeds",
+                     lon_min, lon_max, int(np.count_nonzero(~np.isclose(seed_lon, original))))
+        else:
+            log.warning("GLOENS: skipping longitude normalization (grid extent %.3f to %.3f)",
+                        lon_min, lon_max)
+    except (AttributeError, TypeError, ValueError) as exc:
+        log.warning("GLOENS: cannot inspect longitude bounds for periodic normalization: %s", exc)
     log.info("GLOENS seed coordinates: n=%d, lon=%s, lat=%s",
              len(seed_lon), seed_lon.tolist(), seed_lat.tolist())
     log.warning("GLOENS time alignment check: model begins %s, drifter selection begins %s",
@@ -201,12 +232,12 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     try:
         if parcels_v4:
             pset = ParticleSet(fieldset=fieldset, pclass=parcels.Particle,
-                               x=np.asarray(lon0, dtype=np.float64),
+                               x=seed_lon,
                                y=np.asarray(lat0, dtype=np.float64),
                                t=pd.Timestamp(ds.time.values[0]).to_pydatetime())
         else:
             pset = ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
-                               lon=np.asarray(lon0, dtype=np.float64),
+                               lon=seed_lon,
                                lat=np.asarray(lat0, dtype=np.float64),
                                depth=np.zeros(len(lon0), dtype=np.float32),
                                time=np.zeros(len(lon0), dtype=np.float64))
