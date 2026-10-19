@@ -122,9 +122,14 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             if "time_counter" in coord.dims:
                 coord = coord.isel(time_counter=0, drop=True)
             ds = ds.assign_coords({name: coord.load()})
+    import os
+    construction = os.environ.get("GLOENS_FIELDSET_CONSTRUCTION", "sgrid").strip().lower()
+    if construction not in ("sgrid", "direct"):
+        raise ValueError("GLOENS_FIELDSET_CONSTRUCTION must be 'sgrid' or 'direct'")
+    log.warning("GLOENS FieldSet construction=%s (Parcels %s)", construction, parcels.__version__)
     started = time.monotonic()
     log.debug("GLOENS: constructing 2D F-point xarray FieldSet at %.2f m", depth)
-    if parcels_v4:
+    if parcels_v4 and construction == "sgrid":
         # Parcels 4 uses SGRID metadata and xarray-native NEMO conversion.
         with xr.open_dataset(meshmask, engine="netcdf4") as grid:
             grid_coords = grid[["glamf", "gphif"]]
@@ -136,11 +141,24 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             )
             fieldset = FieldSet.from_sgrid_conventions(sgrid)
     else:
-        fieldset = FieldSet.from_xarray_dataset(
-            ds, {"U": u_name, "V": v_name},
-            {"lon": "glamf", "lat": "gphif", "time": "time"},
-            mesh="spherical", allow_time_extrapolation=True,
-        )
+        constructor = getattr(FieldSet, "from_xarray_dataset", None)
+        if constructor is None:
+            raise RuntimeError(
+                "Direct xarray FieldSet construction is not available in Parcels "
+                f"{parcels.__version__}; cannot compare against the legacy NEMO method. "
+                "Keep GLOENS_FIELDSET_CONSTRUCTION=sgrid for the supported path."
+            )
+        try:
+            fieldset = constructor(
+                ds, {"U": u_name, "V": v_name},
+                {"lon": "glamf", "lat": "gphif", "time": "time"},
+                mesh="spherical", allow_time_extrapolation=True,
+            )
+        except Exception as exc:
+            raise RuntimeError(
+                "Direct xarray FieldSet construction failed; this Parcels version "
+                "may require a different API. The SGRID path was not changed."
+            ) from exc
     log.debug("GLOENS: 2D FieldSet constructed in %.1fs", time.monotonic() - started)
     if not parcels_v4 and (fieldset.U.grid.zdim != 1 or fieldset.V.grid.zdim != 1):
         raise ValueError("Expected a 2D (single-level) GLOENS FieldSet")
