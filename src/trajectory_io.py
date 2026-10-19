@@ -101,51 +101,36 @@ def retrieve_drifters_for_one_day_traj(
 
         df = df.sort_values(['id', 'time'])
         df['date'] = df['time'].dt.floor('D')
-        # ==========================================================
-        # 5. Keep only complete trajectories
-        # ==========================================================
-        nb_points = T_DRIFT * 24
-        counts = df.groupby('id').size()
-        valid_ids = counts[counts >= nb_points].index
-
-        df = df[df.id.isin(valid_ids)]
-
-        log.debug(f"Valid drifters: {len(valid_ids)}")
-
-        # ==========================================================
-        # 7. Build trajectories
-        # ==========================================================
-        log.debug(f"Build trajectories")
+        # Keep a fixed hourly grid, including missing days as NaN. Do not
+        # interpolate observations: downstream statistics must mask gaps.
+        clock = pd.date_range(start=day, periods=nb_points, freq="h")
         trajs = []
-
-        for drifter_id, g in df.groupby('id'):
-
+        rejected_no_start = 0
+        for drifter_id, g in df.groupby("id", sort=True):
             g = g[(g.time >= day) & (g.time < end_day)]
-            g = g.sort_values('time')
-
-            if len(g) < nb_points:
+            # Reject ambiguous duplicate observations rather than choosing one.
+            if g.time.duplicated().any():
+                log.debug("Skipping drifter %s: duplicate observation timestamps", drifter_id)
                 continue
-
-            times = g.time.values
-
-            # must start exactly at day
-            if pd.to_datetime(times[0]) != day:
+            g = g.set_index("time").reindex(clock)
+            if not np.isfinite(g.lon.iloc[0]) or not np.isfinite(g.lat.iloc[0]):
+                rejected_no_start += 1
                 continue
-
-            # strict hourly continuity
-            dt = np.diff(times) / np.timedelta64(1, 'h')
-            if not np.all(dt == 1):
-                continue
-
-            g = g.iloc[:nb_points]
-
+            n_valid = int((np.isfinite(g.lon) & np.isfinite(g.lat)).sum())
             trajs.append({
-                'id': drifter_id,
-                'lon': g.lon.values,
-                'lat': g.lat.values,
-                'time': g.time.values,
-                'date': g.date.values
+                "id": drifter_id,
+                "lon": g.lon.to_numpy(dtype=float),
+                "lat": g.lat.to_numpy(dtype=float),
+                "time": clock.to_numpy(),
+                "date": clock.floor("D").to_numpy(),
             })
+        log.info(
+            "Observation hourly alignment %s: %d seeded drifters, "
+            "%d without valid initialization, %d missing hourly position pairs",
+            day.date(), len(trajs), rejected_no_start,
+            sum(int((~np.isfinite(t["lon"]) | ~np.isfinite(t["lat"])).sum())
+                for t in trajs),
+        )
 
         if len(trajs) == 0:
             return None
@@ -328,139 +313,30 @@ def Retrieve_drifters_traj(outfile2, T_DRIFT, log, remote = False,DRIFTER_type="
     log.debug(drifters_zone_traj.head(5))
     #print(drifters_zone_traj.dtypes)
 
-    nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
-    #remove drifters with missing entries (should be nb_days*4+1)
-    #Check each drifter has n days * 4 entries
-    drifter_ids = pd.unique(drifters_zone_traj['id'])
-    spurious_drifters=[]
-
-    for i in range(nb_drifters_temp):
-        nb_entries = len(drifters_zone_traj[drifters_zone_traj.id == drifter_ids[i]])
-        #print(nb_entries, i)
-       # if not nb_entries >= ((T_DRIFT+1)*24):
-        if not nb_entries >= ((T_DRIFT)*24):
-            log.error(drifter_ids[i],': not enough entries, only ', nb_entries)
-            spurious_drifters.append(drifter_ids[i])
-
-    if False:
-        #drifters_zone_traj_old = drifters_zone_traj
-        #ind1 = drifters_zone_traj['id']==spurious_drifters).index
-        for i in range(len(spurious_drifters)):
-            log.debug(f'remove drifter {spurious_drifters[i]}')
-            ind1 = drifters_zone_traj[drifters_zone_traj['id'] == np.array(spurious_drifters[i])].index
-            #print(drifters_zone_traj['id'] == np.array(spurious_drifters[i]))
-            drifters_zone_traj.drop(ind1, inplace=True) #remove data points
-        drifters_zone_traj=drifters_zone_traj.reset_index()
-        nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
-        log.debug(f'{nb_drifters_temp} - {nb_drifters2} = {nb_drifters_temp - nb_drifters2}'   )
-    else:
-        nb_drifters2=len(pd.unique(drifters_zone_traj['id']))
-    #print( f'{aa}  - {len( drifters_zone_traj)} =  {aa  - len( drifters_zone_traj)}')
-    log.debug(f'total nb of drifters in zone at start that reach end: {nb_drifters2}')
-
-    #Sort drifter info in indiv. variables traj_lon, traj_lat, traj_id, etc...
-    if remote or DRIFTER_type == "COPERNICUS_DAILY":
-        nb_points = T_DRIFT*24   # hourly
-        #nb_points = (T_DRIFT+1)*24   # hourly
-    else :
-        nb_points = T_DRIFT*4 + 1    # hourly
-
-    #print(nb_points)
-    log.debug(np.shape(drifters_zone_traj))
-    #print(drifters_zone_traj)
-    #print(type(drifters_zone_traj))
-    #print(np.shape(drifters_zone_traj.time.values))
-    #print(np.shape(drifters_zone_traj.date.values))
-    #print(nb_drifters2*nb_points)
-
-    #for i in range(nb_points):
-    #    print(drifters_zone_traj.id.values[i])
-    #    print(drifters_zone_traj.date.values[i])
-    #    print(drifters_zone_traj.time.values[i])
-    #
-    #print(drifters_zone_traj.id.values[nb_points])
-    #print(drifters_zone_traj.date.values[nb_points])
-    #print(drifters_zone_traj.id.values[nb_points +24])
-    #print(drifters_zone_traj.date.values[nb_points+24])
-    #print(drifters_zone_traj.id.values[nb_points+72])
-    #print(drifters_zone_traj.date.values[nb_points+72])
-    ll =0
-    while drifters_zone_traj.id.values[ll] == drifters_zone_traj.id.values[0]:
-        ll += 1
-    #print(f'{ll=}')
-    #print(f'{nb_points = }')
-    #print(f'{ll*nb_drifters2}')
-    #print(np.shape(drifters_zone_traj.date.values))
-    
-
-
-    
-
-
-    if False:
-        print('Case1')
-        traj_drifter_lon   = np.array([drifters_zone_traj.lon.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
-        traj_drifter_lat   = np.array([drifters_zone_traj.lat.values[ll,0:nb_points] for ll in range(nb_drifters2)])#      np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
-        traj_drifter_date  = np.array([drifters_zone_traj.date.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
-        traj_drifter_time  = np.array([drifters_zone_traj.time.values[ll,0:nb_points] for ll in range(nb_drifters2)])#    np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
-        traj_drifter_id    = np.array([drifters_zone_traj.id.values[ll,0:nb_points] for ll in range(nb_drifters2)])# np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
-    elif False:
-        print('Case2')
-        traj_drifter_lon   = np.reshape(drifters_zone_traj.lon.values,(nb_drifters2, nb_points) )
-        traj_drifter_lat   = np.reshape(drifters_zone_traj.lat.values,(nb_drifters2, nb_points) )
-        traj_drifter_date  = np.reshape(drifters_zone_traj.date.values,(nb_drifters2, nb_points) )
-        traj_drifter_time  = np.reshape(drifters_zone_traj.time.values,(nb_drifters2, nb_points) )
-        traj_drifter_id  = np.reshape(drifters_zone_traj.id.values,(nb_drifters2, nb_points) )
-    else:
-        print('Case3')
-        list_lon_temp = []
-        list_lat_temp = []
-        list_date_temp = []
-        list_time_temp = []
-        list_id_temp = []
-        IDS = pd.unique(drifters_zone_traj['id'])    
-        for ll in range(len(IDS)):
-            indexx = np.where(drifters_zone_traj.id.values == IDS[ll])
-            #print(indexx[0])
-            #print(indexx[0][0])
-
-            list_lon_temp.append(drifters_zone_traj.lon.values[indexx[0][0]:indexx[0][0]+nb_points])
-            list_lat_temp.append(drifters_zone_traj.lat.values[indexx[0][0]:indexx[0][0]+nb_points])
-            list_date_temp.append(drifters_zone_traj.date.values[indexx[0][0]:indexx[0][0]+nb_points])
-            list_time_temp.append(drifters_zone_traj.time.values[indexx[0][0]:indexx[0][0]+nb_points])
-            list_id_temp.append(drifters_zone_traj.id.values[indexx[0][0]:indexx[0][0]+nb_drifters2])
-        
-        taille_max = max(len(x) for x in list_lon_temp)
-        #print(taille_max)
-        #print([len(x) for x in list_lon_temp])
-
-        list_lon = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_lon_temp])
-        taille_max = max(len(x) for x in list_lat_temp)
-        list_lat = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_lat_temp])
-        taille_max = max(len(x) for x in list_date_temp)
-        list_date = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_date_temp])
-        taille_max = max(len(x) for x in list_time_temp)
-        list_time = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_time_temp])
-
-        taille_max = max(len(x) for x in list_id_temp)
-        list_id = np.array([list(x) + [x[-1]] * (taille_max - len(x)) for x in list_id_temp])
-
-
-
-        traj_drifter_lon = np.array(list_lon)
-        traj_drifter_lat= np.array(list_lat)
-        traj_drifter_date = np.array(list_date)
-        traj_drifter_time = np.array(list_time)
-        traj_drifter_id = np.array( list_id)
-
-    #print(np.shape(drifters_zone_traj.date.values))
-    #print(np.shape(traj_drifter_date))
-    #print(f'{nb_drifters2=}')
-    #print(f'{nb_points=}')
-    #print(T_DRIFT)
-
-    return traj_drifter_lon,traj_drifter_lat,traj_drifter_date,traj_drifter_time,traj_drifter_id,nb_drifters2
-
+    # CSV is already on the exact hourly clock; preserve missing values.
+    # Pivot by ID/time rather than relying on contiguous rows or padding
+    # missing observations with the final known position.
+    if DRIFTER_type.upper() == "COPERNICUS_DAILY":
+        ids = np.sort(drifters_zone_traj["id"].unique())
+        times = pd.date_range(
+            start=pd.to_datetime(drifters_zone_traj["time"]).min(),
+            periods=int(T_DRIFT) * 24, freq="h"
+        )
+        df = drifters_zone_traj.copy()
+        df["time"] = pd.to_datetime(df["time"])
+        if df.duplicated(["id", "time"]).any():
+            raise ValueError("Duplicate observation ID/timestamp pairs")
+        lon = df.pivot(index="id", columns="time", values="lon").reindex(index=ids, columns=times)
+        lat = df.pivot(index="id", columns="time", values="lat").reindex(index=ids, columns=times)
+        lon_values = lon.to_numpy(dtype=float)
+        lat_values = lat.to_numpy(dtype=float)
+        time_values = np.broadcast_to(times.to_numpy(), lon_values.shape).copy()
+        date_values = np.broadcast_to(times.floor("D").to_numpy(), lon_values.shape).copy()
+        id_values = np.broadcast_to(ids[:, None], lon_values.shape).copy()
+        return lon_values, lat_values, date_values, time_values, id_values, len(ids)
+    raise NotImplementedError(
+        "Observation CSV loading for this drifter type is not implemented"
+    )
 
 
 def Traj_filter_parcels(
