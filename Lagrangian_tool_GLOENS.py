@@ -31,15 +31,12 @@ def discover_cycles(config, first, last):
     pattern = re.compile(re.escape(prefix) + r"(\d{8})-\d{8}_3DU-uo_fcst_R(\d{8})\.zarr$")
     fs = s3fs.S3FileSystem(anon=True, client_kwargs={"endpoint_url": model["endpoint_url"]})
     dates = set()
-    try:
-        for item in fs.ls(model["bucket_name"]):
-            match = pattern.search(str(item))
-            if match and match.group(1) == match.group(2):
-                day = datetime.strptime(match.group(1), "%Y%m%d")
-                if first <= day <= last:
-                    dates.add(day)
-    finally:
-        fs.close()
+    for item in fs.ls(model["bucket_name"]):
+        match = pattern.search(str(item))
+        if match and match.group(1) == match.group(2):
+            day = datetime.strptime(match.group(1), "%Y%m%d")
+            if first <= day <= last:
+                dates.add(day)
     return sorted(dates)
 
 
