@@ -30,14 +30,6 @@ export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 mkdir -p "outputs/gloens_${DATE1}_${DATE2}"
 exec >> "outputs/gloens_${DATE1}_${DATE2}/batch.log" 2>&1
 
-# Only available GLOENS initialization cycles are processed, sequentially.
-# Each initialization runs its own 28-day forecast and writes a separate log.
-GLOENS_DEFER_PLOTS=1 "$PYTHON" tests/run_gloens_2025.py \
-  --year "$YEAR" --start "$DATE1" --end "$DATE2" \
-  --continue-on-error \
-  --output "outputs/gloens_${DATE1}_${DATE2}"
-
-# Aggregate all successful forecast initializations by lead day, once.
-"$PYTHON" tests/aggregate_gloens_period.py \
-  --summary "outputs/gloens_${DATE1}_${DATE2}/summary.csv" \
-  --start "$DATE1" --end "$DATE2" --days 28
+# Single GLOENS Python process: discover Zarr cycles, run trajectories,
+# append all per-cycle scores to results_stats, aggregate and plot once.
+"$PYTHON" Lagrangian_tool_GLOENS.py --year "$YEAR" --continue-on-error
