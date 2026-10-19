@@ -139,7 +139,27 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                 fields={"U": ds[u_name], "V": ds[v_name]},
                 coords=grid_coords
             )
+            log.info("GLOENS SGRID conversion: variables=%s dimensions=%s",
+                     list(sgrid.data_vars), dict(sgrid.sizes))
+            for name in ("U", "V"):
+                if name in sgrid:
+                    log.info("GLOENS SGRID %s: dims=%s shape=%s attrs=%s",
+                             name, sgrid[name].dims, sgrid[name].shape,
+                             {key: str(value)[:300] for key, value in sgrid[name].attrs.items()})
             fieldset = FieldSet.from_sgrid_conventions(sgrid)
+            try:
+                for name in ("U", "V"):
+                    field = getattr(fieldset, name)
+                    interp = getattr(field, "interp_method", None)
+                    grid_obj = getattr(field, "grid", None)
+                    log.info("GLOENS Parcels %s: interpolation=%s grid=%s",
+                             name, interp, type(grid_obj).__name__)
+                uv = getattr(fieldset, "UV", None)
+                log.info("GLOENS Parcels UV vector: %s", type(uv).__name__)
+                if hasattr(fieldset, "describe"):
+                    fieldset.describe()
+            except Exception:
+                log.exception("GLOENS FieldSet metadata inspection failed (non-fatal)")
     else:
         constructor = getattr(FieldSet, "from_xarray_dataset", None)
         if constructor is None:
