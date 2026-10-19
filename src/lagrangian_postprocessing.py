@@ -235,8 +235,17 @@ def read_traj_compute_scores(day,
         lat2d = traj_lat[0, 0, :, :]
         Nd, Tm = lon2d.shape
         Ndays = Tm // factor
-        log.info(f"Number of days {Ndays}")
-        sep_dist_daily = sep_dist.reshape(Nd, Ndays, factor).mean(axis=2)
+        if Ndays < 1:
+            raise ValueError(
+                f"{str_date_sim}: only {Tm} model trajectory time samples for "
+                f"{Nd} particles; need at least {factor} samples for one "
+                "complete lead-day score. Check the existing Parcels Parquet "
+                "trajectory and its time coverage; no cache was modified."
+            )
+        usable = Ndays * factor
+        log.info("Number of complete lead days %d (model samples %d, used %d)",
+                 Ndays, Tm, usable)
+        sep_dist_daily = sep_dist[..., :usable].reshape(Nd, Ndays, factor).mean(axis=2)
         # reshape + mean
         traj_lon_daily_tmp = lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
         traj_lat_daily_tmp = lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
@@ -258,10 +267,10 @@ def read_traj_compute_scores(day,
         Nt = liu_score.shape[-1]
 
         # reshape
-        newshape = liu_score.shape[:-1] + (Nt // factor, factor)
+        newshape = liu_score.shape[:-1] + (Ndays, factor)
 
         liu_daily = np.nanmean(
-            liu_score.reshape(newshape),
+            liu_score[..., :usable].reshape(newshape),
             axis=-1
         )
         # Compute skill score with the assumption of n=1
