@@ -92,18 +92,28 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
             particle.lon += ParcelsRandom.normalvariate(0., 1.) * sigma
 
     started = time.monotonic()
+    seed_lon = np.asarray(lon0, dtype=np.float64)
+    seed_lat = np.asarray(lat0, dtype=np.float64)
+    log.info("GLOENS seed coordinates: n=%d, lon=%s, lat=%s",
+             len(seed_lon), seed_lon.tolist(), seed_lat.tolist())
+    log.warning("GLOENS time alignment check: model begins %s, drifter selection begins %s",
+                pd.Timestamp(ds.time.values[0]), pd.Timestamp(day))
     log.debug("GLOENS: initializing %d particles", len(lon0))
-    if parcels_v4:
-        pset = ParticleSet(fieldset=fieldset, pclass=parcels.Particle,
-                           x=np.asarray(lon0, dtype=np.float64),
-                           y=np.asarray(lat0, dtype=np.float64),
-                           t=pd.Timestamp(ds.time.values[0]).to_pydatetime())
-    else:
-        pset = ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
-                           lon=np.asarray(lon0, dtype=np.float64),
-                           lat=np.asarray(lat0, dtype=np.float64),
-                           depth=np.zeros(len(lon0), dtype=np.float32),
-                           time=np.zeros(len(lon0), dtype=np.float64))
+    try:
+        if parcels_v4:
+            pset = ParticleSet(fieldset=fieldset, pclass=parcels.Particle,
+                               x=np.asarray(lon0, dtype=np.float64),
+                               y=np.asarray(lat0, dtype=np.float64),
+                               t=pd.Timestamp(ds.time.values[0]).to_pydatetime())
+        else:
+            pset = ParticleSet(fieldset=fieldset, pclass=parcels.JITParticle,
+                               lon=np.asarray(lon0, dtype=np.float64),
+                               lat=np.asarray(lat0, dtype=np.float64),
+                               depth=np.zeros(len(lon0), dtype=np.float32),
+                               time=np.zeros(len(lon0), dtype=np.float64))
+    except Exception:
+        log.exception("GLOENS failure during ParticleSet initialization; see seed coordinates above")
+        raise
     log.debug("GLOENS: particles initialized in %.1fs", time.monotonic() - started)
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -135,7 +145,12 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     log.info("GLOENS available %s to %s; requested %s days; running %s",
              times[0], times[-1], drift_days, runtime)
     started = time.monotonic()
-    pset.execute(kernel, runtime=runtime,
-                 dt=timedelta(minutes=dt_minutes), output_file=pfile)
+    try:
+        pset.execute(kernel, runtime=runtime,
+                     dt=timedelta(minutes=dt_minutes), output_file=pfile)
+    except Exception:
+        log.exception("GLOENS failure during pset.execute; model time range %s to %s",
+                      times[0], times[-1])
+        raise
     log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
