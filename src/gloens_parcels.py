@@ -10,37 +10,71 @@ import xarray as xr
 
 
 
-def _diagnose_particle_failure(pset, seed_lon, seed_lat, log):
-    """Report individual Parcels 4 particle states after an execution failure.
-
-    Read-only: does not delete particles, retry integration, or change fields.
-    """
+def _diagnose_particle_failure(pset, seed_lon, seed_lat, log, output_path, error):
+    """Save and plot the particles flagged by a failed Parcels execution."""
     try:
         states = np.asarray(pset.state).ravel()
         x = np.asarray(pset.x).ravel()
         y = np.asarray(pset.y).ravel()
+        n = min(len(states), len(x), len(y), len(seed_lon), len(seed_lat))
+        states, x, y = states[:n], x[:n], y[:n]
         log.error("GLOENS particle diagnostics: %d particles; state counts=%s",
-                  len(states),
-                  {str(code): int(np.count_nonzero(states == code))
-                   for code in np.unique(states)})
-        # Parcels status 0 means success; other states indicate failures.
+                  n, {str(code): int(np.count_nonzero(states == code))
+                      for code in np.unique(states)})
         bad = np.flatnonzero(states != 0)
         if not len(bad):
-            log.error("GLOENS particle diagnostics: no nonzero states available; "
-                      "grid search may fail before states are updated")
+            log.warning("GLOENS: no nonzero particle states; saving exception positions "
+                        "separately is not possible from the exception text alone")
+        indices = np.arange(n)
+        frame = pd.DataFrame({
+            "particle_index": indices,
+            "state": states,
+            "seed_lon": seed_lon[:n],
+            "seed_lat": seed_lat[:n],
+            "current_lon": x,
+            "current_lat": y,
+            "suspect": np.isin(indices, bad),
+        })
+        dest = Path(output_path).with_suffix("")
+        csv_path = dest.with_name(dest.name + "_grid_failure_particles.csv")
+        png_path = dest.with_name(dest.name + "_grid_failure_map.png")
+        csv_path.parent.mkdir(parents=True, exist_ok=True)
+        frame.to_csv(csv_path, index=False)
+        log.error("GLOENS grid-failure particle coordinates saved: %s (%d suspect)",
+                  csv_path, len(bad))
         for idx in bad[:100]:
-            log.error("GLOENS suspect particle index=%d state=%s "
-                      "seed=(%.6f, %.6f) current=(%.6f, %.6f) "
-                      "near_dateline=%s near_zero_zero=%s",
-                      int(idx), states[idx],
-                      seed_lon[idx], seed_lat[idx], x[idx], y[idx],
-                      abs(x[idx]) >= 170,
-                      abs(x[idx]) < 0.001 and abs(y[idx]) < 0.001)
-        if len(bad) > 100:
-            log.error("GLOENS particle diagnostics: %d more suspect particles omitted",
-                      len(bad) - 100)
+            log.error("GLOENS suspect particle index=%d state=%s seed=(%.6f, %.6f) "
+                      "current=(%.6f, %.6f)", int(idx), states[idx],
+                      seed_lon[idx], seed_lat[idx], x[idx], y[idx])
+        try:
+            import matplotlib
+            matplotlib.use("Agg")
+            import matplotlib.pyplot as plt
+            fig, axes = plt.subplots(2, 1, figsize=(14, 9), sharex=True, sharey=True)
+            for ax, prefix, title in zip(
+                axes, ("seed", "current"), ("Initial positions", "Positions at failure")
+            ):
+                ax.scatter(frame[prefix + "_lon"], frame[prefix + "_lat"],
+                           s=5, c="0.65", alpha=0.4, label="All particles")
+                if len(bad):
+                    ax.scatter(frame.loc[bad, prefix + "_lon"],
+                               frame.loc[bad, prefix + "_lat"],
+                               s=22, c="crimson", marker="x",
+                               label=f"Suspect (n={len(bad)})")
+                ax.set(title=title, ylabel="Latitude (degrees)", xlim=(-180, 180),
+                       ylim=(-90, 90))
+                ax.grid(alpha=0.25)
+                ax.legend(loc="lower left")
+            axes[-1].set_xlabel("Longitude (degrees)")
+            fig.suptitle(f"GLOENS grid-search failure: {type(error).__name__}")
+            fig.tight_layout()
+            fig.savefig(png_path, dpi=160)
+            plt.close(fig)
+            log.error("GLOENS grid-failure map saved: %s", png_path)
+        except Exception:
+            log.exception("Could not plot GLOENS grid-failure positions; CSV is saved")
     except Exception:
-        log.exception("Could not read Parcels particle states after failure")
+        log.exception("Could not save GLOENS grid-failure diagnostics")
 
 
 def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift_days=28, u_name="uo", v_name="vo", depth=0.0, scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1, log=None, cache_dir=None):
@@ -181,10 +215,10 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     try:
         pset.execute(kernel, runtime=runtime,
                      dt=timedelta(minutes=dt_minutes), output_file=pfile)
-    except Exception:
+    except Exception as error:
         log.exception("GLOENS failure during pset.execute; model time range %s to %s",
                       times[0], times[-1])
-        _diagnose_particle_failure(pset, seed_lon, seed_lat, log)
+        _diagnose_particle_failure(pset, seed_lon, seed_lat, log, output_path, error)
         raise
     log.debug("GLOENS: Parcels execution finished in %.1fs", time.monotonic() - started)
     return str(output_path)
