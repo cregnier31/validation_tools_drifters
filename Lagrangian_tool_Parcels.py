@@ -26,18 +26,22 @@ def main():
     parser.add_argument("--scheme", default="AdvectionRK4",
                         choices=("AdvectionRK4", "AdvectionEE", "K_smag"))
     parser.add_argument("--typeobs", default="COPERNICUS_DAILY")
+    parser.add_argument("--drift-days", type=int, default=None,
+                        help="Override drift duration in days (GLOENS FCST defaults to 28)")
     parser.add_argument("--continue-on-error", action="store_true")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--remove-old-trajectories", action="store_true",
                         help="Delete only existing model trajectory outputs for selected cycles before rerunning")
     args = parser.parse_args()
+    if args.drift_days is not None and args.drift_days < 1:
+        parser.error("--drift-days must be a positive integer")
     first = datetime.strptime(args.date1, "%Y%m%d")
     last = datetime.strptime(args.date2, "%Y%m%d")
     if last < first:
         parser.error("--date2 must not precede --date1")
     base = (args.lead, args.system, args.scheme, args.typeobs, "parcels")
     config_path = str(ROOT / "cfg/config_drifters.yaml")
-    runtime = build_runtime_config((first, last, *base), config_path)
+    runtime = build_runtime_config((first, last, *base), config_path, drift_days=args.drift_days)
     log = runtime["log"]
     if args.system.upper() == "GLOENS" and args.lead == "FCST":
         from Lagrangian_tool_GLOENS import discover_cycles
@@ -49,8 +53,9 @@ def main():
         days = runtime["start_days"]
     if not days:
         raise RuntimeError("No initialization dates found in selected period")
+    duration = runtime["config_info"]["drift_time"]
     summary_path = ROOT / "outputs" / (
-        f"parcels_{args.system}_{args.date1}_{args.date2}_summary.csv")
+        f"parcels_{args.system}_drift{duration}_{args.date1}_{args.date2}_summary.csv")
     summary_path.parent.mkdir(parents=True, exist_ok=True)
     results_stats = []
     failures = 0
@@ -61,7 +66,7 @@ def main():
             stamp = day.strftime("%Y%m%d")
             try:
                 # Isolate each cycle's output paths while retaining annual aggregation.
-                cycle_runtime = build_runtime_config((day, day, *base), config_path)
+                cycle_runtime = build_runtime_config((day, day, *base), config_path, drift_days=args.drift_days)
                 if args.remove_old_trajectories:
                     info = cycle_runtime["config_info"]
                     workdir = Path(info["DIR_OUT"]) / stamp
