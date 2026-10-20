@@ -36,7 +36,7 @@ import yaml
 import datetime as dt
 from Logger import Logger
 
-def build_runtime_config(args, config_path):
+def build_runtime_config(args, config_path, drift_days=None):
     """
     Build full runtime configuration for Lagrangian workflow.
     """
@@ -80,6 +80,10 @@ def build_runtime_config(args, config_path):
     config_info["engine"] = engine
     if SYSTEM.upper() == "GLOENS" and leadtime == "FCST":
         config_info["drift_time"] = 28
+    if drift_days is not None:
+        if isinstance(drift_days, bool) or not isinstance(drift_days, int) or drift_days < 1:
+            raise ValueError("drift_days must be a positive integer")
+        config_info["drift_time"] = drift_days
     length_time = int(config_info["drift_time"])
     # ------------------------------------------
     # 3. Inject runtime args
@@ -152,8 +156,8 @@ def build_runtime_config(args, config_path):
     # ------------------------------------------
     # 7. Output directory
     # ------------------------------------------
-    dir_out_data = config_info['dir_data'] + scheme + "/"
-    dir_out_imgs = config_info['dir_imgs'] + scheme + "/"
+    dir_out_data = config_info['dir_data'] + scheme + f"/drift{length_time}/"
+    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/"
     if not os.path.exists(dir_out_imgs):
         print(f'\ncreate folder : {dir_out_imgs}')
         # Create directory where to store images:
