@@ -77,7 +77,7 @@ def select_velocity(u_ds, v_ds=None, *, mode="mean", member=None,
     u = process(u_ds, u_name)
     log.info("Process V")
     v = process(v_ds, v_name)
-    sys.exit(1)
+
     import numpy as np
     if not np.array_equal(u[time_dim].values, v[time_dim].values):
         raise ValueError("U and V forecast valid times do not match")
@@ -269,17 +269,14 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
     import numpy as np
     if days <= 0:
         raise ValueError("days must be positive")
-    print("select_forecast_window")
     start = np.datetime64(start, "D")
     # Daily mean GLOENS fields are stamped at 12:00 UTC, not midnight.
     # Select by calendar date and preserve their native timestamps.
     dates = ds[time_dim].values.astype("datetime64[D]")
     indices = np.flatnonzero((dates >= start) & (dates < start + np.timedelta64(days, "D")))
-    print("OK1")
     selected = ds.isel({time_dim: indices})
     times = selected[time_dim].values.astype("datetime64[ns]")
     expected_dates = start + np.arange(days).astype("timedelta64[D]")
-    print("OK2")
     if len(times) != days or not np.array_equal(times.astype("datetime64[D]"), expected_dates):
         raise ValueError(
             f"Incomplete {days}-day forecast window starting {start}; "
@@ -290,7 +287,6 @@ def select_forecast_window(ds, start, *, days=28, time_dim="time"):
         )
     if np.any(np.diff(times) != np.timedelta64(1, "D")):
         raise ValueError("Forecast times must be strictly daily with a consistent time of day")
-    print("OK3")
     return selected
 
 
