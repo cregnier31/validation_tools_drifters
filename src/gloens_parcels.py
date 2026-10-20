@@ -286,6 +286,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     # The sidecar is written before advection and read by Retrieve_traj_parquet.
     # It prevents particle_id renumbering from silently corrupting comparisons.
     seed_map_path = Path(output_path).with_suffix(".seed_indices.json")
+    seed_map_path.parent.mkdir(parents=True, exist_ok=True)
     seed_map_tmp = seed_map_path.with_suffix(".seed_indices.json.tmp")
     seed_map_tmp.write_text(json.dumps({
         "original_seed_count": original_seed_count,
