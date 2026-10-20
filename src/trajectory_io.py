@@ -599,6 +599,27 @@ def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
     particle_ids = np.sort(df.particle_id.unique())
     if np.any(particle_ids < 0) or np.any(particle_ids >= len(expected)):
         raise ValueError("Parcels particle_id is outside the original drifter seed range")
+    # A preflight-filtered GLOENS run renumbers Parcels particle IDs.
+    # Translate them back to original observation seed indices before matching.
+    from pathlib import Path
+    import json
+    seed_map_path = Path(path).with_suffix(".seed_indices.json")
+    if seed_map_path.is_file():
+        mapping = json.loads(seed_map_path.read_text())
+        original_indices = np.asarray(mapping["original_indices"], dtype=np.int64)
+        if (mapping["original_seed_count"] != len(expected)
+                or len(original_indices) == 0
+                or np.any(original_indices < 0)
+                or np.any(original_indices >= len(expected))
+                or len(np.unique(original_indices)) != len(original_indices)):
+            raise ValueError(f"Invalid original seed mapping: {seed_map_path}")
+        if np.any(particle_ids >= len(original_indices)):
+            raise ValueError(f"Parcels particle ID exceeds seed mapping: {seed_map_path}")
+        observed_indices = original_indices[particle_ids]
+        log.info("GLOENS seed map: matched %d model particles to original observations via %s",
+                 len(particle_ids), seed_map_path)
+    else:
+        observed_indices = particle_ids
     # Recovered/deleted particles have shorter records. Align on the common
     # output clock, leaving missing positions as NaN (never interpolate them).
     # The first valid sample may be missing for a particle, so use the union.
@@ -621,7 +642,7 @@ def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
     lon = lon2d.to_numpy(dtype=float)[None, None, :, :]
     lat = lat2d.to_numpy(dtype=float)[None, None, :, :]
     time_values = np.broadcast_to(clock, (1, 1, len(particle_ids), ntime))
-    ids = expected[particle_ids][None, None, :]
+    ids = expected[observed_indices][None, None, :]
     missing = np.count_nonzero(~np.isfinite(lon) | ~np.isfinite(lat))
     short = int((df.groupby("particle_id").size() < ntime).sum())
     log.info(
@@ -629,4 +650,4 @@ def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
         "%d incomplete particles, %d missing/nonfinite position pairs",
         path, len(particle_ids), ntime, short, missing,
     )
-    return lon, lat, time_values, ids, particle_ids
+    return lon, lat, time_values, ids, observed_indices
