@@ -11,7 +11,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: bash Launch_Parcels.sh DATE1 DATE2 SYSTEM [--console yes|no] [--lead FCST|HDCT] [--scheme AdvectionRK4|AdvectionEE|K_smag] [--typeobs COPERNICUS_DAILY|AOML] [--continue-on-error] [--no-plots] [--remove-old-trajectories]" >&2
+  echo "Usage: bash Launch_Parcels.sh DATE1 DATE2 SYSTEM [--console yes|no] [--lead FCST|HDCT] [--scheme AdvectionRK4|AdvectionEE|K_smag] [--typeobs COPERNICUS_DAILY|AOML] [--drift-days DAYS] [--continue-on-error] [--no-plots] [--remove-old-trajectories]" >&2
 }
 if (( $# < 3 )); then usage; exit 2; fi
 DATE1="$1"; DATE2="$2"; SYSTEM="$3"; shift 3
@@ -23,7 +23,7 @@ while (( $# )); do
     --console)
       if (( $# < 2 )); then usage; exit 2; fi
       CONSOLE="$2"; shift 2 ;;
-    --lead|--scheme|--typeobs)
+    --lead|--scheme|--typeobs|--drift-days)
       if (( $# < 2 )); then usage; exit 2; fi
       ARGS+=("$1" "$2"); shift 2 ;;
     --continue-on-error|--no-plots|--remove-old-trajectories)
@@ -38,7 +38,14 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 export PYTHONPATH="$ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 PYTHON="/home/cregnier/.conda/envs/py312_parcels_test/bin/python"
-LOGDIR="$ROOT/outputs/parcels_${SYSTEM}_${DATE1}_${DATE2}"
+DRIFT_DAYS="default"
+for ((i=0; i<${#ARGS[@]}; i++)); do
+  if [[ "${ARGS[i]}" == "--drift-days" ]]; then
+    DRIFT_DAYS="${ARGS[i+1]}"
+  fi
+done
+if [[ "$DRIFT_DAYS" == "default" && "$SYSTEM" == "GLOENS" ]]; then DRIFT_DAYS=28; fi
+LOGDIR="$ROOT/outputs/parcels_${SYSTEM}_drift${DRIFT_DAYS}_${DATE1}_${DATE2}"
 mkdir -p "$LOGDIR"
 LOG="$LOGDIR/run.log"
 if [[ "$CONSOLE" == yes ]]; then
