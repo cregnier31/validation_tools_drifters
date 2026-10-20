@@ -163,6 +163,47 @@ def cached_leadtime_mean(u_ds, v_ds, start, *, days, cache_dir,
                     del arr
             except (OSError, ValueError, json.JSONDecodeError) as exc:
                 log.warning("Zarr %s: cannot validate cache %s: %s", var, cache_path, exc)
+        # A longer, fully validated cache for the same forecast can serve a
+        # shorter integration without recomputing or copying ensemble means.
+        # Never modify the longer cache: use a read-only memmap slice.
+        longer_view = None
+        if not valid:
+            candidates = []
+            for candidate_meta in root.glob(f"FCST_R{run_date}_{first_date}-*_{var}_ensmean_*days.json"):
+                try:
+                    stored = json.loads(candidate_meta.read_text())
+                    stored_identity = json.loads(stored["identity"])
+                    requested_identity = json.loads(identity)
+                    stored_days = stored_identity.pop("days", None)
+                    requested_identity.pop("days", None)
+                    if stored_identity != requested_identity or not isinstance(stored_days, int) or stored_days <= days:
+                        continue
+                    if (stored.get("var") != var or stored.get("dims") != list(dims)
+                            or stored.get("ensemble_size") != meta["ensemble_size"]
+                            or stored.get("times", [])[:days] != meta["times"]
+                            or stored.get("shape", [])[1:] != list(shape[1:])
+                            or stored.get("shape", [None])[0] != stored_days):
+                        continue
+                    candidate_npy = candidate_meta.with_suffix(".npy")
+                    if not candidate_npy.is_file():
+                        continue
+                    candidates.append((stored_days, candidate_npy))
+                except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+                    continue
+            for longer_days, candidate_npy in sorted(candidates):
+                try:
+                    full = np.load(candidate_npy, mmap_mode="r", allow_pickle=False)
+                    if full.dtype == np.float32 and full.shape == (longer_days,) + shape[1:]:
+                        longer_view = full[:days]
+                        log.info("Zarr %s: reusing first %d days from read-only %d-day cache %s",
+                                 var, days, longer_days, candidate_npy)
+                        break
+                except (OSError, ValueError):
+                    log.warning("Zarr %s: unable to read longer cache %s", var, candidate_npy)
+        if longer_view is not None:
+            coords = {d: source[d] for d in dims if d in source.coords}
+            output[var] = xr.DataArray(longer_view, dims=dims, coords=coords, name=var)
+            continue
         if not valid:
             if cache_path.exists() or meta_path.exists():
                 log.warning("Zarr %s: cache invalid; see preceding cache-miss/mismatch details: %s", var, cache_path)
