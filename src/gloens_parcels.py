@@ -248,54 +248,6 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
              len(seed_lon), seed_lon.tolist(), seed_lat.tolist())
     log.warning("GLOENS time alignment check: model begins %s, drifter selection begins %s",
                 pd.Timestamp(ds.time.values[0]), pd.Timestamp(day))
-    # Probe initial U/V interpolation before ParticleSet construction. A single
-    # unlocatable seed must not abort the whole forecast cycle.
-    # Persist the original seed indices for exact observation matching.
-    import json
-    import os
-    original_seed_count = len(seed_lon)
-    retained_indices = []
-    rejected_seeds = []
-    probe_time = np.asarray([np.datetime64(ds.time.values[0])])
-    for i, (px, py) in enumerate(zip(seed_lon, seed_lat)):
-        if not np.isfinite(px) or not np.isfinite(py):
-            rejected_seeds.append((i, float(px), float(py), "nonfinite coordinate"))
-            continue
-        try:
-            components = fieldset.UV.eval(
-                probe_time, np.zeros(1, dtype=np.float64),
-                np.asarray([py]), np.asarray([px])
-            )
-            if not all(np.all(np.isfinite(np.asarray(c))) for c in components):
-                raise ValueError("nonfinite initial U/V")
-            retained_indices.append(i)
-        except Exception as exc:
-            rejected_seeds.append((i, float(px), float(py),
-                                   f"{type(exc).__name__}: {str(exc)[:160]}"))
-    if not retained_indices:
-        raise RuntimeError(
-            f"GLOENS: all {original_seed_count} initial seeds failed U/V lookup; "
-            "check FieldSet/grid configuration rather than discarding every seed"
-        )
-    if rejected_seeds:
-        log.warning("GLOENS: excluding %d/%d invalid initial seeds; first failures=%s",
-                    len(rejected_seeds), original_seed_count, rejected_seeds[:20])
-    retained_indices = np.asarray(retained_indices, dtype=np.int64)
-    seed_lon = seed_lon[retained_indices]
-    seed_lat = seed_lat[retained_indices]
-    # The sidecar is written before advection and read by Retrieve_traj_parquet.
-    # It prevents particle_id renumbering from silently corrupting comparisons.
-    seed_map_path = Path(output_path).with_suffix(".seed_indices.json")
-    seed_map_path.parent.mkdir(parents=True, exist_ok=True)
-    seed_map_tmp = seed_map_path.with_suffix(".seed_indices.json.tmp")
-    seed_map_tmp.write_text(json.dumps({
-        "original_seed_count": original_seed_count,
-        "original_indices": retained_indices.tolist(),
-        "rejected_seeds": rejected_seeds,
-    }))
-    os.replace(seed_map_tmp, seed_map_path)
-    log.info("GLOENS: initialized seed mapping %s (%d retained of %d)",
-             seed_map_path, len(seed_lon), original_seed_count)
     log.debug("GLOENS: initializing %d particles", len(lon0))
     try:
         if parcels_v4:
