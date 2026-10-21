@@ -265,30 +265,9 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         log.exception("GLOENS failure during ParticleSet initialization; see seed coordinates above")
         raise
     log.debug("GLOENS: particles initialized in %.1fs", time.monotonic() - started)
-    # Isolate initial velocity lookup from the first RK4 step. This is diagnostic
-    # only: do not silently discard observations or change the source mesh.
-    try:
-        probe_t = np.asarray([np.datetime64(ds.time.values[0])])
-        probe_z = np.zeros(1, dtype=np.float64)
-        probe_bad = []
-        probe_nonfinite = []
-        for idx, (px, py) in enumerate(zip(seed_lon, seed_lat)):
-            try:
-                uv = fieldset.UV.eval(
-                    probe_t, probe_z, np.asarray([py]), np.asarray([px])
-                )
-                if not all(np.all(np.isfinite(np.asarray(component))) for component in uv):
-                    probe_nonfinite.append(idx)
-            except Exception as exc:
-                probe_bad.append((idx, type(exc).__name__, str(exc)[:160]))
-        log.warning(
-            "GLOENS initial UV lookup: seeds=%d exceptions=%d nonfinite=%d; "
-            "first exceptions=%s; first nonfinite indices=%s",
-            len(seed_lon), len(probe_bad), len(probe_nonfinite),
-            probe_bad[:15], probe_nonfinite[:30],
-        )
-    except Exception:
-        log.exception("GLOENS initial UV lookup diagnostic unavailable (non-fatal)")
+    # Do not use fieldset.UV.eval as a Parcels 4 seed validity test:
+    # its API differs from the vectorized kernel and falsely rejected every seed.
+    # Actual grid-search failures are diagnosed during pset.execute below.
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
