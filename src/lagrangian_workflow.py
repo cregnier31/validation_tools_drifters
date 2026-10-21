@@ -125,7 +125,8 @@ def process_one_day(day, config_dict):
         obs_type,
         DRIFT_PATH,
         DIR_OUT,
-        log
+        log,
+        start_hour=12 if MODEL.upper() == "GLOENS" and leadtime == "FCST" else 0,
         )
     #if trajs_obs is None:
     if result is None:
