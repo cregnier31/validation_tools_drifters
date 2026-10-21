@@ -193,6 +193,21 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     ncdata = xr.open_dataset(f"{file_in}", decode_times=False)
 
 
+    # Requested plotting lead days can exceed available complete forecast days.
+    # A 10-day GLOENS run commonly provides only 9 complete daily scores.
+    available_days = int(ncdata[dict_variable[list_diags[0]]].shape[-1])
+    plot_days = [day for day in list_days if 1 <= day <= available_days]
+    skipped = [day for day in list_days if day not in plot_days]
+    if skipped:
+        log.warning("Skipping unavailable plot lead days %s (available: 1..%d)",
+                    skipped, available_days)
+    if not plot_days:
+        log.warning("No requested lead days available for plotting; skipping score maps")
+        ncdata.close()
+        return
+    list_days = plot_days
+    name_listdays = "_".join(map(str, list_days))
+
     nb_plots = 4
     nb_cols = 2
     nlines = 2
@@ -223,8 +238,12 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
                 varname = dict_variable[variable]
                 results = ncdata[varname][:, :, day-1]
                 #results = np.where(results == 0, np.nan, results)
-                log.debug(np.nanmax(results))
-                log.debug(np.nanmean(results))
+                if np.isfinite(results).any():
+                    log.debug(np.nanmax(results))
+                    log.debug(np.nanmean(results))
+                else:
+                    log.warning("No finite %s scores for lead day %d; skipping map panel", variable, day)
+                    continue
                 longitude = ncdata["lon"]
                 latitude = ncdata["lat"]
                 row_index = ind_day // nlines
@@ -255,7 +274,8 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
                             results.shape
                             )
                 print("Weighted mean value")
-                mean_value = np.nansum(results * weights) / np.nansum(weights * valid)
+                weight_sum = np.nansum(weights * valid)
+                mean_value = np.nansum(results * weights) / weight_sum if weight_sum > 0 else np.nan
                 #titre = f"{ech} {day} days (mean = {mean_value:.2f})"
                 titre = f"{ech} {day} days (mean = {global_score:.2f})"
                 map2d = plotmap(ax=ax_fig)
