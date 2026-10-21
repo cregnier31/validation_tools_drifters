@@ -132,7 +132,9 @@ def read_traj_compute_scores(day,
         initial_km[~paired[:, 0]] = np.nan
         initial_valid = initial_km[np.isfinite(initial_km)]
         n_particles = model_x.shape[0]
-        n_observed = len(np.unique(traj_drifter_id_temp[:, 0]))
+        # Count all original observed seeds, including those absent from Parquet.
+        import pandas as pd
+        n_observed = int(pd.read_csv(filename_drift, usecols=["id"])["id"].nunique())
         # Day 1 covers [t0, t0+24h), not the following calendar midnight.
         elapsed_hours = ((model_clock - model_clock[0])
                          / np.timedelta64(1, "h"))
@@ -144,7 +146,7 @@ def read_traj_compute_scores(day,
             writer.writerow(["lead_day", "seeded_drifters", "model_particles",
                              "particles_with_model_positions", "particles_with_observations",
                              "particles_with_valid_pairs", "valid_pairs", "possible_pairs",
-                             "missing_observation_percent", "truncated_model_particles",
+                             "missing_observation_percent", "particles_without_model_positions_this_day",
                              "initial_separation_median_km", "initial_separation_max_km"])
             for lead in np.unique(lead_days):
                 columns = lead_days == lead
