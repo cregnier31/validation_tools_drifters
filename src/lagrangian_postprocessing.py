@@ -77,7 +77,7 @@ def read_traj_compute_scores(day,
     traj_drifter_lon_temp,traj_drifter_lat_temp,traj_drifter_date_temp,\
         traj_drifter_time_temp,traj_drifter_id_temp,\
         nb_drifters_temp = Retrieve_drifters_traj(filename_drift,\
-        T_DRIFT, log, DRIFTER_type)
+        T_DRIFT, log, DRIFTER_type=DRIFTER_type)
     log.debug(f'Size drifters obs {np.shape(traj_drifter_lon_temp)}')
     # --------------------------------------------
     # Retrieve Model trajectories
@@ -142,7 +142,8 @@ def read_traj_compute_scores(day,
                                     traj_lon,
                                     traj_lat,
                                     length_drift,
-                                    log)
+                                    log,
+                                    model_times=traj_time[0, 0, 0, :] if parquet_files else None)
         log.debug(f"Dimensions observations subsampled raw : {np.shape(drifter_lon)}")
         log.debug(f'Dimensions model Parcels : {np.shape(traj_lon)}')
         if filtered:
