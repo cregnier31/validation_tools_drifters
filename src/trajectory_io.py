@@ -607,7 +607,7 @@ def Traj_filter_parcels(
     return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td, traj_lon, traj_lat
 
 
-def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
+def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids, observation_start=None):
     """Read Parcels 4 particle records as legacy (1, 1, particle, time) arrays.
 
     Parcels 4 particle_id is the zero-based initialization index, not the
@@ -671,7 +671,22 @@ def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids):
     lat2d = lat2d.reindex(index=particle_ids, columns=clock)
     lon = lon2d.to_numpy(dtype=float)[None, None, :, :]
     lat = lat2d.to_numpy(dtype=float)[None, None, :, :]
-    time_values = np.broadcast_to(clock, (1, 1, len(particle_ids), ntime))
+    # Parcels 4 writes elapsed seconds from the model initialization.
+    # Decode after pivoting: numeric values remain the pivot column labels.
+    if pd.api.types.is_numeric_dtype(df["t"]):
+        if observation_start is None:
+            raise ValueError("Numeric Parcels timestamps require observation_start")
+        origin = pd.Timestamp(observation_start)
+        if not np.isfinite(np.asarray(clock, dtype=float)).all():
+            raise ValueError("Nonfinite Parcels elapsed seconds")
+        if abs(float(clock[0])) > 1e-6:
+            raise ValueError("Relative Parcels output does not start at zero; cannot infer origin safely")
+        clock_absolute = (origin + pd.to_timedelta(clock, unit="s")).to_numpy(dtype="datetime64[ns]")
+        log.info("Parcels relative seconds decoded using observation start %s; first=%s last=%s",
+                 origin, clock_absolute[0], clock_absolute[-1])
+    else:
+        clock_absolute = pd.to_datetime(clock).to_numpy(dtype="datetime64[ns]")
+    time_values = np.broadcast_to(clock_absolute, (1, 1, len(particle_ids), ntime))
     ids = expected[observed_indices][None, None, :]
     missing = np.count_nonzero(~np.isfinite(lon) | ~np.isfinite(lat))
     short = int((df.groupby("particle_id").size() < ntime).sum())
