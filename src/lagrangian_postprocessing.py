@@ -100,6 +100,77 @@ def read_traj_compute_scores(day,
         nb_drifters_temp = len(particle_indices)
     else:
         traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod, log)
+    if parquet_files:
+        # Quality report before score-based filtering. The model particle IDs
+        # have already been mapped to their original observed drifter IDs.
+        import csv
+        from pathlib import Path
+        model_x = np.asarray(traj_lon[0, 0], dtype=float)
+        model_y = np.asarray(traj_lat[0, 0], dtype=float)
+        obs_x = np.asarray(traj_drifter_lon_temp, dtype=float)
+        obs_y = np.asarray(traj_drifter_lat_temp, dtype=float)
+        model_clock = np.asarray(traj_time[0, 0, 0]).astype("datetime64[ns]")
+        obs_clock = np.asarray(traj_drifter_time_temp[0]).astype("datetime64[ns]")
+        indices = np.searchsorted(obs_clock, model_clock)
+        matched = indices < len(obs_clock)
+        matched[matched] &= obs_clock[indices[matched]] == model_clock[matched]
+        aligned_x = np.full_like(model_x, np.nan)
+        aligned_y = np.full_like(model_y, np.nan)
+        aligned_x[:, matched] = obs_x[:, indices[matched]]
+        aligned_y[:, matched] = obs_y[:, indices[matched]]
+        finite_obs = np.isfinite(aligned_x) & np.isfinite(aligned_y)
+        finite_model = np.isfinite(model_x) & np.isfinite(model_y)
+        paired = finite_obs & finite_model
+        # Haversine separation at the exact first model timestamp.
+        lon_delta = np.deg2rad(((model_x[:, 0] - aligned_x[:, 0] + 180) % 360) - 180)
+        lat_delta = np.deg2rad(model_y[:, 0] - aligned_y[:, 0])
+        hav = (np.sin(lat_delta / 2) ** 2
+               + np.cos(np.deg2rad(model_y[:, 0]))
+               * np.cos(np.deg2rad(aligned_y[:, 0]))
+               * np.sin(lon_delta / 2) ** 2)
+        initial_km = 6371.0 * 2 * np.arcsin(np.sqrt(np.clip(hav, 0, 1)))
+        initial_km[~paired[:, 0]] = np.nan
+        initial_valid = initial_km[np.isfinite(initial_km)]
+        n_particles = model_x.shape[0]
+        n_observed = len(np.unique(traj_drifter_id_temp[:, 0]))
+        # Day 1 covers [t0, t0+24h), not the following calendar midnight.
+        elapsed_hours = ((model_clock - model_clock[0])
+                         / np.timedelta64(1, "h"))
+        lead_days = np.floor(elapsed_hours / 24).astype(int) + 1
+        report = Path(dir_work_mod) / f"Trajectory_quality_{MODEL}_{str_date_sim}.csv"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        with report.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["lead_day", "seeded_drifters", "model_particles",
+                             "particles_with_model_positions", "particles_with_observations",
+                             "particles_with_valid_pairs", "valid_pairs", "possible_pairs",
+                             "missing_observation_percent", "truncated_model_particles",
+                             "initial_separation_median_km", "initial_separation_max_km"])
+            for lead in np.unique(lead_days):
+                columns = lead_days == lead
+                obs_any = finite_obs[:, columns].any(axis=1)
+                model_any = finite_model[:, columns].any(axis=1)
+                pair_any = paired[:, columns].any(axis=1)
+                possible = int(n_particles * columns.sum())
+                writer.writerow([
+                    int(lead), n_observed, n_particles,
+                    int(model_any.sum()), int(obs_any.sum()), int(pair_any.sum()),
+                    int(paired[:, columns].sum()), possible,
+                    round(100 * (1 - finite_obs[:, columns].sum() / possible), 3)
+                    if possible else np.nan,
+                    int((~model_any).sum()),
+                    float(np.median(initial_valid)) if initial_valid.size else np.nan,
+                    float(np.max(initial_valid)) if initial_valid.size else np.nan,
+                ])
+        log.info("GLOENS trajectory quality report: %s; first-step matched=%d/%d, "
+                 "initial separation median=%s km max=%s km",
+                 report, len(initial_valid), n_particles,
+                 float(np.median(initial_valid)) if initial_valid.size else "NaN",
+                 float(np.max(initial_valid)) if initial_valid.size else "NaN")
+        if initial_valid.size and np.max(initial_valid) > 1.0:
+            log.warning("GLOENS initial model-observation separation exceeds 1 km; "
+                        "check seed ID/time alignment before interpreting scores")
+
     if nb_drifters_temp  != len(traj_IDS.squeeze()):
         drifter_traj_ids = np.unique(traj_IDS)
         traj_drifter_lon  = []
