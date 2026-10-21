@@ -90,7 +90,8 @@ def read_traj_compute_scores(day,
         # Observed rows retain the same sorted drifter order used at seeding.
         observed_ids = traj_drifter_id_temp[:, 0]
         traj_lon, traj_lat, traj_time, traj_IDS, particle_indices = Retrieve_traj_parquet(
-            MODEL, dir_work_mod, log, observed_ids)
+            MODEL, dir_work_mod, log, observed_ids,
+            observation_start=traj_drifter_time_temp[0, 0])
         # Align observations to particle order even if some particles are absent.
         traj_drifter_lon_temp = traj_drifter_lon_temp[particle_indices]
         traj_drifter_lat_temp = traj_drifter_lat_temp[particle_indices]
