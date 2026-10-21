@@ -22,12 +22,15 @@ def retrieve_drifters_for_one_day_traj(
     obs_type,
     drift_path,
     dir_out,
-    log
+    log,
+    start_hour=0,
 ):
     yyear = day.strftime("%Y")
 
     base_dir = ( drift_path + yyear + "/" )
     end_day = day + pd.Timedelta(days=T_DRIFT)
+    if not 0 <= start_hour < 24:
+        raise ValueError("start_hour must be between 0 and 23")
     nb_points = T_DRIFT * 24
 
     fout_driftersZone = f"Drifters_{str_region}_{str_date1}_{str_date2}.csv"
@@ -103,11 +106,11 @@ def retrieve_drifters_for_one_day_traj(
         df['date'] = df['time'].dt.floor('D')
         # Keep a fixed hourly grid, including missing days as NaN. Do not
         # interpolate observations: downstream statistics must mask gaps.
-        clock = pd.date_range(start=day, periods=nb_points, freq="h")
+        clock = pd.date_range(start=day + pd.Timedelta(hours=start_hour), periods=nb_points, freq="h")
         trajs = []
         rejected_no_start = 0
         for drifter_id, g in df.groupby("id", sort=True):
-            g = g[(g.time >= day) & (g.time < end_day)]
+            g = g[(g.time >= clock[0]) & (g.time <= clock[-1])]
             # Reject ambiguous duplicate observations rather than choosing one.
             if g.time.duplicated().any():
                 log.debug("Skipping drifter %s: duplicate observation timestamps", drifter_id)
@@ -125,9 +128,9 @@ def retrieve_drifters_for_one_day_traj(
                 "date": clock.floor("D").to_numpy(),
             })
         log.info(
-            "Observation hourly alignment %s: %d seeded drifters, "
+            "Observation hourly alignment %s (start hour %02d): %d seeded drifters, "
             "%d without valid initialization, %d missing hourly position pairs",
-            day.date(), len(trajs), rejected_no_start,
+            day.date(), start_hour, len(trajs), rejected_no_start,
             sum(int((~np.isfinite(t["lon"]) | ~np.isfinite(t["lat"])).sum())
                 for t in trajs),
         )
