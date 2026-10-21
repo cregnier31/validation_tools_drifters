@@ -477,8 +477,9 @@ def Traj_filter_parcels(
     traj_drifter_time,
     traj_lon,
     traj_lat,
-    length_drift, 
-    log
+    length_drift,
+    log,
+    model_times=None,
 ):
     """
     Align drifter trajectories onto model trajectory time grid.
@@ -518,6 +519,32 @@ def Traj_filter_parcels(
     # ----------------------------------------------------
     # Trim model value if it's greater that observation value
     # ----------------------------------------------------
+    if model_times is not None:
+        # Align by actual Parcels timestamps; do not average midnight-based bins.
+        model_clock = np.asarray(model_times).reshape(-1).astype("datetime64[ns]")
+        if len(model_clock) != Tm or np.any(np.isnat(model_clock)) or np.any(np.diff(model_clock) <= np.timedelta64(0, "ns")):
+            raise ValueError("Invalid Parcels model timestamp axis")
+        obs_clock = np.asarray(traj_drifter_time[0]).astype("datetime64[ns]")
+        if np.any(np.isnat(obs_clock)) or np.any(np.diff(obs_clock) <= np.timedelta64(0, "ns")):
+            raise ValueError("Invalid observation timestamp axis")
+        obs_indices = np.searchsorted(obs_clock, model_clock)
+        valid = obs_indices < len(obs_clock)
+        valid[valid] &= obs_clock[obs_indices[valid]] == model_clock[valid]
+        obs_lon = np.full((Nd, Tm), np.nan)
+        obs_lat = np.full((Nd, Tm), np.nan)
+        obs_dates = np.full((Nd, Tm), np.datetime64("NaT"), dtype="datetime64[ns]")
+        obs_times = np.broadcast_to(model_clock, (Nd, Tm)).copy()
+        obs_lon[:, valid] = traj_drifter_lon[:, obs_indices[valid]]
+        obs_lat[:, valid] = traj_drifter_lat[:, obs_indices[valid]]
+        obs_dates[:, valid] = np.asarray(traj_drifter_date)[:, obs_indices[valid]].astype("datetime64[ns]")
+        log.info("Parcels observation alignment: %d/%d exact timestamps; %d missing observation pairs",
+                 int(valid.sum()), Tm,
+                 int(np.count_nonzero(~np.isfinite(obs_lon) | ~np.isfinite(obs_lat))))
+        return (np.broadcast_to(obs_lon, traj_lon.shape),
+                np.broadcast_to(obs_lat, traj_lat.shape),
+                np.broadcast_to(obs_dates, traj_lat.shape),
+                np.broadcast_to(obs_times, traj_lat.shape),
+                Tm, Nd, Td, traj_lon, traj_lat)
     if Tm > length_drift:
         log.warning(
             f"Model time dimension ({Tm}) > drifter ({Td} and length_drift {length_drift}) -> trimming model"
