@@ -246,8 +246,16 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         log.warning("GLOENS: cannot inspect longitude bounds for periodic normalization: %s", exc)
     log.info("GLOENS seed coordinates: n=%d, lon=%s, lat=%s",
              len(seed_lon), seed_lon.tolist(), seed_lat.tolist())
-    log.warning("GLOENS time alignment check: model begins %s, drifter selection begins %s",
-                pd.Timestamp(ds.time.values[0]), pd.Timestamp(day))
+    model_start = pd.Timestamp(ds.time.values[0])
+    cycle_day = pd.Timestamp(day)
+    expected_start = cycle_day.normalize() + pd.Timedelta(hours=12)
+    if model_start != expected_start:
+        raise ValueError(
+            f"GLOENS noon initialization required: cycle {cycle_day.date()} "
+            f"expects {expected_start}, but loaded velocity data starts at {model_start}. "
+            "Correct the forecast time selection before launching particles."
+        )
+    log.info("GLOENS noon initialization verified: %s", model_start)
     log.debug("GLOENS: initializing %d particles", len(lon0))
     try:
         if parcels_v4:
