@@ -314,21 +314,28 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     else:
         log.info("GLOENS recovery disabled: strict error handling")
     log.info("GLOENS scheme=%s, dt=%s minutes, sampling=%s hours", scheme, dt_minutes, sampling_hours)
-    # Forecast has 28 daily timestamps, but only 27 days between them.
+    # Never silently shorten a requested drift: missing lead-day plots would
+    # otherwise look like a plotting bug instead of an incomplete simulation.
     times = ds.time.values.astype("datetime64[ns]")
     if len(times) < 2 or np.any(np.diff(times) <= np.timedelta64(0, "ns")):
         raise ValueError("Expected at least two increasing GLOENS forecast times")
     dt_seconds = timedelta(minutes=dt_minutes).total_seconds()
     if dt_seconds <= 0:
         raise ValueError("dt_minutes must be positive")
-    available_seconds = (times[-1] - times[0]) / np.timedelta64(1, "s")
-    # Stop one timestep before the last sample to avoid an out-of-range RK4 lookup.
-    steps = int(max(0, min(timedelta(days=drift_days).total_seconds(),
-                           available_seconds - dt_seconds)) // dt_seconds)
-    if steps == 0:
-        raise ValueError("Forecast time coverage is shorter than two timesteps")
-    runtime = timedelta(seconds=steps * dt_seconds)
-    log.info("GLOENS available %s to %s; requested %s days; running %s",
+    requested_seconds = timedelta(days=drift_days).total_seconds()
+    if requested_seconds <= 0 or not np.isclose(requested_seconds % dt_seconds, 0):
+        raise ValueError("Requested drift duration must be positive and divisible by dt")
+    available_seconds = float((times[-1] - times[0]) / np.timedelta64(1, "s"))
+    # Reserve one integration step for the final RK4 interpolation lookup.
+    if available_seconds - dt_seconds < requested_seconds:
+        raise ValueError(
+            f"GLOENS forecast covers {available_seconds / 86400:.3f} days "
+            f"({times[0]} to {times[-1]}), insufficient for the requested "
+            f"{drift_days} days plus one integration timestep. "
+            "Extend the loaded forecast window rather than truncating trajectories."
+        )
+    runtime = timedelta(seconds=requested_seconds)
+    log.info("GLOENS available %s to %s; requested %s days; running exactly %s",
              times[0], times[-1], drift_days, runtime)
     started = time.monotonic()
     try:
