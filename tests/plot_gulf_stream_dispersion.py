@@ -14,6 +14,9 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
 import pandas as pd
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from matplotlib.lines import Line2D
 
 
 def main():
@@ -24,7 +27,6 @@ def main():
                    metavar=("WEST", "EAST", "SOUTH", "NORTH"))
     p.add_argument("--fps", type=int, default=8)
     p.add_argument("--frame-hours", type=int, default=3)
-    p.add_argument("--tail-hours", type=int, default=48)
     p.add_argument("--output", default=None)
     args = p.parse_args()
     west, east, south, north = args.bounds
@@ -86,17 +88,36 @@ def main():
     model, obs = clipped(model), clipped(obs)
     print(f"Selected {len(chosen)} particles seeded inside {args.bounds}")
     print(f"Model timestamps: {model.time.min()} to {model.time.max()}")
-    fig, axes = plt.subplots(1, 2, figsize=(16, 7), sharex=True, sharey=True)
-    for ax, df, name, color in zip(
-            axes, [obs, model], ["Observed drifters", "GLOENS Parcels"], ["tab:blue", "tab:orange"]):
+    def setup_map(ax):
+        ax.set_extent([west, east, south, north], crs=ccrs.PlateCarree())
+        ax.add_feature(cfeature.LAND, facecolor="#deded8", edgecolor="black",
+                       linewidth=.6, zorder=5)
+        ax.coastlines(resolution="110m", linewidth=.6, zorder=6)
+        grid = ax.gridlines(draw_labels={"bottom": "x", "left": "y"},
+                            linewidth=.5, alpha=.35)
+        grid.top_labels = False
+        grid.right_labels = False
+
+    legend = [
+        Line2D([0], [0], color="tab:blue", lw=1.5, label="Observed track"),
+        Line2D([0], [0], color="tab:orange", lw=1.5, label="Model track"),
+        Line2D([0], [0], marker="o", color="tab:blue", linestyle="None",
+               markersize=5, label="Observed position"),
+        Line2D([0], [0], marker="o", color="tab:orange", linestyle="None",
+               markersize=5, label="Model position"),
+    ]
+    fig = plt.figure(figsize=(13, 8))
+    ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+    setup_map(ax)
+    for df, color in [(obs, "tab:blue"), (model, "tab:orange")]:
         for _, g in df.groupby("id", sort=False):
             g = g.sort_values("time")
-            ax.plot(g.lon.to_numpy(), g.lat.to_numpy(), color=color, alpha=.27, lw=.7)
-        ax.scatter(seeds.lon, seeds.lat, s=4, c="black", alpha=.45, label="Seed locations")
-        ax.set(xlim=(west, east), ylim=(south, north), xlabel="Longitude (°E)",
-               ylabel="Latitude (°N)", title=name)
-        ax.grid(alpha=.25)
-    fig.suptitle(f"Gulf Stream extension — all {len(chosen)} drifters — {args.cycle} +10 days")
+            ax.plot(g.lon.to_numpy(), g.lat.to_numpy(), color=color,
+                    alpha=.35, lw=.75, transform=ccrs.PlateCarree(), zorder=2)
+    ax.scatter(seeds.lon, seeds.lat, s=6, c="black", alpha=.6,
+               transform=ccrs.PlateCarree(), zorder=4)
+    ax.legend(handles=legend[:2], loc="lower left")
+    ax.set_title(f"Gulf Stream extension — all {len(chosen)} drifters — {args.cycle} +10 days")
     fig.tight_layout()
     fig.savefig(out / "all_tracks_observed_vs_model.png", dpi=180)
     plt.close(fig)
@@ -112,31 +133,37 @@ def main():
         return lo.to_numpy(dtype=float), la.to_numpy(dtype=float)
     ox, oy = matrix(obs)
     mx, my = matrix(model)
-    fig, axes = plt.subplots(1, 2, figsize=(15, 6), sharex=True, sharey=True)
-    scatters = []
+    fig = plt.figure(figsize=(13, 8))
+    ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+    setup_map(ax)
     trails = []
-    for ax, label, color in zip(axes, ["Observed", "GLOENS model"], ["tab:blue", "tab:orange"]):
-        ax.set(xlim=(west, east), ylim=(south, north), xlabel="Longitude (°E)",
-               ylabel="Latitude (°N)", title=label)
-        ax.grid(alpha=.2)
-        lines = [ax.plot([], [], lw=.7, alpha=.25, color=color)[0] for _ in chosen]
+    dots = []
+    for color in ["tab:blue", "tab:orange"]:
+        lines = [ax.plot([], [], color=color, lw=.8, alpha=.38,
+                         transform=ccrs.PlateCarree(), zorder=2)[0]
+                 for _ in sorted(chosen)]
         trails.append(lines)
-        scatters.append(ax.scatter([], [], s=10, color=color, alpha=.85))
-    title = fig.suptitle("")
+        dots.append(ax.scatter([], [], s=12, color=color, alpha=.9,
+                               transform=ccrs.PlateCarree(), zorder=4))
+    ax.legend(handles=legend, loc="lower left", ncol=2)
+    title = ax.set_title("")
     fig.tight_layout()
     frames = list(range(0, len(clock), args.frame_hours))
     if frames[-1] != len(clock) - 1:
         frames.append(len(clock) - 1)
+
     def update(i):
         idx = frames[i]
-        lo_idx = max(0, idx - args.tail_hours)
+        # Full trajectory history from launch, not just the last 48 hours.
+        # NaNs naturally break tracks where observations are missing.
         for panel, (xs, ys) in enumerate([(ox, oy), (mx, my)]):
             coords = np.column_stack([xs[:, idx], ys[:, idx]])
-            scatters[panel].set_offsets(coords)
+            dots[panel].set_offsets(coords)
             for row, line in enumerate(trails[panel]):
-                line.set_data(xs[row, lo_idx:idx+1], ys[row, lo_idx:idx+1])
-        title.set_text(f"Gulf Stream extension — {clock[idx]:%Y-%m-%d %H:%M} UTC — +{idx/24:.2f} days")
-        return scatters + [line for group in trails for line in group] + [title]
+                line.set_data(xs[row, :idx + 1], ys[row, :idx + 1])
+        title.set_text(f"Gulf Stream extension — {clock[idx]:%Y-%m-%d %H:%M} UTC"
+                       f" — +{idx / 24:.2f} days")
+        return dots + [line for group in trails for line in group] + [title]
     anim = FuncAnimation(fig, update, frames=len(frames), interval=1000 / args.fps, blit=False)
     anim.save(out / "dispersion_observed_vs_model.gif", writer=PillowWriter(fps=args.fps), dpi=95)
     plt.close(fig)
