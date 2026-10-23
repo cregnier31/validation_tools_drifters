@@ -68,7 +68,7 @@ def main():
                               ("F", ("glamf", "gphif")), ("T", ("glamt", "gphit"))]:
                 if not all(n in coords for n in pair):
                     continue
-                idx = nearest((coords[pair[0]], coords[pair[1]], lon, lat))
+                idx = nearest((coords[pair[0]], coords[pair[1]], lon, lat), lon, lat)
                 if idx is None:
                     continue
                 y, x = idx
