@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Read-only native-vs-Parcels velocity probe for four frozen GLOENS drifters.
 
-Requires an EXISTING velocity Zarr store with uo/vo and time,y,x dimensions.
+Requires existing read-only NumPy ensemble-mean velocity cache files.
 Does not run advection or write into the velocity cache.
 """
 import argparse
@@ -140,38 +140,32 @@ def main():
                     print(f"  Parcels {attr}: {float(a[y,x]):.6f}")
                 else:
                     print(f"  Parcels {attr}: unexpected shape {a.shape}")
-        # Parcels 4.x removed FieldSet.from_xarray_dataset(). Probe an
-        # independent non-SGRID constructor without changing production.
-        print("\\n=== Direct fieldset comparison (Parcels 4 compatible) ===")
-        print("from_xarray_dataset available:",
-              hasattr(parcels.FieldSet, "from_xarray_dataset"))
-        try:
-            direct_fieldset = parcels.FieldSet.from_data(
-                data={
-                    "U": np.asarray(surfaces["U"].values)[:, np.newaxis, :, :],
-                    "V": np.asarray(surfaces["V"].values)[:, np.newaxis, :, :],
-                },
-                dimensions={
-                    "lon": np.asarray(fcoords["glamf"]),
-                    "lat": np.asarray(fcoords["gphif"]),
-                    "time": np.asarray(surfaces["U"].time.values),
-                },
-                mesh="spherical",
-                allow_time_extrapolation=False,
-            )
-            print("Direct FieldSet constructed successfully")
-            for ident, (lon, lat) in SEEDS.items():
-                try:
-                    t = float(direct_fieldset.U.grid.time[0])
-                    u = direct_fieldset.U.eval(t, 0.0, lat, lon)
-                    v = direct_fieldset.V.eval(t, 0.0, lat, lon)
-                    print(f"{ident}: direct U={u!r}, V={v!r}")
-                except Exception as exc:
-                    print(f"{ident}: sampling failed: {type(exc).__name__}: {exc}")
-        except Exception as exc:
-            print(f"Direct constructor unavailable or failed: {type(exc).__name__}: {exc}")
-        print("Direct coordinates are F-points: this is a diagnostic, not a "
-              "validated replacement for staggered NEMO interpolation.")
+        # Discover the installed Parcels 4 API rather than guessing constructors.
+        import inspect
+        print("\\n=== Installed Parcels fieldset API discovery ===")
+        print("Parcels version:", parcels.__version__)
+        print("FieldSet constructors:")
+        for name in sorted(n for n in dir(parcels.FieldSet)
+                           if n.startswith("from_")):
+            method = getattr(parcels.FieldSet, name)
+            try:
+                signature = str(inspect.signature(method))
+            except (TypeError, ValueError):
+                signature = "(signature unavailable)"
+            print(f"  {name}{signature}")
+        print("Field constructors:")
+        for name in sorted(n for n in dir(parcels.Field)
+                           if n.startswith("from_")):
+            method = getattr(parcels.Field, name)
+            try:
+                signature = str(inspect.signature(method))
+            except (TypeError, ValueError):
+                signature = "(signature unavailable)"
+            print(f"  {name}{signature}")
+        print("FieldSet signature:", inspect.signature(parcels.FieldSet))
+        print("Field signature:", inspect.signature(parcels.Field))
+        print("Direct comparison deferred until an installed constructor "
+              "and its required inputs are verified.")
         print("Parcels version:", parcels.__version__)
         for comp in ("U", "V"):
             field = getattr(fieldset, comp)
