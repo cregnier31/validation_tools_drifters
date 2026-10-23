@@ -354,8 +354,7 @@ def read_traj_compute_scores(day,
             liu_score[..., :usable].reshape(newshape),
             axis=-1
         )
-        # Compute skill score with the assumption of n=1
-        #skill_score = 1-liu_daily
+        # LiuScore2 returns bounded Liu skill (1=perfect, 0=no skill).
         skill_score = liu_daily
 
     # Preserve incomplete trajectories: missing observations/model points
