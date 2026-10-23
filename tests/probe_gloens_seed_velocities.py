@@ -339,6 +339,35 @@ def main():
                             pset.t, pset.z, pset.y, pset.x)
                         print("DIAGNOSTIC corrected-coordinate UV:",
                               repr(fixed_uv))
+                        # Geographic velocity units are degrees/s on a
+                        # spherical mesh; convert for comparison to native m/s.
+                        u_deg = float(np.asarray(fixed_uv[0]).ravel()[0])
+                        v_deg = float(np.asarray(fixed_uv[1]).ravel()[0])
+                        lat_rad = np.deg2rad(lat)
+                        u_ms = u_deg * 111320.0 * np.cos(lat_rad)
+                        v_ms = v_deg * 111320.0
+                        print("DIAGNOSTIC corrected-coordinate UV approx m/s:",
+                              u_ms, v_ms)
+                        from parcels._core.field import _get_positions
+                        for component in ("U", "V"):
+                            fld = getattr(corrected_fieldset, component)
+                            _, gp_fixed = _get_positions(
+                                fld, pset.t, np.atleast_1d(pset.z),
+                                np.atleast_1d(pset.y), np.atleast_1d(pset.x),
+                                None, None)
+                            jy = int(np.asarray(gp_fixed["Y"]["index"]).ravel()[0])
+                            ix = int(np.asarray(gp_fixed["X"]["index"]).ravel()[0])
+                            print(f"DIAGNOSTIC {component} corrected lookup:",
+                                  (jy, ix), "native nearest:",
+                                  (row[f"{component}_native_y"],
+                                   row[f"{component}_native_x"]))
+                            print(f"DIAGNOSTIC {component} corrected lookup weights:",
+                                  float(np.asarray(gp_fixed["Y"]["bcoord"]).ravel()[0]),
+                                  float(np.asarray(gp_fixed["X"]["bcoord"]).ravel()[0]))
+                            print(f"DIAGNOSTIC {component} corrected 2x2 values:",
+                                  np.asarray(fld.data.isel(time=0, depth=0,
+                                      **{("y_center" if component == "U" else "y"): slice(jy,jy+2),
+                                         ("x" if component == "U" else "x_center"): slice(ix,ix+2)}).values).tolist())
                     except Exception as exc:
                         print("DIAGNOSTIC corrected-coordinate error:",
                               type(exc).__name__, str(exc))
