@@ -33,6 +33,7 @@ def main():
     ap.add_argument("--root", default="/scratch/cregnier/WORK_lagrangian/AdvectionRK4/DRIFT_GLOENS")
     ap.add_argument("--extent", nargs=4, type=float, metavar=("WEST","EAST","SOUTH","NORTH"),
                     default=[-82, -62, 27, 41])
+    ap.add_argument("--global", dest="global_view", action="store_true", help="Show full global iORCA025 mask")
     args = ap.parse_args()
     with xr.open_dataset(args.meshmask, engine="netcdf4") as ds:
         lon_name = "glamt" if "glamt" in ds else "nav_lon"
@@ -43,14 +44,14 @@ def main():
         lat = surface(ds[lat_name])
         wet = surface(ds["tmask"])
     west,east,south,north = args.extent
-    region = (lon >= west-1) & (lon <= east+1) & (lat >= south-1) & (lat <= north+1)
+    region = np.ones(lon.shape, dtype=bool) if args.global_view else ((lon >= west-1) & (lon <= east+1) & (lat >= south-1) & (lat <= north+1))
     yy,xx = np.where(region)
     if len(yy)==0:
         ap.error("No NEMO cells in requested extent")
     ys = slice(max(0,yy.min()-2), min(lon.shape[0],yy.max()+3))
     xs = slice(max(0,xx.min()-2), min(lon.shape[1],xx.max()+3))
     lon,lat,wet = lon[ys,xs],lat[ys,xs],wet[ys,xs]
-    fig,ax = plt.subplots(figsize=(12,9),layout="constrained")
+    fig,ax = plt.subplots(figsize=(17,8) if args.global_view else (12,9),layout="constrained")
     cmap = ListedColormap(["#c8b99e","#a9d8ed"])
     ax.pcolormesh(lon,lat,np.where(np.isfinite(wet),wet,np.nan),
                   cmap=cmap,vmin=0,vmax=1,shading="auto",rasterized=True)
@@ -59,7 +60,10 @@ def main():
         ax.annotate(identifier,(x,y),xytext=(7,8),textcoords="offset points",
                     fontsize=10,fontweight="bold",color="#8b1414",zorder=6,
                     bbox=dict(facecolor="white",alpha=.78,edgecolor="none",pad=1))
-    ax.set_xlim(west,east);ax.set_ylim(south,north)
+    if args.global_view:
+        ax.set_xlim(-180,180);ax.set_ylim(-85,90)
+    else:
+        ax.set_xlim(west,east);ax.set_ylim(south,north)
     ax.set_xlabel("Longitude (°E)");ax.set_ylabel("Latitude (°N)")
     ax.set_title(f"NEMO T-point surface mask and frozen drifters | GLOENS {args.cycle}")
     ax.grid(alpha=.2)
@@ -72,7 +76,7 @@ def main():
     matches = list(root.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift10_dt5_{args.cycle}-{args.cycle}/ZONE_*/{args.cycle}"))
     out = (matches[0] / "gulf_stream_extension") if len(matches)==1 else Path.cwd()
     out.mkdir(parents=True,exist_ok=True)
-    path = out / "nemo_tmask_stuck_particles.png"
+    path = out / ("nemo_tmask_global_stuck_particles.png" if args.global_view else "nemo_tmask_stuck_particles.png")
     fig.savefig(path,dpi=200)
     plt.close(fig)
     print("Saved:",path)
