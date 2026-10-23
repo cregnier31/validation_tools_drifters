@@ -96,8 +96,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default="/scratch/cregnier/WORK_lagrangian/AdvectionRK4/DRIFT_GLOENS")
     ap.add_argument("--drift-days", type=int, default=15)
-    ap.add_argument("--frame-hours", type=int, default=12)
-    ap.add_argument("--max-tracks-per-cycle", type=int, default=120,
+    ap.add_argument("--frame-hours", type=int, default=3)
+    ap.add_argument("--max-tracks-per-cycle", type=int, default=0,
                     help="Limit displayed tracks per cycle for manageable rendering; 0=all")
     ap.add_argument("--output", default="outputs/gulf_stream_all_cycles_2024.gif")
     ap.add_argument("--cycles", nargs="+", default=CYCLES)
@@ -146,17 +146,38 @@ def main():
                         transform=ccrs.PlateCarree(), label="Observed")
     ax.add_collection(ml)
     ax.add_collection(ol)
+    model_points = ax.scatter([], [], s=9, color="tab:blue", label="GLOENS model", transform=ccrs.PlateCarree(), zorder=5)
+    obs_points = ax.scatter([], [], s=9, color="tab:orange", label="Observed drifters", transform=ccrs.PlateCarree(), zorder=6)
     ax.legend(loc="lower right")
     stamp = ax.text(.02, .97, "", transform=ax.transAxes, va="top",
                     bbox=dict(facecolor="white", alpha=.85, edgecolor="none"))
+
+    df = df.sort_values(["cycle", "id", "time"])
+    tracks = list(df.groupby(["cycle", "id"], sort=False))
+
+    def positions_at(frame, prefix):
+        points = []
+        for _, track in tracks:
+            prior = track[track.time <= frame]
+            if prior.empty:
+                continue
+            last = prior.iloc[-1]
+            if frame - last.time > pd.Timedelta(hours=1.01):
+                continue
+            x, y = last[prefix + "_lon"], last[prefix + "_lat"]
+            if np.isfinite(x) and np.isfinite(y) and REGION[0] <= x <= REGION[1] and REGION[2] <= y <= REGION[3]:
+                points.append((x, y))
+        return np.asarray(points, dtype=float).reshape(-1, 2)
 
     def update(frame):
         now = np.datetime64(frame.to_datetime64(), "ns")
         ml.set_segments(model_segs[model_times <= now])
         ol.set_segments(obs_segs[obs_times <= now])
+        model_points.set_offsets(positions_at(frame, "model"))
+        obs_points.set_offsets(positions_at(frame, "obs"))
         active = sum(pd.Timestamp(c) + pd.Timedelta(hours=12) <= frame for c in args.cycles)
         stamp.set_text(f"{frame:%Y-%m-%d %H:%M} UTC  |  cycles started: {active}/{len(args.cycles)}")
-        return ml, ol, stamp
+        return ml, ol, model_points, obs_points, stamp
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
