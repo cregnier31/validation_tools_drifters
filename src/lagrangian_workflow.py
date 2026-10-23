@@ -162,6 +162,16 @@ def process_one_day(day, config_dict):
         else f_traj if os.path.exists(f_traj)
         else None
     )
+    if existing_traj is not None and config_info.get("remove_old_particules", False):
+        # Remove only the exact trajectory artifact for this experiment/cycle.
+        # Never touch cached velocities, observation inputs, or other cycles.
+        import shutil
+        if os.path.isdir(existing_traj):
+            shutil.rmtree(existing_traj)
+        else:
+            os.remove(existing_traj)
+        log.warning("Removed old trajectory output: %s", existing_traj)
+        existing_traj = None
     if existing_traj is None:
         #return 'skipped'
         log.debug(f"\nProcessing drift with parcel for {day}")
