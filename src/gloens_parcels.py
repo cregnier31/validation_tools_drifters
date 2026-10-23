@@ -365,6 +365,37 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
                       times[0], times[-1])
         _diagnose_particle_failure(pset, seed_lon, seed_lat, log, output_path, error)
         raise
+    # Diagnostic only: never infer successful integration from execute() returning.
+    # Inspect the actual Parquet clock before downstream validation.
+    try:
+        import pandas as _pd
+        _output_df = _pd.read_parquet(output_path, columns=["t", "particle_id", "x", "y"])
+        _clock = _output_df["t"].dropna()
+        _unique_times = _clock.nunique()
+        _counts = _output_df.groupby("particle_id").size()
+        log.warning(
+            "GLOENS post-execute trajectory diagnostics: rows=%d particles=%d "
+            "unique_times=%d first_time=%s last_time=%s "
+            "min_records_per_particle=%d max_records_per_particle=%d",
+            len(_output_df), _output_df["particle_id"].nunique(),
+            _unique_times, str(_clock.min()) if len(_clock) else "NONE",
+            str(_clock.max()) if len(_clock) else "NONE",
+            int(_counts.min()) if len(_counts) else 0,
+            int(_counts.max()) if len(_counts) else 0,
+        )
+        if _unique_times < 2:
+            raise RuntimeError(
+                "GLOENS Parcels produced fewer than two trajectory timestamps "
+                "despite execute() returning; inspect recovery kernel and output writer"
+            )
+    except RuntimeError:
+        raise
+    except Exception:
+        log.exception("GLOENS failed to inspect Parcels Parquet output after execute")
+        raise
+    _states, _state_counts = np.unique(np.asarray(pset.state), return_counts=True)
+    log.warning("GLOENS post-execute particle states: %s",
+                dict(zip([int(x) for x in _states], [int(x) for x in _state_counts])))
     if recover_failed:
         survivors = len(pset.x)
         removed = len(seed_lon) - survivors
