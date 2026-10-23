@@ -82,6 +82,69 @@ def main():
                     values, counts = np.unique(a, return_counts=True)
                     print(f"RAW {name}: mask values="
                           f"{dict(zip(values.tolist(), counts.tolist()))}")
+        # Focused raw-mask audit. Strict binary comparisons avoid treating
+        # anomalous bytes as wet ocean. Read-only; no mesh modifications.
+        print("\\n=== Strict binary mask consistency audit ===")
+        with xr.open_dataset(args.meshmask, engine="netcdf4",
+                             decode_cf=False) as raw_masks:
+            mask_arrays = {}
+            for name in ("tmask", "umask", "vmask", "fmask"):
+                da = raw_masks[name]
+                for dim in da.dims:
+                    if dim not in ("y", "x"):
+                        da = da.isel({dim: 0})
+                a = np.asarray(da.values)
+                mask_arrays[name] = a
+                binary = (a == 0) | (a == 1)
+                anomalous = ~binary
+                yy, xx = np.where(anomalous)
+                print(f"STRICT {name}: wet_eq_1={int((a == 1).sum())}, "
+                      f"dry_eq_0={int((a == 0).sum())}, "
+                      f"nonbinary={int(anomalous.sum())}")
+                print(f"STRICT {name}: nonbinary_rows_top10="
+                      f"{sorted(zip(*np.unique(yy, return_counts=True)), key=lambda v: -v[1])[:10]}")
+                print(f"STRICT {name}: nonbinary_cols_top10="
+                      f"{sorted(zip(*np.unique(xx, return_counts=True)), key=lambda v: -v[1])[:10]}")
+                print(f"STRICT {name}: nonbinary_first10="
+                      f"{[(int(y), int(x), int(a[y,x])) for y,x in zip(yy[:10],xx[:10])]}")
+            f_zero = ((np.asarray(raw_masks["glamf"].isel(time_counter=0).values) == 0) &
+                      (np.asarray(raw_masks["gphif"].isel(time_counter=0).values) == 0))
+            for name, a in mask_arrays.items():
+                print(f"STRICT {name}: Fzero_and_eq1={int((f_zero & (a == 1)).sum())}, "
+                      f"Fzero_and_eq0={int((f_zero & (a == 0)).sum())}, "
+                      f"Fzero_and_nonbinary={int((f_zero & (a != 0) & (a != 1)).sum())}")
+            for ident, (seed_lon, seed_lat) in SEEDS.items():
+                valid = np.isfinite(np.asarray(raw_masks["glamf"].isel(time_counter=0).values))
+                flon = np.asarray(raw_masks["glamf"].isel(time_counter=0).values)
+                flat = np.asarray(raw_masks["gphif"].isel(time_counter=0).values)
+                valid &= np.isfinite(flat) & ~f_zero
+                tree = cKDTree(xyz(flon[valid], flat[valid]))
+                flat_index = np.flatnonzero(valid)[tree.query(xyz(
+                    np.array([seed_lon]), np.array([seed_lat]))[0])[1]]
+                jy, ix = np.unravel_index(flat_index, flon.shape)
+                print(f"STRICT seed {ident}: nearest_valid_F_cell={(int(jy),int(ix))}, "
+                      f"mask_values={{{', '.join(f'{n}: {int(a[jy,ix])}' for n,a in mask_arrays.items())}}}")
+        try:
+            import h5netcdf
+        except ImportError:
+            print("STRICT h5netcdf: not installed; comparison skipped")
+        else:
+            try:
+                with xr.open_dataset(args.meshmask, engine="h5netcdf",
+                                     decode_cf=False) as alt:
+                    for name in ("tmask", "umask", "vmask", "fmask"):
+                        da = alt[name]
+                        for dim in da.dims:
+                            if dim not in ("y", "x"):
+                                da = da.isel({dim: 0})
+                        other = np.asarray(da.values)
+                        base = mask_arrays[name]
+                        print(f"STRICT h5netcdf {name}: exact_equal="
+                              f"{bool(np.array_equal(base,other))}, "
+                              f"different={int(np.count_nonzero(base != other))}")
+            except Exception as exc:
+                print("STRICT h5netcdf comparison unavailable:",
+                      type(exc).__name__, str(exc))
         # Audit whether zero F coordinates are associated with masks and
         # whether other staggered coordinates retain information there.
         print("\\n=== Meshmask coordinate/mask audit ===")
