@@ -236,9 +236,11 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
             for ind_day, day in enumerate(list_days):
                 log.debug(f"Day {day}")
                 varname = dict_variable[variable]
-                results = np.asarray(ncdata[varname][:, :, day-1], dtype=float).copy()
+                # Keep the xarray DataArray: area_weighted_mean needs its
+                # latitude coordinate (results.lat) for geographic weights.
+                results = ncdata[varname].isel({ncdata[varname].dims[-1]: day - 1}).copy()
                 if variable == "Nobs":
-                    results[results <= 0] = np.nan  # empty bins are missing on maps
+                    results = results.where(results > 0)  # mask empty bins
                 if np.isfinite(results).any():
                     log.debug(np.nanmax(results))
                     log.debug(np.nanmean(results))
