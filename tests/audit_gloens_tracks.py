@@ -106,7 +106,10 @@ def main():
     scored["step_error"] = scored.sep_km.where(good_step, 0.0)
     scored["cum_path"] = scored.groupby("id").step_path.cumsum()
     scored["cum_error"] = scored.groupby("id").step_error.cumsum()
-    scored["liu_skill"] = (1 - scored.cum_error / scored.cum_path).clip(lower=0, upper=1)
+    # NCLS denominator: sum of cumulative observed trajectory lengths.
+    scored["path_for_normalizer"] = scored.cum_path.where(good_step, 0.0)
+    scored["ncls_denominator"] = scored.groupby("id").path_for_normalizer.cumsum()
+    scored["liu_skill"] = (1 - scored.cum_error / scored.ncls_denominator).clip(lower=0, upper=1)
     scored.loc[~good_step | (scored.cum_path <= 0), "liu_skill"] = np.nan
     liu_hourly = scored.groupby("hour").liu_skill.agg(
         median="median", mean="mean", count="count").reset_index()
