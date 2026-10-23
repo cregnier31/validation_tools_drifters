@@ -151,13 +151,21 @@ def build_runtime_config(args, config_path, drift_days=None):
         f"{DATE_END.strftime('%Y%m%d')}"
     )
 
+    # Keep opt-in geometry validation products separate from baseline products.
+    output_tag = os.environ.get("GLOENS_OUTPUT_TAG", "").strip() if SYSTEM.upper() == "GLOENS" else ""
+    if output_tag:
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", output_tag):
+            raise ValueError("GLOENS_OUTPUT_TAG must contain only letters, digits, _ or -")
+        EXP_NAME += f"_{output_tag}"
     config_info["EXP_NAME"] = EXP_NAME
 
     # ------------------------------------------
     # 7. Output directory
     # ------------------------------------------
-    dir_out_data = config_info['dir_data'] + scheme + f"/drift{length_time}/"
-    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/"
+    output_subdir = f"{output_tag}/" if output_tag else ""
+    dir_out_data = config_info['dir_data'] + scheme + f"/drift{length_time}/" + output_subdir
+    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/" + output_subdir
     if not os.path.exists(dir_out_imgs):
         print(f'\ncreate folder : {dir_out_imgs}')
         # Create directory where to store images:
