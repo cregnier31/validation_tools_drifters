@@ -169,6 +169,16 @@ def main():
         print("U grid numeric time endpoints:",
               float(fieldset.U.grid.time[0]), float(fieldset.U.grid.time[-1]))
         print("U grid time_origin:", repr(getattr(fieldset.U.grid, "time_origin", None)))
+        print("UV __getitem__ implementation:")
+        try:
+            print(inspect.getsource(type(fieldset.UV).__getitem__))
+        except (OSError, TypeError) as exc:
+            print("Source unavailable:", exc)
+        print("U eval implementation:")
+        try:
+            print(inspect.getsource(fieldset.U.eval))
+        except (OSError, TypeError) as exc:
+            print("Source unavailable:", exc)
         print("FieldSet signature:", inspect.signature(parcels.FieldSet))
         print("Field signature:", inspect.signature(parcels.Field))
         print("Direct comparison deferred until an installed constructor "
