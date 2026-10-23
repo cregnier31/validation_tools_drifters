@@ -106,6 +106,38 @@ def main():
                              model_last_lon=m.lon.iloc[-1] if len(m) else np.nan,
                              model_last_lat=m.lat.iloc[-1] if len(m) else np.nan))
     pd.DataFrame(coverage).to_csv(out / "particle_coverage.csv", index=False)
+    # Diagnose coastal model stagnation from existing hourly tracks.
+    # Uses observed launch position to identify coastal candidates.
+    coastal = []
+    for identifier in sorted(chosen):
+        m = model[model.id == identifier].sort_values("time")
+        o = obs[obs.id == identifier].sort_values("time")
+        m = m[np.isfinite(m.lon) & np.isfinite(m.lat)]
+        o = o[np.isfinite(o.lon) & np.isfinite(o.lat)]
+        if m.empty or o.empty:
+            continue
+        first = o.iloc[0]
+        if not (-81 <= first.lon <= -65 and 29 <= first.lat <= 42):
+            continue
+        # Displacement relative to the first available position, not
+        # path length; include both displacement and final sampling time.
+        def displacement_km(d):
+            lat0 = np.deg2rad(float(d.lat.iloc[0]))
+            lat1 = np.deg2rad(float(d.lat.iloc[-1]))
+            dlat = lat1 - lat0
+            dlon = np.deg2rad(float(d.lon.iloc[-1] - d.lon.iloc[0]))
+            h = np.sin(dlat / 2)**2 + np.cos(lat0)*np.cos(lat1)*np.sin(dlon / 2)**2
+            return 12742 * np.arcsin(np.sqrt(np.clip(h, 0, 1)))
+        coastal.append(dict(
+            id=identifier, seed_lon=float(first.lon), seed_lat=float(first.lat),
+            model_displacement_km=displacement_km(m),
+            observed_displacement_km=displacement_km(o),
+            model_samples=len(m), observed_samples=len(o),
+            model_last_time=m.time.iloc[-1], observed_last_time=o.time.iloc[-1]))
+    coastal_report = pd.DataFrame(coastal)
+    coastal_report.to_csv(out / "coastal_particle_diagnostics.csv", index=False)
+    print("Coastal diagnostics:", out / "coastal_particle_diagnostics.csv")
+
     print("Particle coverage:", out / "particle_coverage.csv")
     model, obs = clipped(model), clipped(obs)
     print(f"Selected {len(chosen)} particles seeded inside {args.bounds}")
