@@ -29,13 +29,15 @@ def main():
     ap.add_argument("--root", default="/scratch/cregnier/WORK_lagrangian/AdvectionRK4/DRIFT_GLOENS")
     ap.add_argument("--output", default=None)
     ap.add_argument("--max-tracks", type=int, default=12)
+    ap.add_argument("--gulf-stream-animation", action="store_true", help="Create Gulf Stream zoom GIF from existing model/observations")
+    ap.add_argument("--frame-hours", type=int, default=6, help="Hours between animation frames")
     args = ap.parse_args()
     base = Path(args.root)
-    candidates = sorted(base.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift10_dt5_{args.cycle}-{args.cycle}/ZONE_*/{args.cycle}"))
+    candidates = sorted(base.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift10_dt5_{args.cycle}-{args.cycle}*/ZONE_*/{args.cycle}"))
     if len(candidates) != 1:
         raise SystemExit(f"Expected one cycle directory; found {len(candidates)}: {candidates}")
     cycle_dir = candidates[0]
-    pq = list(cycle_dir.glob("Trajectories_GLOENS_*at_SVPloc*.parquet"))
+    pq = sorted(cycle_dir.glob("Trajectories_GLOENS_*at_SVPloc*.parquet"))
     obsfiles = list((cycle_dir.parent / "DRIFTERS").glob("Drifters_*.csv"))
     if len(pq) != 1 or len(obsfiles) != 1:
         raise SystemExit(f"Expected one Parquet and one observation CSV: parquet={pq}, observations={obsfiles}")
@@ -164,6 +166,41 @@ def main():
     segments.loc[segments.dt_h <= 0, "speed_kmh"] = np.nan
     segments.sort_values("speed_kmh", ascending=False).head(30)[
         ["id", "time", "model_lon", "model_lat", "speed_kmh"]].to_csv(out / "fastest_segments.csv", index=False)
+
+    if args.gulf_stream_animation:
+        from matplotlib.animation import FuncAnimation, PillowWriter
+        if args.frame_hours < 1:
+            raise SystemExit("--frame-hours must be positive")
+        # Animate only existing paired records; never interpolate across gaps.
+        region = (-80, -40, 25, 50)
+        anim_data = merged.copy()
+        for prefix in ("model", "obs"):
+            anim_data[prefix + "_lon"] = ((anim_data[prefix + "_lon"] + 180) % 360) - 180
+        frames = np.arange(0, 241, args.frame_hours)
+        fig, ax = plt.subplots(figsize=(11, 7))
+        ax.set(xlim=region[:2], ylim=region[2:], xlabel="Longitude (degrees east)",
+               ylabel="Latitude (degrees north)",
+               title=f"GLOENS {args.cycle}: Gulf Stream drifters")
+        ax.grid(alpha=.25)
+        model_scatter = ax.scatter([], [], s=11, c="tab:blue", label="GLOENS model", alpha=.7)
+        obs_scatter = ax.scatter([], [], s=11, c="tab:orange", label="Observed", alpha=.7)
+        ax.legend(loc="lower right")
+        stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top")
+        def update(hour):
+            at = anim_data[np.isclose(anim_data.hour.to_numpy(), hour)]
+            for scatter, prefix in ((model_scatter, "model"), (obs_scatter, "obs")):
+                xy = at[[prefix + "_lon", prefix + "_lat"]].to_numpy(dtype=float)
+                xy = xy[np.isfinite(xy).all(axis=1)]
+                xy = xy[(xy[:, 0] >= region[0]) & (xy[:, 0] <= region[1]) &
+                        (xy[:, 1] >= region[2]) & (xy[:, 1] <= region[3])]
+                scatter.set_offsets(xy.reshape(-1, 2))
+            stamp_text.set_text(f"Lead: {hour / 24:.2f} days")
+            return model_scatter, obs_scatter, stamp_text
+        animation = FuncAnimation(fig, update, frames=frames, interval=180, blit=False)
+        gif_path = out / "gulf_stream_zoom.gif"
+        animation.save(gif_path, writer=PillowWriter(fps=5), dpi=110)
+        plt.close(fig)
+        print("Saved Gulf Stream animation:", gif_path)
 
     print("Cycle:", args.cycle, "start:", start, "model end:", raw.time.max())
     print("Seeded:", len(ids), "model IDs:", raw.id.nunique())
