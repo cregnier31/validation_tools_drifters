@@ -217,9 +217,11 @@ def main():
                 print(f"\\n=== Sampling state for {ident} ===")
                 print("particle t:", repr(pset.t), "z:", repr(pset.z))
                 print("particle x:", repr(pset.x), "y:", repr(pset.y))
-                for attr in ("state", "ei", "xi", "yi", "zi", "ti"):
-                    if hasattr(pset, attr):
+                for attr in ("state", "ei"):
+                    try:
                         print(f"particle {attr}:", repr(getattr(pset, attr)))
+                    except (AttributeError, KeyError) as exc:
+                        print(f"particle {attr} unavailable: {exc}")
                 try:
                     direct_uv = fieldset.UV.eval(pset.t, pset.z, pset.y, pset.x)
                     print("UV.eval without particles:", repr(direct_uv))
