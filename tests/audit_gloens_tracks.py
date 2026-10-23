@@ -45,6 +45,7 @@ def main():
     raw = pd.read_parquet(pq[0], columns=["particle_id", "t", "x", "y"])
     obs = pd.read_csv(obsfiles[0], usecols=["id", "time", "lon", "lat"])
     obs["time"] = pd.to_datetime(obs["time"])
+    obs.loc[(obs["lon"] == 0) & (obs["lat"] == 0), ["lon", "lat"]] = np.nan
     obs["id"] = obs["id"].astype(str)
     ids = sorted(obs["id"].unique(), key=lambda x: int(x) if x.lstrip("-").isdigit() else x)
     # Parcels particle_id is the original sorted seed index unless a seed map exists.
@@ -92,6 +93,32 @@ def main():
            title=f"GLOENS {args.cycle}: separation distance", xlim=(0, 10))
     ax.grid(alpha=.3); ax.legend(); fig.tight_layout()
     fig.savefig(out / "separation_distance.png", dpi=160); plt.close(fig)
+
+    # Cumulative Liu skill by particle, with missing fixes excluded and
+    # no displacement calculated across observation gaps.
+    scored = merged.sort_values(["id", "time"]).copy()
+    for c in ("obs_lon", "obs_lat"):
+        scored["prev_" + c] = scored.groupby("id")[c].shift()
+    scored["obs_step_km"] = distance_km(
+        scored.prev_obs_lon, scored.prev_obs_lat, scored.obs_lon, scored.obs_lat)
+    good_step = (scored.groupby("id").hour.diff() == 1) & scored.sep_km.notna() & scored.obs_step_km.notna()
+    scored["step_path"] = scored.obs_step_km.where(good_step, 0.0)
+    scored["step_error"] = scored.sep_km.where(good_step, 0.0)
+    scored["cum_path"] = scored.groupby("id").step_path.cumsum()
+    scored["cum_error"] = scored.groupby("id").step_error.cumsum()
+    scored["liu_skill"] = (1 - scored.cum_error / scored.cum_path).clip(lower=0, upper=1)
+    scored.loc[~good_step | (scored.cum_path <= 0), "liu_skill"] = np.nan
+    liu_hourly = scored.groupby("hour").liu_skill.agg(
+        median="median", mean="mean", count="count").reset_index()
+    liu_hourly.to_csv(out / "hourly_liu_skill.csv", index=False)
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.plot(liu_hourly.hour / 24, liu_hourly["median"], label="Median")
+    ax.plot(liu_hourly.hour / 24, liu_hourly["mean"], label="Mean")
+    ax.set(xlabel="Days after noon launch", ylabel="Liu skill (0–1)",
+           title=f"GLOENS {args.cycle}: bounded Liu trajectory skill",
+           xlim=(0, 10), ylim=(0, 1))
+    ax.grid(alpha=.3); ax.legend(); fig.tight_layout()
+    fig.savefig(out / "liu_skill.png", dpi=160); plt.close(fig)
 
     fig, ax = plt.subplots(figsize=(10, 4))
     ax.plot(per_hour.hour / 24, per_hour.valid_pairs, label="Valid observation-model pairs")
