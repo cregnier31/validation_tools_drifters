@@ -122,9 +122,9 @@ def main():
     scored["cum_path"] = scored.groupby("id").step_path.cumsum()
     scored["cum_error"] = scored.groupby("id").step_error.cumsum()
     # NCLS denominator: sum of cumulative observed trajectory lengths.
-    scored["path_for_normalizer"] = scored.cum_path.where(good_step, 0.0)
-    scored["ncls_denominator"] = scored.groupby("id").path_for_normalizer.cumsum()
-    scored["liu_skill"] = (1 - scored.cum_error / scored.ncls_denominator).clip(lower=0, upper=1)
+    # Liu--Weisberg NCLS: ratio of cumulative separation to cumulative
+    # observed path length, with default tolerance n=1.
+    scored["liu_skill"] = (1 - scored.cum_error / scored.cum_path).clip(lower=0, upper=1)
     scored.loc[~good_step | (scored.cum_path <= 0), "liu_skill"] = np.nan
     liu_hourly = scored.groupby("hour").liu_skill.agg(
         median="median", mean="mean", count="count").reset_index()
@@ -134,7 +134,7 @@ def main():
     ax.plot(liu_hourly.hour / 24, liu_hourly["mean"], label="Mean")
     ax.set(xlabel="Days after noon launch", ylabel="Liu skill (0–1)",
            title=f"GLOENS {args.cycle}: bounded Liu trajectory skill",
-           xlim=(0, 10), ylim=(0, 1))
+           xlim=(0, args.drift_days), ylim=(0, 1))
     ax.grid(alpha=.3); ax.legend(); fig.tight_layout()
     fig.savefig(out / "liu_skill.png", dpi=160); plt.close(fig)
 
@@ -143,7 +143,7 @@ def main():
     ax.plot(per_hour.hour / 24, per_hour.model_positions, label="Model positions")
     ax.axhline(len(ids), ls=":", color="black", label="Seeded drifters")
     ax.set(xlabel="Days after noon launch", ylabel="Number of particles",
-           title=f"GLOENS {args.cycle}: sample retention", xlim=(0, 10))
+           title=f"GLOENS {args.cycle}: sample retention", xlim=(0, args.drift_days))
     ax.grid(alpha=.3); ax.legend(); fig.tight_layout()
     fig.savefig(out / "coverage.png", dpi=160); plt.close(fig)
 
