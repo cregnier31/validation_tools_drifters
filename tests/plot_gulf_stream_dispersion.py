@@ -5,8 +5,13 @@ Reads existing Parcels Parquet and observation CSV. No simulation/cache writes.
 Default region: 80W–35W, 25N–50N. GIF needs Pillow.
 """
 import argparse
+import os
 import json
 from pathlib import Path
+
+# Use the existing HPC Cartopy/Natural Earth data; do not download at runtime.
+CARTOPY_DATA = "/home/cregnier/code/lib_pyt/lib_pyt/statics/cartopy_data"
+os.environ.setdefault("CARTOPY_DATA_DIR", CARTOPY_DATA)
 
 import matplotlib
 matplotlib.use("Agg")
@@ -14,6 +19,9 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
 import pandas as pd
+import cartopy
+cartopy.config["data_dir"] = CARTOPY_DATA
+cartopy.config["pre_existing_data_dir"] = CARTOPY_DATA
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 from matplotlib.lines import Line2D
