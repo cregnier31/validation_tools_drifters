@@ -53,8 +53,19 @@ def main():
     lon,lat,wet = lon[ys,xs],lat[ys,xs],wet[ys,xs]
     fig,ax = plt.subplots(figsize=(17,8) if args.global_view else (12,9),layout="constrained")
     cmap = ListedColormap(["#c8b99e","#a9d8ed"])
-    ax.pcolormesh(lon,lat,np.where(np.isfinite(wet),wet,np.nan),
-                  cmap=cmap,vmin=0,vmax=1,shading="auto",rasterized=True)
+    # NEMO curvilinear coordinates can be masked/non-finite at folded or
+    # boundary cells. Matplotlib rejects any non-finite X/Y in pcolormesh.
+    # Fill coordinates for geometry only, and mask the affected data cells.
+    valid_xy = np.isfinite(lon) & np.isfinite(lat)
+    if not np.all(valid_xy):
+        from scipy.ndimage import distance_transform_edt
+        nearest_idx = distance_transform_edt(~valid_xy, return_distances=False,
+                                             return_indices=True)
+        lon = lon[tuple(nearest_idx)]
+        lat = lat[tuple(nearest_idx)]
+    plotted = np.ma.masked_where(~valid_xy | ~np.isfinite(wet), wet)
+    ax.pcolormesh(lon, lat, plotted,
+                  cmap=cmap, vmin=0, vmax=1, shading="auto", rasterized=True)
     for identifier,(x,y) in STUCK.items():
         ax.scatter(x,y,s=95,c="#c62828",edgecolors="white",linewidths=1.3,zorder=5)
         ax.annotate(identifier,(x,y),xytext=(7,8),textcoords="offset points",
