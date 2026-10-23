@@ -80,6 +80,13 @@ def build_runtime_config(args, config_path, drift_days=None):
     config_info["engine"] = engine
     if SYSTEM.upper() == "GLOENS" and leadtime == "FCST":
         config_info["drift_time"] = 28
+        # Explicit opt-in for forecasts with fewer than 30 daily samples.
+        # Keep the original 28-day operational default unchanged.
+        override_days = os.environ.get("GLOENS_DRIFT_DAYS", "").strip()
+        if override_days:
+            if not override_days.isdecimal() or int(override_days) < 1:
+                raise ValueError("GLOENS_DRIFT_DAYS must be a positive integer")
+            config_info["drift_time"] = int(override_days)
     if drift_days is not None:
         if isinstance(drift_days, bool) or not isinstance(drift_days, int) or drift_days < 1:
             raise ValueError("drift_days must be a positive integer")
