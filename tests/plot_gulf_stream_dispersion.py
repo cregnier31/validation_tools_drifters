@@ -56,7 +56,7 @@ def main():
     obs["id"] = obs["id"].astype(str)
     obs["time"] = pd.to_datetime(obs["time"])
     obs.loc[(obs.lon == 0) & (obs.lat == 0), ["lon", "lat"]] = np.nan
-    ids = np.sort(obs.id.unique())  # matches Retrieve_drifters_traj's sorted seed order
+    ids = sorted(obs.id.unique(), key=lambda x: (0, int(x)) if x.lstrip("-").isdigit() else (1, x))
     model = pd.read_parquet(pq[0], columns=["particle_id", "t", "x", "y"])
     seed_file = pq[0].with_suffix(".seed_indices.json")
     mapping = np.arange(len(ids))
@@ -93,6 +93,20 @@ def main():
         d.loc[outside, ["lon", "lat"]] = np.nan
         return d
 
+    # Diagnose missing model tracks before clipping positions to map bounds.
+    coverage = []
+    for identifier in sorted(chosen):
+        m = model[model.id == identifier].sort_values("time")
+        o = obs[obs.id == identifier].sort_values("time")
+        m = m[np.isfinite(m.lon) & np.isfinite(m.lat)]
+        o = o[np.isfinite(o.lon) & np.isfinite(o.lat)]
+        coverage.append(dict(id=identifier, model_samples=len(m), observed_samples=len(o),
+                             model_last_time=m.time.max() if len(m) else pd.NaT,
+                             observed_last_time=o.time.max() if len(o) else pd.NaT,
+                             model_last_lon=m.lon.iloc[-1] if len(m) else np.nan,
+                             model_last_lat=m.lat.iloc[-1] if len(m) else np.nan))
+    pd.DataFrame(coverage).to_csv(out / "particle_coverage.csv", index=False)
+    print("Particle coverage:", out / "particle_coverage.csv")
     model, obs = clipped(model), clipped(obs)
     print(f"Selected {len(chosen)} particles seeded inside {args.bounds}")
     print(f"Model timestamps: {model.time.min()} to {model.time.max()}")
