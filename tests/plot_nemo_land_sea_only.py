@@ -6,8 +6,9 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap, BoundaryNorm
+from matplotlib.colors import ListedColormap
 from netCDF4 import Dataset
+from scipy.spatial import cKDTree
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
@@ -46,22 +47,40 @@ def main():
     if args.extent:
         west, east, south, north = args.extent
         valid &= (lon >= west) & (lon <= east) & (lat >= south) & (lat <= north)
-    fig, ax = plt.subplots(figsize=(16, 8), constrained_layout=True)
-    # Render land first, ocean second; no particle markers or annotations.
-    for state, color, label in ((False, "#d5c7ac", "Land / tmask != 1"),
-                                (True, "#2674b8", "Ocean / tmask = 1")):
-        sel = valid & (sea == state)
-        ax.scatter(lon[sel], lat[sel], s=0.7 if args.extent is None else 4,
-                   c=color, marker="s", linewidths=0, rasterized=True, label=label)
+    # Rasterize onto a regular geographic grid. This avoids the empty spaces
+    # and stripe artifacts caused by drawing grid centers as square markers.
     if args.extent:
-        ax.set_xlim(west, east); ax.set_ylim(south, north)
+        west, east, south, north = args.extent
+        resolution = 0.05
     else:
-        ax.set_xlim(-180, 180); ax.set_ylim(-85, 90)
+        west, east, south, north = -180., 180., -85., 90.
+        resolution = 0.20
+    xx = np.arange(west + resolution / 2, east, resolution)
+    yy = np.arange(south + resolution / 2, north, resolution)
+    gx, gy = np.meshgrid(xx, yy)
+    # Unit-sphere Cartesian coordinates correctly handle the dateline and
+    # high latitudes, unlike Euclidean distances in lon/lat.
+    def sphere_xyz(lon_deg, lat_deg):
+        lo = np.deg2rad(lon_deg)
+        la = np.deg2rad(lat_deg)
+        return np.column_stack((np.cos(la) * np.cos(lo),
+                                np.cos(la) * np.sin(lo),
+                                np.sin(la)))
+    tree = cKDTree(sphere_xyz(lon[valid], lat[valid]))
+    _, idx = tree.query(sphere_xyz(gx.ravel(), gy.ravel()), workers=-1)
+    raster = sea[valid][idx].reshape(gx.shape)
+    fig, ax = plt.subplots(figsize=(16, 8), constrained_layout=True)
+    cmap = ListedColormap(["#d5c7ac", "#2674b8"])
+    ax.imshow(raster.astype(np.uint8), origin="lower",
+              extent=(west, east, south, north), interpolation="nearest",
+              cmap=cmap, vmin=-0.5, vmax=1.5, aspect="auto")
+    from matplotlib.patches import Patch
+    ax.legend(handles=[Patch(facecolor="#d5c7ac", label="Land / tmask = 0"),
+                       Patch(facecolor="#2674b8", label="Ocean / tmask = 1")],
+              loc="lower left")
     ax.set_xlabel("Longitude (degrees east)")
     ax.set_ylabel("Latitude (degrees north)")
-    ax.set_title(f"NEMO surface land/sea tmask — {path.name}")
-    ax.legend(loc="lower left", markerscale=6)
-    ax.set_aspect("auto")
+    ax.set_title(f"NEMO surface land/sea tmask (nearest-neighbor raster) — {path.name}")
     output = Path(args.output) if args.output else path.with_name(path.stem + "_land_sea.png")
     output.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(output, dpi=220)
