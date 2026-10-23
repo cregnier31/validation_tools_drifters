@@ -140,36 +140,38 @@ def main():
                     print(f"  Parcels {attr}: {float(a[y,x]):.6f}")
                 else:
                     print(f"  Parcels {attr}: unexpected shape {a.shape}")
-        # Independent fieldset construction: same cached arrays, same F-grid,
-        # but bypass SGRID. Diagnostic only; F-grid is not native U/V staggering.
-        print("\\n=== Direct xarray FieldSet comparison (diagnostic only) ===")
-        direct_ds = ds.assign_coords({
-            "glamf": fcoords["glamf"],
-            "gphif": fcoords["gphif"],
-        })
+        # Parcels 4.x removed FieldSet.from_xarray_dataset(). Probe an
+        # independent non-SGRID constructor without changing production.
+        print("\\n=== Direct fieldset comparison (Parcels 4 compatible) ===")
+        print("from_xarray_dataset available:",
+              hasattr(parcels.FieldSet, "from_xarray_dataset"))
         try:
-            direct_fieldset = parcels.FieldSet.from_xarray_dataset(
-                direct_ds,
-                variables={"U": "U", "V": "V"},
-                dimensions={"lon": "glamf", "lat": "gphif", "time": "time"},
+            direct_fieldset = parcels.FieldSet.from_data(
+                data={
+                    "U": np.asarray(surfaces["U"].values)[:, np.newaxis, :, :],
+                    "V": np.asarray(surfaces["V"].values)[:, np.newaxis, :, :],
+                },
+                dimensions={
+                    "lon": np.asarray(fcoords["glamf"]),
+                    "lat": np.asarray(fcoords["gphif"]),
+                    "time": np.asarray(surfaces["U"].time.values),
+                },
                 mesh="spherical",
                 allow_time_extrapolation=False,
             )
-            print("Direct U interpolation:", direct_fieldset.U.interp_method)
-            print("Direct V interpolation:", direct_fieldset.V.interp_method)
+            print("Direct FieldSet constructed successfully")
             for ident, (lon, lat) in SEEDS.items():
                 try:
-                    sample_time = float(direct_fieldset.U.grid.time[0])
-                    # Explicit field sampling with numeric model time, rather
-                    # than indexing a ParticleSet outside the execution loop.
-                    u = direct_fieldset.U.eval(sample_time, 0.0, lat, lon)
-                    v = direct_fieldset.V.eval(sample_time, 0.0, lat, lon)
-                    print(f"{ident}: direct U={u!r}, V={v!r}, time={sample_time}")
+                    t = float(direct_fieldset.U.grid.time[0])
+                    u = direct_fieldset.U.eval(t, 0.0, lat, lon)
+                    v = direct_fieldset.V.eval(t, 0.0, lat, lon)
+                    print(f"{ident}: direct U={u!r}, V={v!r}")
                 except Exception as exc:
-                    print(f"{ident}: direct sample failed: {type(exc).__name__}: {exc}")
-            print("Direct FieldSet is a diagnostic, not a validated NEMO staggered-grid replacement.")
+                    print(f"{ident}: sampling failed: {type(exc).__name__}: {exc}")
         except Exception as exc:
-            print(f"Direct FieldSet construction failed: {type(exc).__name__}: {exc}")
+            print(f"Direct constructor unavailable or failed: {type(exc).__name__}: {exc}")
+        print("Direct coordinates are F-points: this is a diagnostic, not a "
+              "validated replacement for staggered NEMO interpolation.")
         print("Parcels version:", parcels.__version__)
         for comp in ("U", "V"):
             field = getattr(fieldset, comp)
