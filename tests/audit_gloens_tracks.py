@@ -156,6 +156,31 @@ def main():
     fig.suptitle(f"GLOENS {args.cycle}: solid=observed, dashed=model")
     fig.tight_layout(); fig.savefig(out / "tracks_comparison.png", dpi=170); plt.close(fig)
 
+    # Global overview of every available trajectory, not only audit selections.
+    # Split at longitude discontinuities so dateline crossings do not draw
+    # artificial lines across the entire map.
+    fig, ax = plt.subplots(figsize=(16, 8))
+    for prefix, color, label in (("obs", "tab:orange", "Observed"),
+                                 ("model", "tab:blue", "GLOENS model")):
+        for _, sub in merged.groupby("id", sort=False):
+            sub = sub.sort_values("time")
+            x = ((sub[prefix + "_lon"].to_numpy(dtype=float) + 180) % 360) - 180
+            y = sub[prefix + "_lat"].to_numpy(dtype=float)
+            breaks = np.flatnonzero(np.abs(np.diff(x)) > 180) + 1
+            x[breaks] = np.nan
+            ax.plot(x, y, color=color, alpha=.25, lw=.65)
+        ax.plot([], [], color=color, lw=1.5, label=label)
+    ax.set(xlim=(-180, 180), ylim=(-90, 90),
+           xlabel="Longitude (degrees east)", ylabel="Latitude (degrees north)",
+           title=f"GLOENS {args.cycle}: all observed and simulated trajectories")
+    ax.set_xticks(np.arange(-180, 181, 30))
+    ax.set_yticks(np.arange(-90, 91, 30))
+    ax.grid(alpha=.25)
+    ax.legend(loc="lower left")
+    fig.tight_layout()
+    fig.savefig(out / "global_all_trajectories.png", dpi=180)
+    plt.close(fig)
+
     # Flag implausibly fast model segments. Hourly outputs may have gaps,
     # so normalize each segment by its actual elapsed time.
     segments = raw.sort_values(["id", "time"]).copy()
