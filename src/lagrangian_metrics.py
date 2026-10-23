@@ -736,40 +736,31 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log)
     return S1, S3, S5, S7
     #sys.exit(1)
     
-def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod):
-    """Cumulative separation/path ratio, masking missing observation intervals.
+def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod, n=1.0):
+    """Liu--Weisberg (2011) normalized cumulative Lagrangian skill score.
 
-    An interval contributes only when both observed endpoints and the
-    modeled endpoint are finite. A gap is never bridged/interpolated.
+    s = cumulative(model--observation separation) / cumulative(observed
+    displacement); SS = max(0, 1 - s/n), with tolerance n > 0.
+    Missing intervals do not contribute or bridge gaps. Returns (time, drifter)
+    as expected by lagrangian_postprocessing.py.
     """
-    obs0 = (np.isfinite(traj_drifter_lon[:, :-1]) &
-            np.isfinite(traj_drifter_lat[:, :-1]))
-    obs1 = (np.isfinite(traj_drifter_lon[:, 1:]) &
-            np.isfinite(traj_drifter_lat[:, 1:]))
-    model1 = (np.isfinite(traj_lon_mod[:, 1:]) &
-              np.isfinite(traj_lat_mod[:, 1:]))
+    if not np.isfinite(n) or n <= 0:
+        raise ValueError("Liu tolerance n must be finite and positive")
+    obs0 = np.isfinite(traj_drifter_lon[:, :-1]) & np.isfinite(traj_drifter_lat[:, :-1])
+    obs1 = np.isfinite(traj_drifter_lon[:, 1:]) & np.isfinite(traj_drifter_lat[:, 1:])
+    model1 = np.isfinite(traj_lon_mod[:, 1:]) & np.isfinite(traj_lat_mod[:, 1:])
     valid = obs0 & obs1 & model1
     distance = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
     separation = SepDistanceEachTimestep(
         traj_drifter_lon[:, 1:], traj_drifter_lat[:, 1:],
         traj_lon_mod[:, 1:], traj_lat_mod[:, 1:])
     valid &= np.isfinite(distance) & np.isfinite(separation)
-    distance = np.where(valid, distance, 0.0)
-    separation = np.where(valid, separation, 0.0)
-    # Liu et al. normalized skill: 1 is perfect, 0 is no skill.
-    # Keep cumulative sums inclusive of the current valid interval.
-    # Liu & Weisberg (2011) NCLS: denominator is the SUM of the
-    # cumulative observed path length at each evaluation time, not
-    # merely the total observed path length. The latter erroneously
-    # collapses skill toward zero as the number of samples increases.
-    cumulative_path = np.cumsum(distance, axis=1)
-    cumulative_sep = np.cumsum(separation, axis=1)
-    normalized_path = np.cumsum(np.where(valid, cumulative_path, 0.0), axis=1)
+    cumulative_path = np.cumsum(np.where(valid, distance, 0.0), axis=1)
+    cumulative_separation = np.cumsum(np.where(valid, separation, 0.0), axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.where(normalized_path > 0,
-                         cumulative_sep / normalized_path, np.nan)
-    skill = np.maximum(0.0, 1.0 - ratio)
-    # Undefined when there is no observed motion, or the current fix is absent.
+        s = np.where(cumulative_path > 0,
+                     cumulative_separation / cumulative_path, np.nan)
+    skill = np.maximum(0.0, 1.0 - s / n)
     skill = np.where(valid & (cumulative_path > 0), skill, np.nan)
     return skill.T
 
