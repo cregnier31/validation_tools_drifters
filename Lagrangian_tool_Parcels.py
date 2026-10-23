@@ -41,7 +41,7 @@ def main():
         parser.error("--date2 must not precede --date1")
     base = (args.lead, args.system, args.scheme, args.typeobs, "parcels")
     config_path = str(ROOT / "cfg/config_drifters.yaml")
-    runtime = build_runtime_config((first, last, *base), config_path, drift_days=args.drift_days)
+    runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
     if args.system.upper() == "GLOENS" and args.lead == "FCST":
         from Lagrangian_tool_GLOENS import discover_cycles
@@ -66,7 +66,7 @@ def main():
             stamp = day.strftime("%Y%m%d")
             try:
                 # Isolate each cycle's output paths while retaining annual aggregation.
-                cycle_runtime = build_runtime_config((day, day, *base), config_path, drift_days=args.drift_days)
+                cycle_runtime = build_runtime_config((day, day, *base, False), config_path, drift_days=args.drift_days)
                 if args.remove_old_trajectories:
                     info = cycle_runtime["config_info"]
                     workdir = Path(info["DIR_OUT"]) / stamp
