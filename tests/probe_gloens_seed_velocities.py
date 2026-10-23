@@ -179,6 +179,13 @@ def main():
             print(inspect.getsource(fieldset.U.eval))
         except (OSError, TypeError) as exc:
             print("Source unavailable:", exc)
+        print("U interpolation implementation:")
+        try:
+            print(inspect.getsource(type(fieldset.U.interp_method).interp))
+        except (OSError, TypeError, AttributeError) as exc:
+            print("Interpolation source unavailable:", exc)
+        print("U/V field data units:", repr(getattr(fieldset.U, "units", None)),
+              repr(getattr(fieldset.V, "units", None)))
         print("FieldSet signature:", inspect.signature(parcels.FieldSet))
         print("Field signature:", inspect.signature(parcels.Field))
         print("Direct comparison deferred until an installed constructor "
