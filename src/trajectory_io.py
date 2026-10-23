@@ -327,6 +327,10 @@ def Retrieve_drifters_traj(outfile2, T_DRIFT, log, remote = False,DRIFTER_type="
         )
         df = drifters_zone_traj.copy()
         df["time"] = pd.to_datetime(df["time"])
+        # (0, 0) is an observation missing-value sentinel, not a real fix.
+        # Keep genuine equatorial or Greenwich-meridian positions.
+        zero_fix = (df["lon"] == 0) & (df["lat"] == 0)
+        df.loc[zero_fix, ["lon", "lat"]] = np.nan
         if df.duplicated(["id", "time"]).any():
             raise ValueError("Duplicate observation ID/timestamp pairs")
         lon = df.pivot(index="id", columns="time", values="lon").reindex(index=ids, columns=times)
