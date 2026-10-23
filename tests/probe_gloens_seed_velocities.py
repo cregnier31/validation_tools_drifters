@@ -85,11 +85,15 @@ def main():
                   f"SGRID dims={converted.dims}, shape={converted.shape}")
             try:
                 native_value = float(original.isel(time=0, y=y, x=x).values)
-                if not {"time", "y", "x"}.issubset(converted.dims):
+                spatial_dims = ("y_center", "x") if component == "U" else ("y", "x_center")
+                expected_dims = {"depth", "time", *spatial_dims}
+                if not expected_dims.issubset(converted.dims):
                     print(f"  native={native_value:.8f}; "
-                          "SGRID indices not comparable (different dimension names)")
+                          f"unexpected SGRID dimensions: {converted.dims}")
                     continue
-                converted_value = float(converted.isel(time=0, y=y, x=x).values)
+                converted_value = float(converted.isel({
+                    "depth": 0, "time": 0, spatial_dims[0]: y, spatial_dims[1]: x
+                }).values)
                 print(f"  native={native_value:.8f}; "
                       f"SGRID_same_index={converted_value:.8f}; "
                       f"difference={converted_value-native_value:+.8f}")
