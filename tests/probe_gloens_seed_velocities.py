@@ -82,6 +82,50 @@ def main():
                     values, counts = np.unique(a, return_counts=True)
                     print(f"RAW {name}: mask values="
                           f"{dict(zip(values.tolist(), counts.tolist()))}")
+        # Isolated repeatability check, independent of the Parcels fieldset.
+        # Materialize each read before closing its file handle. Compare
+        # sequential reads, fresh opens, and optional alternative backend.
+        print("\\n=== Isolated mask read reproducibility audit ===")
+        import hashlib
+        def mask_read(name, engine):
+            with xr.open_dataset(args.meshmask, engine=engine,
+                                 decode_cf=False, mask_and_scale=False,
+                                 cache=False) as check_ds:
+                da = check_ds[name]
+                for dim in da.dims:
+                    if dim not in ("y", "x"):
+                        da = da.isel({dim: 0})
+                return np.array(da.values, copy=True)
+        for maskname in ("tmask", "umask", "vmask", "fmask"):
+            a = mask_read(maskname, "netcdf4")
+            b = mask_read(maskname, "netcdf4")
+            def describe(arr):
+                raw = np.ascontiguousarray(arr).view(np.uint8)
+                return {
+                    "shape": arr.shape,
+                    "dtype": str(arr.dtype),
+                    "sha256": hashlib.sha256(raw.tobytes()).hexdigest()[:20],
+                    "zero": int(np.count_nonzero(arr == 0)),
+                    "one": int(np.count_nonzero(arr == 1)),
+                    "nonbinary": int(np.count_nonzero((arr != 0) & (arr != 1))),
+                }
+            print(f"REPRO {maskname} netcdf4 first:", describe(a))
+            print(f"REPRO {maskname} netcdf4 second:", describe(b))
+            bad = np.argwhere(a != b)
+            print(f"REPRO {maskname} repeated_equal={np.array_equal(a,b)}, "
+                  f"mismatch_count={len(bad)}, "
+                  f"first_mismatches={[(tuple(map(int, ij)), int(a[tuple(ij)]), int(b[tuple(ij)])) for ij in bad[:8]]}")
+            try:
+                c = mask_read(maskname, "h5netcdf")
+            except (ImportError, OSError, ValueError, RuntimeError) as exc:
+                print(f"REPRO {maskname} h5netcdf unavailable: "
+                      f"{type(exc).__name__}: {exc}")
+            else:
+                diff = np.argwhere(a != c)
+                print(f"REPRO {maskname} h5netcdf:", describe(c))
+                print(f"REPRO {maskname} backend_equal={np.array_equal(a,c)}, "
+                      f"mismatch_count={len(diff)}, "
+                      f"first_mismatches={[(tuple(map(int, ij)), int(a[tuple(ij)]), int(c[tuple(ij)])) for ij in diff[:8]]}")
         # Focused raw-mask audit. Strict binary comparisons avoid treating
         # anomalous bytes as wet ocean. Read-only; no mesh modifications.
         print("\\n=== Strict binary mask consistency audit ===")
