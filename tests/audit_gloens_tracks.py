@@ -77,6 +77,15 @@ def main():
     merged["hour"] = (merged["time"] - start).dt.total_seconds() / 3600
     merged["sep_km"] = distance_km(merged.obs_lon, merged.obs_lat, merged.model_lon, merged.model_lat)
     merged.loc[~np.isfinite(merged[["model_lon", "model_lat", "obs_lon", "obs_lat"]]).all(axis=1), "sep_km"] = np.nan
+    model_duration_h = (raw["time"].max() - start).total_seconds() / 3600
+    print(f"Model trajectory duration: {model_duration_h:.1f} hours "
+          f"({model_duration_h / 24:.2f} days); requested: 240 hours")
+    if args.gulf_stream_animation and model_duration_h < 239:
+        raise SystemExit(
+            f"Cannot produce a real 10-day animation: Parquet ends at "
+            f"{model_duration_h:.1f} hours. Re-run the 10-day advection "
+            f"with --drift-days 10 --remove-old-trajectories, then audit again."
+        )
     merged = merged[(merged.hour >= 0) & (merged.hour <= 240)].copy()
     if merged.empty:
         raise SystemExit("No trajectory samples in the requested 10-day window")
@@ -217,7 +226,7 @@ def main():
         anim_data = merged.copy()
         for prefix in ("model", "obs"):
             anim_data[prefix + "_lon"] = ((anim_data[prefix + "_lon"] + 180) % 360) - 180
-        frames = np.arange(0, 241, args.frame_hours)
+        frames = np.unique(np.r_[np.arange(0, 241, args.frame_hours), 240])
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
         ax.set_extent(region, crs=ccrs.PlateCarree())
