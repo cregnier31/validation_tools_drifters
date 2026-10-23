@@ -101,7 +101,26 @@ def main():
                 print(f"  comparison unavailable: {type(exc).__name__}: {exc}")
         print("Note: same-index comparison alone does not establish "
               "geographic grid alignment.\\n")
+        print("\\n=== SGRID coordinate metadata ===")
+        for component in ("U", "V"):
+            da = sgrid[component]
+            print(component, "attrs=", dict(da.attrs))
+            for cname in da.coords:
+                coord = da.coords[cname]
+                print(" ", cname, "dims=", coord.dims, "shape=", coord.shape,
+                      "attrs=", dict(coord.attrs))
+        print("SGRID dataset attrs=", dict(sgrid.attrs))
         fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
+        print("\\n=== Parcels field grid metadata ===")
+        for component in ("U", "V"):
+            field = getattr(fieldset, component)
+            g = field.grid
+            for attr in ("lon", "lat", "time"):
+                val = getattr(g, attr, None)
+                if val is not None:
+                    print(component, attr, "shape=", np.shape(val),
+                          "dtype=", getattr(np.asarray(val), "dtype", None))
+            print(component, "field data shape=", np.shape(getattr(field, "data", None)))
         print("Parcels version:", parcels.__version__)
         for comp in ("U", "V"):
             field = getattr(fieldset, comp)
