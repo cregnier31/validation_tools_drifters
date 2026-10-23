@@ -96,10 +96,21 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     from parcels import FieldSet, ParticleSet
     parcels_v4 = int(parcels.__version__.split(".")[0]) >= 4
 
+    # Optional validated geometry override; original meshmask remains the default.
+    # Only F-point coordinates are read from this file; velocity data is unchanged.
+    import os
+    geometry_override = os.environ.get("GLOENS_GEOMETRY_SOURCE", "").strip()
+    if geometry_override:
+        geometry_path = Path(geometry_override)
+        if not geometry_path.is_file():
+            raise FileNotFoundError(f"GLOENS geometry source missing: {geometry_path}")
+    else:
+        geometry_path = Path(meshmask)
     meshmask = Path(meshmask)
     if not meshmask.is_file():
         raise FileNotFoundError(f"GLOENS NEMO meshmask missing: {meshmask}")
     log = log if log is not None else logging.getLogger(__name__)
+    log.warning("GLOENS F-grid geometry source: %s (override=%s)", geometry_path, bool(geometry_override))
     # Match the working NEMO 2D workflow: select the nearest model level
     # before constructing Parcels fields. The 75-level source cache is untouched.
     u = velocities[u_name]
@@ -116,7 +127,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     v = v.reset_coords(drop=True)
     # The disk-backed ensemble-mean arrays are sliced at one depth only.
     ds = xr.Dataset({u_name: u, v_name: v})
-    with xr.open_dataset(meshmask, engine="netcdf4") as grid:
+    with xr.open_dataset(geometry_path, engine="netcdf4") as grid:
         for name in ("glamf", "gphif"):
             coord = grid[name]
             if "time_counter" in coord.dims:
@@ -131,7 +142,7 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     log.debug("GLOENS: constructing 2D F-point xarray FieldSet at %.2f m", depth)
     if parcels_v4 and construction == "sgrid":
         # Parcels 4 uses SGRID metadata and xarray-native NEMO conversion.
-        with xr.open_dataset(meshmask, engine="netcdf4") as grid:
+        with xr.open_dataset(geometry_path, engine="netcdf4") as grid:
             grid_coords = grid[["glamf", "gphif"]]
             if "time_counter" in grid_coords.dims:
                 grid_coords = grid_coords.isel(time_counter=0, drop=True)
