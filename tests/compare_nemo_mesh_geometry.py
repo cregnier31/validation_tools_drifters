@@ -25,6 +25,11 @@ def summarize(path, label):
         print("global attributes:", dict(ds.attrs), flush=True)
     arrays = {}
     for name in VARS:
+        with xr.open_dataset(path, engine="netcdf4", decode_cf=False) as ds:
+            present = name in ds.variables
+        if not present:
+            print(f"{label} {name}: ABSENT (domain configuration may omit masks)", flush=True)
+            continue
         a = read_2d(path, name)
         arrays[name] = a
         digest = hashlib.sha256(np.ascontiguousarray(a).tobytes()).hexdigest()[:16]
@@ -70,6 +75,9 @@ def main():
     reference = summarize(args.reference, "REFERENCE")
     print("\\n=== Cross-file comparison ===", flush=True)
     for name in VARS:
+        if name not in current or name not in reference:
+            print(f"{name}: unavailable in one file; skipped", flush=True)
+            continue
         a, b = current[name], reference[name]
         print(f"{name}: shapes={a.shape} vs {b.shape}; "
               f"same_index_comparison={'possible' if a.shape == b.shape else 'INVALID (different grids)'}",
