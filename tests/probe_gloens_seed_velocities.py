@@ -162,6 +162,13 @@ def main():
             except (TypeError, ValueError):
                 signature = "(signature unavailable)"
             print(f"  {name}{signature}")
+        print("UV type:", type(fieldset.UV))
+        print("UV __getitem__ signature:", inspect.signature(type(fieldset.UV).__getitem__))
+        print("U eval signature:", inspect.signature(fieldset.U.eval))
+        print("V eval signature:", inspect.signature(fieldset.V.eval))
+        print("U grid numeric time endpoints:",
+              float(fieldset.U.grid.time[0]), float(fieldset.U.grid.time[-1]))
+        print("U grid time_origin:", repr(getattr(fieldset.U.grid, "time_origin", None)))
         print("FieldSet signature:", inspect.signature(parcels.FieldSet))
         print("Field signature:", inspect.signature(parcels.Field))
         print("Direct comparison deferred until an installed constructor "
