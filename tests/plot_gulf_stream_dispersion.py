@@ -56,7 +56,7 @@ def main():
     obs["id"] = obs["id"].astype(str)
     obs["time"] = pd.to_datetime(obs["time"])
     obs.loc[(obs.lon == 0) & (obs.lat == 0), ["lon", "lat"]] = np.nan
-    ids = sorted(obs.id.unique(), key=lambda x: (0, int(x)) if x.lstrip("-").isdigit() else (1, x))
+    ids = np.asarray(sorted(obs.id.unique(), key=lambda x: (0, int(x)) if x.lstrip("-").isdigit() else (1, x)))
     model = pd.read_parquet(pq[0], columns=["particle_id", "t", "x", "y"])
     seed_file = pq[0].with_suffix(".seed_indices.json")
     mapping = np.arange(len(ids))
