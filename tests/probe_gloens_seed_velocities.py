@@ -268,6 +268,26 @@ def main():
                             None, None)
                         print(f"{comp} lookup grid positions:", repr(gp))
                         print(f"{comp} lookup particle positions:", repr(pp))
+                        jy = int(np.asarray(gp["Y"]["index"]).ravel()[0])
+                        ix = int(np.asarray(gp["X"]["index"]).ravel()[0])
+                        surface = np.asarray(fld.data.isel(time=0, depth=0).values)
+                        print(f"{comp} lookup 2x2 field values at ({jy},{ix}):",
+                              repr(surface[jy:jy+2, ix:ix+2]))
+                        print(f"{comp} native nearest cell:",
+                              (row[f"{comp}_native_y"], row[f"{comp}_native_x"]))
+                        try:
+                            lon_grid = np.asarray(fld.grid.lon)
+                            lat_grid = np.asarray(fld.grid.lat)
+                            print(f"{comp} lookup grid coordinate shapes:",
+                                  lon_grid.shape, lat_grid.shape)
+                            if lon_grid.ndim == 2 and lat_grid.ndim == 2:
+                                print(f"{comp} lookup 2x2 lon:",
+                                      repr(lon_grid[jy:jy+2, ix:ix+2]))
+                                print(f"{comp} lookup 2x2 lat:",
+                                      repr(lat_grid[jy:jy+2, ix:ix+2]))
+                        except Exception as exc:
+                            print(f"{comp} lookup grid coordinates unavailable:",
+                                  type(exc).__name__, str(exc))
                         axis_map = fld.grid.get_axis_dim_mapping(fld.data.dims)
                         print(f"{comp} axis mapping:", repr(axis_map),
                               "data dims:", repr(fld.data.dims))
