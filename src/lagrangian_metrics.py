@@ -756,7 +756,8 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod, n=
         traj_lon_mod[:, 1:], traj_lat_mod[:, 1:])
     valid &= np.isfinite(distance) & np.isfinite(separation)
     cumulative_path = np.cumsum(np.where(valid, distance, 0.0), axis=1)
-    cumulative_separation = np.cumsum(np.where(valid, separation, 0.0), axis=1)\n    cumulative_path_sum = np.cumsum(np.where(valid, cumulative_path, 0.0), axis=1)
+    cumulative_separation = np.cumsum(np.where(valid, separation, 0.0), axis=1)
+    cumulative_path_sum = np.cumsum(np.where(valid, cumulative_path, 0.0), axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
         s = np.where(cumulative_path > 0,
                      cumulative_separation / cumulative_path, np.nan)
