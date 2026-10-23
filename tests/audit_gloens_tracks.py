@@ -193,6 +193,15 @@ def main():
         ["id", "time", "model_lon", "model_lat", "speed_kmh"]].to_csv(out / "fastest_segments.csv", index=False)
 
     if args.gulf_stream_animation:
+        # Use the preinstalled Natural Earth assets on the HPC filesystem.
+        # Set before creating any Cartopy feature to avoid network downloads.
+        from pathlib import Path as _Path
+        _cartopy_dir = _Path("/home/cregnier/code/lib_pyt/lib_pyt/statics/cartopy_data")
+        if not _cartopy_dir.is_dir():
+            raise SystemExit(f"Local Cartopy data directory not found: {_cartopy_dir}")
+        import cartopy
+        cartopy.config["data_dir"] = str(_cartopy_dir)
+        cartopy.config["pre_existing_data_dir"] = str(_cartopy_dir)
         from matplotlib.animation import FuncAnimation, PillowWriter
         from matplotlib.collections import LineCollection
         try:
