@@ -350,10 +350,25 @@ def read_traj_compute_scores(day,
         # reshape
         newshape = liu_score.shape[:-1] + (Ndays, factor)
 
-        liu_daily = np.nanmean(
-            liu_score[..., :usable].reshape(newshape),
-            axis=-1
-        )
+        # Forecast lead-day skill is the cumulative score at the lead-day
+        # endpoint, not an average of scores within that day. The model
+        # trajectory can include t=0, so use actual sample timestamps.
+        model_times = np.asarray(traj_time[0, 0, 0, :], dtype="datetime64[ns]")
+        model_times = model_times[:liu_score.shape[-1]]
+        lead_hours = ((model_times - model_times[0]) /
+                      np.timedelta64(1, "h")).astype(float)
+        target_hours = 24.0 * np.arange(1, Ndays + 1)
+        endpoint_indices = []
+        for target in target_hours:
+            hits = np.flatnonzero(np.isclose(lead_hours, target, atol=1e-5))
+            if not hits.size:
+                raise ValueError(
+                    f"{str_date_sim}: no model sample at exact lead {target:g}h; "
+                    "cannot compute endpoint Liu skill")
+            endpoint_indices.append(int(hits[0]))
+        liu_daily = liu_score[..., endpoint_indices]
+        log.info("Liu skill at exact daily endpoints: %s",
+                 np.nanmean(liu_daily, axis=(0, 1, 2)))
         # LiuScore2 returns bounded Liu skill (1=perfect, 0=no skill).
         skill_score = liu_daily
 
