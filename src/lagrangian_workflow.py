@@ -141,6 +141,15 @@ def process_one_day(day, config_dict):
     # Compute Lagrangian dispersion of the model with Parcels
     # ========================================================
     f_traj = f"{dir_work_mod}/Trajectories_{MODEL}_{str_date_sim}_{srt_date_end}_at_SVPloc_smag.zarr"
+    # Isolate opt-in geometry experiments from existing trajectory files.
+    # The suffix also flows through subsequent validation and plotting paths.
+    geometry_tag = os.environ.get("GLOENS_OUTPUT_TAG", "").strip()
+    if geometry_tag and MODEL.upper() == "GLOENS":
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", geometry_tag):
+            raise ValueError("GLOENS_OUTPUT_TAG must contain only letters, digits, _ or -")
+        f_traj = f_traj[:-5] + f"_{geometry_tag}.zarr"
+        log.warning("GLOENS isolated trajectory output tag: %s", geometry_tag)
     # Parcels 4 writes Parquet, while legacy Parcels 3 writes Zarr.
     # Reuse existing output rather than attempting to recreate it.
     f_traj_parquet = os.path.splitext(f_traj)[0] + ".parquet"
