@@ -58,6 +58,30 @@ def main():
         metadata[component] = (meta, array)
         print(f"{component}: shape={array.shape}, dtype={array.dtype}, ensemble_size={meta.get('ensemble_size')}")
     with xr.open_dataset(args.meshmask, engine="netcdf4") as grid:
+        # Read-only CF-decoding audit: reopen the same file with decoding
+        # disabled to inspect on-disk values and variable attributes.
+        print("\\n=== Raw NetCDF coordinate and mask audit (decode_cf=False) ===")
+        with xr.open_dataset(args.meshmask, engine="netcdf4",
+                             decode_cf=False) as raw_grid:
+            for name in ("glamf", "gphif", "glamt", "gphit",
+                         "glamu", "gphiu", "glamv", "gphiv",
+                         "tmask", "umask", "vmask", "fmask"):
+                da = raw_grid[name]
+                for dim in da.dims:
+                    if dim not in ("y", "x"):
+                        da = da.isel({dim: 0})
+                a = np.asarray(da.values)
+                print(f"RAW {name}: dtype={a.dtype}, attrs={dict(raw_grid[name].attrs)}")
+                print(f"RAW {name}: min={np.nanmin(a)}, max={np.nanmax(a)}, "
+                      f"zeros={int(np.count_nonzero(a == 0))}")
+                print(f"RAW {name}: sample [652,713:715]={a[652,713:715].tolist()}")
+                if name.startswith("gphi"):
+                    print(f"RAW {name}: lat outside [-90,90]="
+                          f"{int(np.count_nonzero(np.abs(a) > 90))}")
+                if name.endswith("mask"):
+                    values, counts = np.unique(a, return_counts=True)
+                    print(f"RAW {name}: mask values="
+                          f"{dict(zip(values.tolist(), counts.tolist()))}")
         # Audit whether zero F coordinates are associated with masks and
         # whether other staggered coordinates retain information there.
         print("\\n=== Meshmask coordinate/mask audit ===")
