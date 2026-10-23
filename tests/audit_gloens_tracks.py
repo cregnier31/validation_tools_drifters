@@ -194,33 +194,81 @@ def main():
 
     if args.gulf_stream_animation:
         from matplotlib.animation import FuncAnimation, PillowWriter
+        from matplotlib.collections import LineCollection
+        try:
+            import cartopy.crs as ccrs
+            import cartopy.feature as cfeature
+        except ImportError as exc:
+            raise SystemExit(
+                "Gulf Stream land/sea map requires Cartopy in the plotting environment"
+            ) from exc
         if args.frame_hours < 1:
             raise SystemExit("--frame-hours must be positive")
-        # Animate only existing paired records; never interpolate across gaps.
         region = (-80, -40, 25, 50)
         anim_data = merged.copy()
         for prefix in ("model", "obs"):
             anim_data[prefix + "_lon"] = ((anim_data[prefix + "_lon"] + 180) % 360) - 180
         frames = np.arange(0, 241, args.frame_hours)
-        fig, ax = plt.subplots(figsize=(11, 7))
-        ax.set(xlim=region[:2], ylim=region[2:], xlabel="Longitude (degrees east)",
-               ylabel="Latitude (degrees north)",
-               title=f"GLOENS {args.cycle}: Gulf Stream drifters")
-        ax.grid(alpha=.25)
-        model_scatter = ax.scatter([], [], s=11, c="tab:blue", label="GLOENS model", alpha=.7)
-        obs_scatter = ax.scatter([], [], s=11, c="tab:orange", label="Observed", alpha=.7)
+        fig = plt.figure(figsize=(12, 8))
+        ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
+        ax.set_extent(region, crs=ccrs.PlateCarree())
+        ax.set_facecolor("#dbeef7")
+        ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor="#dedbd1",
+                       edgecolor="none", zorder=1)
+        ax.coastlines(resolution="50m", linewidth=.65, zorder=4)
+        gridlines = ax.gridlines(draw_labels=True, linewidth=.4, alpha=.4)
+        gridlines.top_labels = False
+        gridlines.right_labels = False
+        ax.set_title(f"GLOENS {args.cycle}: Gulf Stream trajectories")
+        # Each line is a complete track history up to the current frame.
+        # Do not bridge missing observations, time gaps, or dateline jumps.
+        grouped = {}
+        for name, sub in anim_data.groupby("id", sort=False):
+            grouped[name] = sub.sort_values("hour")
+        def segments_at(hour, prefix):
+            segments = []
+            for sub in grouped.values():
+                sub = sub[sub.hour <= hour]
+                if len(sub) < 2:
+                    continue
+                xy = sub[[prefix + "_lon", prefix + "_lat"]].to_numpy(dtype=float)
+                hours = sub.hour.to_numpy(dtype=float)
+                valid = np.isfinite(xy).all(axis=1)
+                valid &= (xy[:, 0] >= region[0]) & (xy[:, 0] <= region[1])
+                valid &= (xy[:, 1] >= region[2]) & (xy[:, 1] <= region[3])
+                adjacent = (valid[:-1] & valid[1:] &
+                            (np.diff(hours) > 0) &
+                            (np.diff(hours) <= 1.01) &
+                            (np.abs(np.diff(xy[:, 0])) < 180))
+                for j in np.flatnonzero(adjacent):
+                    segments.append(xy[j:j + 2])
+            return segments
+        model_lines = LineCollection([], colors="tab:blue", linewidths=.8,
+                                     alpha=.55, transform=ccrs.PlateCarree(), zorder=2)
+        obs_lines = LineCollection([], colors="tab:orange", linewidths=.8,
+                                   alpha=.65, transform=ccrs.PlateCarree(), zorder=3)
+        ax.add_collection(model_lines)
+        ax.add_collection(obs_lines)
+        model_points = ax.scatter([], [], s=9, color="tab:blue", label="GLOENS model",
+                                  transform=ccrs.PlateCarree(), zorder=5)
+        obs_points = ax.scatter([], [], s=9, color="tab:orange", label="Observed drifters",
+                                transform=ccrs.PlateCarree(), zorder=6)
         ax.legend(loc="lower right")
-        stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top")
+        stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top",
+                             bbox=dict(facecolor="white", alpha=.8, edgecolor="none"),
+                             zorder=7)
         def update(hour):
+            model_lines.set_segments(segments_at(hour, "model"))
+            obs_lines.set_segments(segments_at(hour, "obs"))
             at = anim_data[np.isclose(anim_data.hour.to_numpy(), hour)]
-            for scatter, prefix in ((model_scatter, "model"), (obs_scatter, "obs")):
+            for scatter, prefix in ((model_points, "model"), (obs_points, "obs")):
                 xy = at[[prefix + "_lon", prefix + "_lat"]].to_numpy(dtype=float)
                 xy = xy[np.isfinite(xy).all(axis=1)]
                 xy = xy[(xy[:, 0] >= region[0]) & (xy[:, 0] <= region[1]) &
                         (xy[:, 1] >= region[2]) & (xy[:, 1] <= region[3])]
                 scatter.set_offsets(xy.reshape(-1, 2))
             stamp_text.set_text(f"Lead: {hour / 24:.2f} days")
-            return model_scatter, obs_scatter, stamp_text
+            return model_lines, obs_lines, model_points, obs_points, stamp_text
         animation = FuncAnimation(fig, update, frames=frames, interval=180, blit=False)
         gif_path = out / "gulf_stream_zoom.gif"
         animation.save(gif_path, writer=PillowWriter(fps=5), dpi=110)
