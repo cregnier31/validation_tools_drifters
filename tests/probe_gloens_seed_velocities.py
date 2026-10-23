@@ -5,6 +5,8 @@ Requires an EXISTING velocity Zarr store with uo/vo and time,y,x dimensions.
 Does not run advection or write into the velocity cache.
 """
 import argparse
+import json
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -32,7 +34,8 @@ def coords(ds, prefix):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--velocity-zarr", required=True)
+    ap.add_argument("--cache-dir", required=True)
+    ap.add_argument("--cycle", default="20240229")
     ap.add_argument("--meshmask", default="/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc")
     ap.add_argument("--u-var", default="uo")
     ap.add_argument("--v-var", default="vo")
@@ -40,20 +43,30 @@ def main():
     ap.add_argument("--output", default="gloens_seed_velocity_probe.csv")
     args = ap.parse_args()
     import parcels
-    with xr.open_zarr(args.velocity_zarr, consolidated=None) as velocity, xr.open_dataset(args.meshmask, engine="netcdf4") as grid:
-        surfaces = {}
-        for component, name in (("U", args.u_var), ("V", args.v_var)):
-            arr = velocity[name]
-            dims = [d for d in arr.dims if d not in ("time", "y", "x")]
-            if len(dims) != 1:
-                raise ValueError(f"{name}: expected one depth dimension, got {arr.dims}")
-            arr = arr.sel({dims[0]: args.depth}, method="nearest").reset_coords(drop=True)
-            surfaces[component] = arr
-            print(f"{component}: {arr.dims}, time={arr.time.values[0]}, depth requested={args.depth}")
-        ds = xr.Dataset(surfaces)
+    cache = Path(args.cache_dir)
+    surfaces = {}
+    metadata = {}
+    for component, name in (("U", args.u_var), ("V", args.v_var)):
+        matches = sorted(cache.glob(f"FCST_R{args.cycle}_*_{name}_ensmean_28days.json"))
+        if len(matches) != 1:
+            ap.error(f"Expected one {name} metadata file, found {len(matches)}")
+        meta = json.loads(matches[0].read_text())
+        array = np.load(matches[0].with_suffix(".npy"), mmap_mode="r")
+        if tuple(meta["shape"]) != array.shape:
+            raise ValueError(f"{name} shape mismatch: {meta['shape']} != {array.shape}")
+        metadata[component] = (meta, array)
+        print(f"{component}: shape={array.shape}, dtype={array.dtype}, ensemble_size={meta.get('ensemble_size')}")
+    with xr.open_dataset(args.meshmask, engine="netcdf4") as grid:
         fcoords = grid[["glamf", "gphif"]]
         if "time_counter" in fcoords.dims:
             fcoords = fcoords.isel(time_counter=0, drop=True)
+        for component in ("U", "V"):
+            meta, array = metadata[component]
+            if args.depth != 0:
+                raise ValueError("Depth coordinates absent in cache metadata; use --depth 0")
+            surfaces[component] = xr.DataArray(array[:, 0, :, :], dims=("time", "y", "x"),
+                coords={"time": pd.to_datetime(meta["times"])})
+        ds = xr.Dataset(surfaces)
         sgrid = parcels.convert.nemo_to_sgrid(fields={"U": ds["U"], "V": ds["V"]}, coords=fcoords)
         fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
         print("Parcels version:", parcels.__version__)
