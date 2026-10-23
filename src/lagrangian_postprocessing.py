@@ -140,6 +140,10 @@ def read_traj_compute_scores(day,
         elapsed_hours = ((model_clock - model_clock[0])
                          / np.timedelta64(1, "h"))
         lead_days = np.floor(elapsed_hours / 24).astype(int) + 1
+        # The final sample at exactly N*24 hours belongs to lead day N,
+        # not a spurious day N+1 containing only the endpoint.
+        final_lead = max(1, int(np.ceil(elapsed_hours[-1] / 24)))
+        lead_days = np.minimum(lead_days, final_lead)
         report = Path(dir_work_mod) / f"Trajectory_quality_{MODEL}_{str_date_sim}.csv"
         report.parent.mkdir(parents=True, exist_ok=True)
         with report.open("w", newline="", encoding="utf-8") as stream:
