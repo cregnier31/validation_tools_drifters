@@ -758,11 +758,16 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod):
     separation = np.where(valid, separation, 0.0)
     # Liu et al. normalized skill: 1 is perfect, 0 is no skill.
     # Keep cumulative sums inclusive of the current valid interval.
+    # Liu & Weisberg (2011) NCLS: denominator is the SUM of the
+    # cumulative observed path length at each evaluation time, not
+    # merely the total observed path length. The latter erroneously
+    # collapses skill toward zero as the number of samples increases.
     cumulative_path = np.cumsum(distance, axis=1)
     cumulative_sep = np.cumsum(separation, axis=1)
+    normalized_path = np.cumsum(np.where(valid, cumulative_path, 0.0), axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
-        ratio = np.where(cumulative_path > 0,
-                         cumulative_sep / cumulative_path, np.nan)
+        ratio = np.where(normalized_path > 0,
+                         cumulative_sep / normalized_path, np.nan)
     skill = np.maximum(0.0, 1.0 - ratio)
     # Undefined when there is no observed motion, or the current fix is absent.
     skill = np.where(valid & (cumulative_path > 0), skill, np.nan)
