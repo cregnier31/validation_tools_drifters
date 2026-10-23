@@ -235,6 +235,20 @@ def main():
                 except Exception as exc:
                     print("U/V.eval without particles error:",
                           type(exc).__name__, str(exc))
+                # Compare the actual Parcels field data with native cached
+                # values, and inspect the cell index selected by interpolation.
+                for comp in ("U", "V"):
+                    fld = getattr(fieldset, comp)
+                    gy = row[f"{comp}_native_y"]
+                    gx = row[f"{comp}_native_x"]
+                    try:
+                        print(f"{comp} field.data[0,0,{gy},{gx}]:",
+                              repr(float(fld.data[0, 0, gy, gx])))
+                    except Exception as exc:
+                        print(f"{comp} field data lookup error:",
+                              type(exc).__name__, str(exc))
+                    print(f"{comp} interp:", repr(fld.interp_method))
+                print("particle ei after sampling:", repr(pset.ei))
                 u_sample, v_sample = fieldset.UV[pset]
                 print("UV[pset]:", repr(u_sample), repr(v_sample))
                 if hasattr(pset, "state"):
