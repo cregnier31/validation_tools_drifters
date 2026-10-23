@@ -58,6 +58,34 @@ def main():
         metadata[component] = (meta, array)
         print(f"{component}: shape={array.shape}, dtype={array.dtype}, ensemble_size={meta.get('ensemble_size')}")
     with xr.open_dataset(args.meshmask, engine="netcdf4") as grid:
+        # Audit whether zero F coordinates are associated with masks and
+        # whether other staggered coordinates retain information there.
+        print("\\n=== Meshmask coordinate/mask audit ===")
+        flon, flat = coords(grid, "f")
+        zero_f = (flon == 0) & (flat == 0)
+        print("F zero-coordinate points:", int(zero_f.sum()))
+        for maskname in ("tmask", "umask", "vmask", "fmask"):
+            mask = grid[maskname]
+            for dim in mask.dims:
+                if dim not in ("y", "x"):
+                    mask = mask.isel({dim: 0})
+            wet = np.asarray(mask.values) != 0
+            print(maskname, "surface wet:", int(wet.sum()),
+                  "F zero among wet:", int((zero_f & wet).sum()),
+                  "F zero among dry:", int((zero_f & ~wet).sum()))
+        for suffix in ("t", "u", "v"):
+            lo, la = coords(grid, suffix)
+            usable = np.isfinite(lo) & np.isfinite(la) & ~((lo == 0) & (la == 0))
+            print(f"{suffix.upper()} valid coordinates at F-zero points:",
+                  int((usable & zero_f).sum()))
+        for jy, ix in ((652, 713), (682, 679), (659, 713),
+                       (653, 859), (685, 883), (657, 834), (663, 838)):
+            print("Meshmask neighborhood", (jy, ix))
+            for suffix in ("f", "t", "u", "v"):
+                lo, la = coords(grid, suffix)
+                print(suffix.upper(), "lon:",
+                      lo[jy:jy+2, ix:ix+2].tolist(),
+                      "lat:", la[jy:jy+2, ix:ix+2].tolist())
         fcoords = grid[["glamf", "gphif"]]
         if "time_counter" in fcoords.dims:
             fcoords = fcoords.isel(time_counter=0, drop=True)
