@@ -17,6 +17,7 @@ def parse_args():
     parser.add_argument('--sys', type=str, help='SYSTEM to validate')
     parser.add_argument('--scheme', type=str, default="K_smag", help='Scheme of the dispersion')
     parser.add_argument('--typeobs', type=str, default="COPERNICUS_DAILY", help='type of observation')
+    parser.add_argument('--remove-old-particules', action='store_true', help='Delete existing trajectory output before rerunning')
     parser.add_argument('--engine', type=str,  default="parcels", help='Engine choosen forthe dispersion')
     args = parser.parse_args()
     list_lead = ['HDCT', 'FCST']
@@ -73,4 +74,4 @@ def parse_args():
     date_start = datetime.strptime(date_start, "%Y%m%d")
     date_end = datetime.strptime(date_end, "%Y%m%d")
 
-    return date_start, date_end, leadtime, system, scheme, obs_type, engine
+    return date_start, date_end, leadtime, system, scheme, obs_type, engine, args.remove_old_particules
