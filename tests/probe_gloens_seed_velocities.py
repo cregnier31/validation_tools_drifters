@@ -93,15 +93,18 @@ def main():
                 row[f"{comp}_native_x"] = int(x)
                 row[f"{comp}_native_nearest"] = float(arr.isel(time=0,y=y,x=x).values)
                 row[f"{comp}_native_3x3"] = np.array2string(vals, precision=5)
-            # Parcels 4 sampling interfaces differ by version. Report errors
-            # rather than silently treating unsupported calls as zero velocity.
-            t = pd.Timestamp(ds.time.values[0]).to_pydatetime()
-            for comp in ("U", "V"):
-                field = getattr(fieldset, comp)
-                try:
-                    row[f"{comp}_parcels"] = float(field.eval(t, 0., lat, lon))
-                except Exception as exc:
-                    row[f"{comp}_parcels_error"] = f"{type(exc).__name__}: {exc}"
+            # Sample with the same particle-based API used by the production
+            # RK4 kernel, avoiding datetime arguments to Field.eval().
+            try:
+                pset = parcels.ParticleSet(
+                    fieldset=fieldset, pclass=parcels.Particle,
+                    x=np.array([lon]), y=np.array([lat]),
+                    t=pd.Timestamp(ds.time.values[0]).to_pydatetime())
+                u_sample, v_sample = fieldset.UV[pset]
+                row["U_parcels"] = float(np.asarray(u_sample).ravel()[0])
+                row["V_parcels"] = float(np.asarray(v_sample).ravel()[0])
+            except Exception as exc:
+                row["UV_parcels_error"] = f"{type(exc).__name__}: {exc}"
             print("\n", ident, row)
             rows.append(row)
         pd.DataFrame(rows).to_csv(args.output, index=False)
