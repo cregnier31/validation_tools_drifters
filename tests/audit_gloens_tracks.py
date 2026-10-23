@@ -288,7 +288,7 @@ def main():
             stamp_text.set_text(f"Lead: {hour / 24:.2f} days")
             return model_lines, obs_lines, model_points, obs_points, stamp_text
         animation = FuncAnimation(fig, update, frames=frames, interval=180, blit=False)
-        gif_path = out / "gulf_stream_zoom.gif"
+        gif_path = out / (f"gulf_stream_zoom_{args.cycle}_drift10d_"\n                          f"frame{args.frame_hours}h.gif")
         animation.save(gif_path, writer=PillowWriter(fps=5), dpi=110)
         plt.close(fig)
         print("Saved Gulf Stream animation:", gif_path)
