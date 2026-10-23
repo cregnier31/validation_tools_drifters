@@ -214,7 +214,29 @@ def main():
                     fieldset=fieldset, pclass=parcels.Particle,
                     x=np.array([lon]), y=np.array([lat]),
                     t=pd.Timestamp(ds.time.values[0]).to_pydatetime())
+                print(f"\\n=== Sampling state for {ident} ===")
+                print("particle t:", repr(pset.t), "z:", repr(pset.z))
+                print("particle x:", repr(pset.x), "y:", repr(pset.y))
+                for attr in ("state", "ei", "xi", "yi", "zi", "ti"):
+                    if hasattr(pset, attr):
+                        print(f"particle {attr}:", repr(getattr(pset, attr)))
+                try:
+                    direct_uv = fieldset.UV.eval(pset.t, pset.z, pset.y, pset.x)
+                    print("UV.eval without particles:", repr(direct_uv))
+                except Exception as exc:
+                    print("UV.eval without particles error:",
+                          type(exc).__name__, str(exc))
+                try:
+                    direct_u = fieldset.U.eval(pset.t, pset.z, pset.y, pset.x)
+                    direct_v = fieldset.V.eval(pset.t, pset.z, pset.y, pset.x)
+                    print("U/V.eval without particles:", repr(direct_u), repr(direct_v))
+                except Exception as exc:
+                    print("U/V.eval without particles error:",
+                          type(exc).__name__, str(exc))
                 u_sample, v_sample = fieldset.UV[pset]
+                print("UV[pset]:", repr(u_sample), repr(v_sample))
+                if hasattr(pset, "state"):
+                    print("particle state after UV[pset]:", repr(pset.state))
                 row["U_parcels"] = float(np.asarray(u_sample).ravel()[0])
                 row["V_parcels"] = float(np.asarray(v_sample).ravel()[0])
             except Exception as exc:
