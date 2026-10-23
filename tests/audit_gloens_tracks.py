@@ -26,14 +26,18 @@ def distance_km(lon1, lat1, lon2, lat2):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--cycle", default="20240229")
+    ap.add_argument("--drift-days", type=int, default=10, help="Forecast duration in days")
     ap.add_argument("--root", default="/scratch/cregnier/WORK_lagrangian/AdvectionRK4/DRIFT_GLOENS")
     ap.add_argument("--output", default=None)
     ap.add_argument("--max-tracks", type=int, default=12)
     ap.add_argument("--gulf-stream-animation", action="store_true", help="Create Gulf Stream zoom GIF from existing model/observations")
     ap.add_argument("--frame-hours", type=int, default=6, help="Hours between animation frames")
     args = ap.parse_args()
+    if args.drift_days < 1:
+        raise SystemExit("--drift-days must be positive")
+    drift_hours = args.drift_days * 24
     base = Path(args.root)
-    candidates = sorted(base.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift10_dt5_{args.cycle}-{args.cycle}*/ZONE_*/{args.cycle}"))
+    candidates = sorted(base.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift{args.drift_days}_dt5_{args.cycle}-{args.cycle}*/ZONE_*/{args.cycle}"))
     if len(candidates) != 1:
         raise SystemExit(f"Expected one cycle directory; found {len(candidates)}: {candidates}")
     cycle_dir = candidates[0]
@@ -79,14 +83,14 @@ def main():
     merged.loc[~np.isfinite(merged[["model_lon", "model_lat", "obs_lon", "obs_lat"]]).all(axis=1), "sep_km"] = np.nan
     model_duration_h = (raw["time"].max() - start).total_seconds() / 3600
     print(f"Model trajectory duration: {model_duration_h:.1f} hours "
-          f"({model_duration_h / 24:.2f} days); requested: 240 hours")
-    if args.gulf_stream_animation and model_duration_h < 239:
+          f"({model_duration_h / 24:.2f} days); requested: {drift_hours} hours")
+    if args.gulf_stream_animation and model_duration_h < drift_hours - 1:
         raise SystemExit(
-            f"Cannot produce a real 10-day animation: Parquet ends at "
+            f"Cannot produce a real {args.drift_days}-day animation: Parquet ends at "
             f"{model_duration_h:.1f} hours. Re-run the 10-day advection "
-            f"with --drift-days 10 --remove-old-trajectories, then audit again."
+            f"with --drift-days {args.drift_days} --remove-old-trajectories, then audit again."
         )
-    merged = merged[(merged.hour >= 0) & (merged.hour <= 240)].copy()
+    merged = merged[(merged.hour >= 0) & (merged.hour <= drift_hours)].copy()
     if merged.empty:
         raise SystemExit("No trajectory samples in the requested 10-day window")
     per_hour = merged.groupby("hour").agg(
@@ -101,7 +105,7 @@ def main():
     ax.plot(per_hour.hour / 24, per_hour.p90_sep_km, label="90th percentile")
     ax.plot(per_hour.hour / 24, per_hour.mean_sep_km, label="Mean", alpha=.7)
     ax.set(xlabel="Days after noon launch", ylabel="Model-observation separation (km)",
-           title=f"GLOENS {args.cycle}: separation distance", xlim=(0, 10))
+           title=f"GLOENS {args.cycle}: separation distance", xlim=(0, args.drift_days))
     ax.grid(alpha=.3); ax.legend(); fig.tight_layout()
     fig.savefig(out / "separation_distance.png", dpi=160); plt.close(fig)
 
@@ -226,7 +230,7 @@ def main():
         anim_data = merged.copy()
         for prefix in ("model", "obs"):
             anim_data[prefix + "_lon"] = ((anim_data[prefix + "_lon"] + 180) % 360) - 180
-        frames = np.unique(np.r_[np.arange(0, 241, args.frame_hours), 240])
+        frames = np.unique(np.r_[np.arange(0, drift_hours + 1, args.frame_hours), drift_hours])
         fig = plt.figure(figsize=(12, 8))
         ax = fig.add_subplot(111, projection=ccrs.PlateCarree())
         ax.set_extent(region, crs=ccrs.PlateCarree())
@@ -288,7 +292,7 @@ def main():
             stamp_text.set_text(f"Lead: {hour / 24:.2f} days")
             return model_lines, obs_lines, model_points, obs_points, stamp_text
         animation = FuncAnimation(fig, update, frames=frames, interval=180, blit=False)
-        gif_path = out / (f"gulf_stream_zoom_{args.cycle}_drift10d_"\n                          f"frame{args.frame_hours}h.gif")
+        gif_path = out / (f"gulf_stream_zoom_{args.cycle}_drift{args.drift_days}d_"\n                          f"frame{args.frame_hours}h.gif")
         animation.save(gif_path, writer=PillowWriter(fps=5), dpi=110)
         plt.close(fig)
         print("Saved Gulf Stream animation:", gif_path)
@@ -296,8 +300,8 @@ def main():
     print("Cycle:", args.cycle, "start:", start, "model end:", raw.time.max())
     print("Seeded:", len(ids), "model IDs:", raw.id.nunique())
     print("Initial maximum separation (km):", merged.loc[merged.hour == 0, "sep_km"].max())
-    print("Model records at hour 240:", int((merged.hour == 240).sum()))
-    print("Paired records at hour 240:", int(merged.loc[merged.hour == 240, "sep_km"].notna().sum()))
+    print(f"Model records at hour {drift_hours}:", int((merged.hour == drift_hours).sum()))
+    print(f"Paired records at hour {drift_hours}:", int(merged.loc[merged.hour == 240, "sep_km"].notna().sum()))
     print("Largest hourly segment speed (km/h):", segments.speed_kmh.max())
     print("Saved audit to:", out)
 
