@@ -256,6 +256,24 @@ def main():
                               type(exc).__name__, str(exc))
                     print(f"{comp} interp:", repr(fld.interp_method))
                 print("particle ei after sampling:", repr(pset.ei))
+                # Inspect Parcels' own spatial/temporal lookup, rather than
+                # guessing which cell was selected from the native grid.
+                try:
+                    from parcels._core.field import _get_positions
+                    for comp in ("U", "V"):
+                        fld = getattr(fieldset, comp)
+                        pp, gp = _get_positions(
+                            fld, pset.t, np.atleast_1d(pset.z),
+                            np.atleast_1d(pset.y), np.atleast_1d(pset.x),
+                            None, None)
+                        print(f"{comp} lookup grid positions:", repr(gp))
+                        print(f"{comp} lookup particle positions:", repr(pp))
+                        axis_map = fld.grid.get_axis_dim_mapping(fld.data.dims)
+                        print(f"{comp} axis mapping:", repr(axis_map),
+                              "data dims:", repr(fld.data.dims))
+                except Exception as exc:
+                    print("Spatial lookup diagnostic error:",
+                          type(exc).__name__, str(exc))
                 u_sample, v_sample = fieldset.UV[pset]
                 print("UV[pset]:", repr(u_sample), repr(v_sample))
                 if hasattr(pset, "state"):
