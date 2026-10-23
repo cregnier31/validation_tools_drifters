@@ -196,7 +196,10 @@ def process_one_day(day, config_dict):
                 v_store = config_info.get("zarr_v_store") or u_store
                 storage_options = None
             with prepare_velocity_forecast(
-                u_store, v_store, day, days=int(DRIFT_TIME),
+                # Daily fields are at noon: N samples span only N-1 days.
+                # Load two additional timestamps so a full N-day RK4 run
+                # has an interpolation guard beyond its final endpoint.
+                u_store, v_store, day, days=int(DRIFT_TIME) + 2,
                 storage_options=storage_options,
                 mode=config_info["zarr_velocity_mode"],
                 member=config_info["zarr_ensemble_member"],
