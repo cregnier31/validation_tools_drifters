@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from scipy.spatial import cKDTree
+from scipy.ndimage import distance_transform_edt
 
 SEEDS = {
     "3201769": (-72.087997, 30.035000),
@@ -68,6 +69,44 @@ def main():
                 coords={"time": pd.to_datetime(meta["times"])})
         ds = xr.Dataset(surfaces)
         sgrid = parcels.convert.nemo_to_sgrid(fields={"U": ds["U"], "V": ds["V"]}, coords=fcoords)
+        # DIAGNOSTIC ONLY: replace invalid zero-coordinate F points in an
+        # in-memory coordinate copy with nearest finite, nonzero F coordinates.
+        # This is NOT a physically correct mesh repair and must never be used
+        # for production advection. It tests whether zero-coordinate geometry
+        # is responsible for selecting remote, zero-velocity cells.
+        print("\\n=== Diagnostic in-memory zero-coordinate geometry test ===")
+        f_lon = np.asarray(fcoords["glamf"].values)
+        f_lat = np.asarray(fcoords["gphif"].values)
+        invalid = (~np.isfinite(f_lon) | ~np.isfinite(f_lat) |
+                   ((f_lon == 0) & (f_lat == 0)))
+        print("Invalid F-grid coordinate points:", int(invalid.sum()))
+        corrected_fieldset = None
+        if invalid.any() and (~invalid).any():
+            nearest = distance_transform_edt(
+                invalid, return_distances=False, return_indices=True)
+            lon_fixed = f_lon.copy()
+            lat_fixed = f_lat.copy()
+            lon_fixed[invalid] = f_lon[tuple(a[invalid] for a in nearest)]
+            lat_fixed[invalid] = f_lat[tuple(a[invalid] for a in nearest)]
+            fixed_coords = fcoords.copy(deep=True)
+            fixed_coords["glamf"] = xr.DataArray(
+                lon_fixed, dims=fcoords["glamf"].dims,
+                attrs=fcoords["glamf"].attrs)
+            fixed_coords["gphif"] = xr.DataArray(
+                lat_fixed, dims=fcoords["gphif"].dims,
+                attrs=fcoords["gphif"].attrs)
+            try:
+                fixed_sgrid = parcels.convert.nemo_to_sgrid(
+                    fields={"U": ds["U"], "V": ds["V"]},
+                    coords=fixed_coords)
+                corrected_fieldset = parcels.FieldSet.from_sgrid_conventions(
+                    fixed_sgrid)
+                print("Diagnostic fieldset constructed (not production-safe)")
+            except Exception as exc:
+                print("Diagnostic fieldset construction failed:",
+                      type(exc).__name__, str(exc))
+        else:
+            print("No replaceable invalid coordinates; skipping test")
         # Compare native and SGRID values at the exact same array indices.
         # This is a value-preservation check, not proof of spatial alignment.
         print("\\n=== Native versus converted SGRID values ===")
@@ -294,6 +333,15 @@ def main():
                 except Exception as exc:
                     print("Spatial lookup diagnostic error:",
                           type(exc).__name__, str(exc))
+                if corrected_fieldset is not None:
+                    try:
+                        fixed_uv = corrected_fieldset.UV.eval(
+                            pset.t, pset.z, pset.y, pset.x)
+                        print("DIAGNOSTIC corrected-coordinate UV:",
+                              repr(fixed_uv))
+                    except Exception as exc:
+                        print("DIAGNOSTIC corrected-coordinate error:",
+                              type(exc).__name__, str(exc))
                 u_sample, v_sample = fieldset.UV[pset]
                 print("UV[pset]:", repr(u_sample), repr(v_sample))
                 if hasattr(pset, "state"):
