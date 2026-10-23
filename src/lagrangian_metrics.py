@@ -756,15 +756,17 @@ def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod):
     valid &= np.isfinite(distance) & np.isfinite(separation)
     distance = np.where(valid, distance, 0.0)
     separation = np.where(valid, separation, 0.0)
-    # Preserve the original exclusive-end cumulative convention.
-    cumulative_path = np.cumsum(distance, axis=1) - distance
-    cumulative_sep = np.cumsum(separation, axis=1) - separation
+    # Liu et al. normalized skill: 1 is perfect, 0 is no skill.
+    # Keep cumulative sums inclusive of the current valid interval.
+    cumulative_path = np.cumsum(distance, axis=1)
+    cumulative_sep = np.cumsum(separation, axis=1)
     with np.errstate(divide="ignore", invalid="ignore"):
         ratio = np.where(cumulative_path > 0,
                          cumulative_sep / cumulative_path, np.nan)
-    # Do not report a score at timestamps without a valid pair.
-    ratio = np.where(valid, ratio, np.nan)
-    return ratio.T
+    skill = np.maximum(0.0, 1.0 - ratio)
+    # Undefined when there is no observed motion, or the current fix is absent.
+    skill = np.where(valid & (cumulative_path > 0), skill, np.nan)
+    return skill.T
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
