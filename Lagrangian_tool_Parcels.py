@@ -29,10 +29,15 @@ def main():
     parser.add_argument("--drift-days", type=int, default=None,
                         help="Override drift duration in days (GLOENS FCST defaults to 28)")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--delete-failed-particles", action="store_true",
+                        help="Retire Parcels particles with grid-search errors and continue the cycle")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--remove-old-trajectories", action="store_true",
                         help="Delete only existing model trajectory outputs for selected cycles before rerunning")
     args = parser.parse_args()
+    if args.delete_failed_particles:
+        import os
+        os.environ["GLOENS_DELETE_FAILED_PARTICLES"] = "1"
     if args.drift_days is not None and args.drift_days < 1:
         parser.error("--drift-days must be a positive integer")
     first = datetime.strptime(args.date1, "%Y%m%d")
