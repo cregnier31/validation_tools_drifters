@@ -128,7 +128,7 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     dict_cmin["Nobs"] = 0
     dict_cmin["sep-dist"] = 0
     dict_cmax = {}
-    dict_cmax["Liu_score"] = 1.5
+    dict_cmax["Liu_score"] = 1.0
     dict_cmax["Nobs"] = 100
     dict_cmax["sep-dist"] = {}
     dict_cmax["sep-dist"]['DT1'] = 100 #30
@@ -236,8 +236,9 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
             for ind_day, day in enumerate(list_days):
                 log.debug(f"Day {day}")
                 varname = dict_variable[variable]
-                results = ncdata[varname][:, :, day-1]
-                #results = np.where(results == 0, np.nan, results)
+                results = np.asarray(ncdata[varname][:, :, day-1], dtype=float).copy()
+                if variable == "Nobs":
+                    results[results <= 0] = np.nan  # empty bins are missing on maps
                 if np.isfinite(results).any():
                     log.debug(np.nanmax(results))
                     log.debug(np.nanmean(results))
@@ -256,7 +257,8 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
                 title_position = (0.5, 1.05)
                 #mean_value = np.nanmean(results)
                 # remove invalid values
-                global_score = area_weighted_mean(results)
+                global_score = (float(np.nanmean(results)) if variable == "Nobs"
+                                else area_weighted_mean(results))
 
                 valid = np.isfinite(results)
                 # latitude-dependent area weight
