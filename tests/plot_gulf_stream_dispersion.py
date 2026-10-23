@@ -136,6 +136,43 @@ def main():
             model_last_time=m.time.iloc[-1], observed_last_time=o.time.iloc[-1]))
     coastal_report = pd.DataFrame(coastal)
     coastal_report.to_csv(out / "coastal_particle_diagnostics.csv", index=False)
+
+    # Stepwise movement audit: distinguishes stationary particles from
+    # trajectories that return to their initial position after ten days.
+    steps = []
+    for identifier in sorted(chosen):
+        for source, frame in (("model", model), ("observed", obs)):
+            d = frame[frame.id == identifier].sort_values("time")
+            d = d[np.isfinite(d.lon) & np.isfinite(d.lat)]
+            if d.empty:
+                continue
+            lon = d.lon.to_numpy(dtype=float)
+            lat = d.lat.to_numpy(dtype=float)
+            t = d.time.to_numpy()
+            if len(d) > 1:
+                dlat = np.deg2rad(np.diff(lat))
+                dlon = np.deg2rad((np.diff(lon) + 180) % 360 - 180)
+                la0 = np.deg2rad(lat[:-1])
+                la1 = np.deg2rad(lat[1:])
+                h = np.sin(dlat / 2)**2 + np.cos(la0)*np.cos(la1)*np.sin(dlon / 2)**2
+                step_km = 12742 * np.arcsin(np.sqrt(np.clip(h, 0, 1)))
+                dt_hours = np.diff(t).astype("timedelta64[s]").astype(float) / 3600
+            else:
+                step_km = np.array([])
+                dt_hours = np.array([])
+            steps.append(dict(
+                id=identifier, source=source, valid_samples=len(d),
+                total_path_km=float(step_km.sum()),
+                max_step_km=float(step_km.max()) if len(step_km) else np.nan,
+                moving_steps=int(np.count_nonzero(step_km > .001)),
+                stationary_steps=int(np.count_nonzero(step_km <= .001)),
+                time_gaps=int(np.count_nonzero(dt_hours > 1.01)),
+                first_lon=float(lon[0]), first_lat=float(lat[0]),
+                last_lon=float(lon[-1]), last_lat=float(lat[-1]),
+                first_time=d.time.iloc[0], last_time=d.time.iloc[-1]))
+    pd.DataFrame(steps).to_csv(out / "particle_motion_audit.csv", index=False)
+    print("Motion audit:", out / "particle_motion_audit.csv")
+
     print("Coastal diagnostics:", out / "coastal_particle_diagnostics.csv")
 
     print("Particle coverage:", out / "particle_coverage.csv")
