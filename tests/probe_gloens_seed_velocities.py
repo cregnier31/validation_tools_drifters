@@ -68,6 +68,35 @@ def main():
                 coords={"time": pd.to_datetime(meta["times"])})
         ds = xr.Dataset(surfaces)
         sgrid = parcels.convert.nemo_to_sgrid(fields={"U": ds["U"], "V": ds["V"]}, coords=fcoords)
+        # Compare native and SGRID values at the exact same array indices.
+        # This is a value-preservation check, not proof of spatial alignment.
+        print("\\n=== Native versus converted SGRID values ===")
+        locations = [
+            ("U", 653, 859), ("V", 653, 860),
+            ("U", 685, 883), ("V", 685, 883),
+            ("U", 657, 834), ("V", 656, 835),
+            ("U", 663, 838), ("V", 663, 839),
+        ]
+        for component, y, x in locations:
+            original = ds[component]
+            converted = sgrid[component]
+            print(f"{component} at y={y}, x={x}: "
+                  f"native dims={original.dims}, shape={original.shape}; "
+                  f"SGRID dims={converted.dims}, shape={converted.shape}")
+            try:
+                native_value = float(original.isel(time=0, y=y, x=x).values)
+                if not {"time", "y", "x"}.issubset(converted.dims):
+                    print(f"  native={native_value:.8f}; "
+                          "SGRID indices not comparable (different dimension names)")
+                    continue
+                converted_value = float(converted.isel(time=0, y=y, x=x).values)
+                print(f"  native={native_value:.8f}; "
+                      f"SGRID_same_index={converted_value:.8f}; "
+                      f"difference={converted_value-native_value:+.8f}")
+            except (IndexError, KeyError, TypeError, ValueError) as exc:
+                print(f"  comparison unavailable: {type(exc).__name__}: {exc}")
+        print("Note: same-index comparison alone does not establish "
+              "geographic grid alignment.\\n")
         fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid)
         print("Parcels version:", parcels.__version__)
         for comp in ("U", "V"):
