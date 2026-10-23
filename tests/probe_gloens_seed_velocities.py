@@ -121,6 +121,25 @@ def main():
                     print(component, attr, "shape=", np.shape(val),
                           "dtype=", getattr(np.asarray(val), "dtype", None))
             print(component, "field data shape=", np.shape(getattr(field, "data", None)))
+        print("\\n=== Parcels versus native grid coordinates at seed cells ===")
+        for component, y, x in [
+            ("U", 653, 859), ("V", 653, 860),
+            ("U", 685, 883), ("V", 685, 883),
+            ("U", 657, 834), ("V", 656, 835),
+            ("U", 663, 838), ("V", 663, 839),
+        ]:
+            g = getattr(fieldset, component).grid
+            print(f"{component} y={y} x={x}")
+            for suffix in ("u", "v", "f"):
+                native_lon, native_lat = coords(grid, suffix)
+                print(f"  NEMO {suffix.upper()}: "
+                      f"lon={native_lon[y,x]:.6f} lat={native_lat[y,x]:.6f}")
+            for attr in ("lon", "lat"):
+                a = np.asarray(getattr(g, attr))
+                if a.ndim == 2 and y < a.shape[0] and x < a.shape[1]:
+                    print(f"  Parcels {attr}: {float(a[y,x]):.6f}")
+                else:
+                    print(f"  Parcels {attr}: unexpected shape {a.shape}")
         print("Parcels version:", parcels.__version__)
         for comp in ("U", "V"):
             field = getattr(fieldset, comp)
