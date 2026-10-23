@@ -737,33 +737,37 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log)
     #sys.exit(1)
     
 def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod, n=1.0):
-    """Liu--Weisberg (2011) normalized cumulative Lagrangian skill score.
+    """Liu index from cumulative separation / summed cumulative observed travel.
 
-    s = cumulative(model--observation separation) / cumulative(observed
-    displacement); SS = max(0, 1 - s/n), with tolerance n > 0.
-    Missing intervals do not contribute or bridge gaps. Returns (time, drifter)
-    as expected by lagrangian_postprocessing.py.
+    Uses the user's original loop indexing: at output index i, both sums
+    include samples strictly before i. Converts the ratio to skill 1-s/n,
+    clipped to [0, 1]. Returns (time, drifter).
     """
     if not np.isfinite(n) or n <= 0:
         raise ValueError("Liu tolerance n must be finite and positive")
-    obs0 = np.isfinite(traj_drifter_lon[:, :-1]) & np.isfinite(traj_drifter_lat[:, :-1])
-    obs1 = np.isfinite(traj_drifter_lon[:, 1:]) & np.isfinite(traj_drifter_lat[:, 1:])
-    model1 = np.isfinite(traj_lon_mod[:, 1:]) & np.isfinite(traj_lat_mod[:, 1:])
-    valid = obs0 & obs1 & model1
-    distance = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
-    separation = SepDistanceEachTimestep(
+
+    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+    di_SVP_MOD = SepDistanceEachTimestep(
         traj_drifter_lon[:, 1:], traj_drifter_lat[:, 1:],
-        traj_lon_mod[:, 1:], traj_lat_mod[:, 1:])
-    valid &= np.isfinite(distance) & np.isfinite(separation)
-    cumulative_path = np.cumsum(np.where(valid, distance, 0.0), axis=1)
-    cumulative_separation = np.cumsum(np.where(valid, separation, 0.0), axis=1)
-    cumulative_path_sum = np.cumsum(np.where(valid, cumulative_path, 0.0), axis=1)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        s = np.where(cumulative_path > 0,
-                     cumulative_separation / cumulative_path, np.nan)
-    skill = np.maximum(0.0, 1.0 - s / n)
-    skill = np.where(valid & (cumulative_path > 0), skill, np.nan)
-    return skill.T
+        traj_lon_mod[:, 1:], traj_lat_mod[:, 1:]
+    )
+    valid = (np.isfinite(dli_drifters) & np.isfinite(di_SVP_MOD))
+    steps = np.where(valid, dli_drifters, 0.0)
+    separations = np.where(valid, di_SVP_MOD, 0.0)
+    liu_index = []
+    den = np.zeros(di_SVP_MOD.shape[0], dtype=float)
+    for i in range(di_SVP_MOD.shape[1]):
+        den += np.sum(steps[:, :i], axis=1)
+        numerator = np.sum(separations[:, :i], axis=1)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            ratio = np.where(den > 0, numerator / den, np.nan)
+        skill = np.maximum(0.0, 1.0 - ratio / n)
+        # At each i, score is defined only for trajectories with a valid
+        # current sample and a nonzero accumulated observed distance.
+        skill = np.where(valid[:, i] & (den > 0), skill, np.nan)
+        liu_index.append(skill)
+    return np.asarray(liu_index)
+
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
