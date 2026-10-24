@@ -608,7 +608,10 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
     stamp = f"{system}_{config.get('DATE_START', '')}_{config.get('DATE_END', '')}"
     speed_edges = np.array([0, .3, .6, 1., 1.5, 2., np.inf])
     speed_labels = ["0–0.3", "0.3–0.6", "0.6–1", "1–1.5", "1.5–2", "≥2"]
-    for requested in lead_groups:
+    # Performance and observation diagnostics share one figure each, with all
+    # requested lead days; geographical maps remain in four-panel groups.
+    combined_days = list(dict.fromkeys(day for group in lead_groups for day in group))
+    for requested in (combined_days,):
         days = [day for day in requested if 1 <= day <= available]
         if not days:
             continue
@@ -705,6 +708,11 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
         plt.close(fig)
         log.info("Saved %s", path)
 
+    for requested in lead_groups:
+        days = [day for day in requested if 1 <= day <= available]
+        if not days:
+            continue
+        tag = "_".join(map(str, days))
         # Maps are binned by OBSERVED position at each lead, not seed/model
         # position. Median per cell reduces sensitivity to outliers.
         for key, title, vmin, vmax, cmap in [
