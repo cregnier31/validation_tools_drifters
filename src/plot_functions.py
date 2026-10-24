@@ -198,7 +198,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
 
     # Requested plotting lead days can exceed available complete forecast days.
     # A 10-day GLOENS run commonly provides only 9 complete daily scores.
-    available_days = int(ncdata[dict_variable[list_diags[0]]].shape[-1])
+    available_days = int(ncdata[dict_variable[list_diags[0]]].sizes["leadtime"])
     plot_days = [day for day in list_days if 1 <= day <= available_days]
     skipped = [day for day in list_days if day not in plot_days]
     if skipped:
@@ -231,7 +231,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                     for index, day in enumerate(group):
                         varname = dict_variable[variable]
                         da = ncdata[varname]
-                        results = da.isel({da.dims[-1]: day - 1}).copy()
+                        results = da.isel(leadtime=day - 1).copy()
                         if variable == "Nobs":
                             results = results.where(results > 0)
                         if not bool(np.isfinite(results).any()):
