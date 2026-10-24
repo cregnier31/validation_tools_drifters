@@ -645,11 +645,21 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
         # and original Liu valid/zero-clipped sample counts.
         ax = axes.flat[0]
         speed_arrays = [samples("observed_speed_ms", day) for day in days]
-        ax.boxplot([v[np.isfinite(v)] if np.isfinite(v).any() else [np.nan]
-                    for v in speed_arrays],
+        speed_valid = [v[np.isfinite(v)] for v in speed_arrays]
+        ax.boxplot([v if v.size else [np.nan] for v in speed_valid],
                    tick_labels=[str(d) for d in days], showfliers=False)
+        # Preserve every lead-day tick, including days with no valid observed
+        # trajectory; annotate these instead of silently showing an empty box.
+        ax.set_xticks(range(1, len(days) + 1), [str(d) for d in days])
+        for i, values in enumerate(speed_valid, start=1):
+            if not values.size:
+                ax.text(i, .03, "No obs", rotation=90, ha="center",
+                        va="bottom", fontsize=8, color="firebrick",
+                        transform=ax.get_xaxis_transform())
         ax.set(title="Mean observed drifter speed", xlabel="Lead day", ylabel="m/s")
         ax.grid(axis="y", alpha=.25)
+        log.info("Observed-speed valid samples by lead day: %s",
+                 dict(zip(days, [len(v) for v in speed_valid])))
 
         for ax, key, title, unit in [
             (axes.flat[1], "instantaneous_separation_km", "Separation by observed speed", "km"),
