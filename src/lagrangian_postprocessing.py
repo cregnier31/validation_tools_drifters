@@ -8,7 +8,7 @@ from spatial_binning import bin_spatial, bin_spatial_weighted
 from lagrangian_metrics import SeparationDistance,\
                         SeparationDistance_havers,\
                         SeparationDistance_havers2,\
-                        LiuScore2
+                        LiuScore2, liu_score_diagnostics
 from Logger import Logger
 import datetime
 
@@ -341,6 +341,13 @@ def read_traj_compute_scores(day,
         log.debug("Compute Liu score")
         liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T \
                     for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
+        # Preserve raw Liu components at the same lead-day endpoints as skill.
+        diagnostic_blocks = [
+            [liu_score_diagnostics(drifter_lon[i, j], drifter_lat[i, j],
+                                   traj_lon[i, j], traj_lat[i, j])
+             for j in range(traj_lon.shape[1])]
+            for i in range(traj_lon.shape[0])
+        ]
         # Undefined or infinite Liu values must never enter means or bin counts.
         liu_score = np.where(np.isfinite(liu_score), liu_score, np.nan)
         # Add missing value for the first step
@@ -372,6 +379,15 @@ def read_traj_compute_scores(day,
                  np.nanmean(liu_daily, axis=(0, 1, 2)))
         # LiuScore2 returns bounded Liu skill (1=perfect, 0=no skill).
         skill_score = liu_daily
+        diagnostic_daily = {}
+        for key in ("normalized_error", "cumulative_separation_km",
+                    "observed_path_km", "normalization_distance_km",
+                    "instantaneous_separation_km"):
+            values = np.array([[block[key].T for block in row]
+                               for row in diagnostic_blocks])
+            values = np.insert(values, 0, np.nan, axis=-1)
+            diagnostic_daily[key] = values[..., endpoint_indices]
+
 
     # Preserve incomplete trajectories: missing observations/model points
     # must not cause entire drifters to be dropped from the diagnostics.
@@ -454,7 +470,8 @@ def read_traj_compute_scores(day,
     #"sum_corr_lat": sum_corr_lat,
     #"count_corr_lat": count_corr_lat,
     "sep_dist_daily": sep_dist_daily,
-    "liu_skill_daily": skill_score.squeeze()
+    "liu_skill_daily": skill_score.squeeze(),
+    "liu_diagnostics_daily": {key: values.squeeze() for key, values in diagnostic_daily.items()}
     }
 
 def aggregate_and_save_results(results,
