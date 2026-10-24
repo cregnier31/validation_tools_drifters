@@ -534,6 +534,85 @@ def compute_and_plot_histograms(results,
     plt.close()
 
     log.info(f"Saved: {fig_out}")
+    plot_liu_diagnostics(results, dir_plot, config, log, list_days=list_days)
+
+
+def plot_liu_diagnostics(results, dir_plot, config, log,
+                         list_days=(1, 3, 5, 10)):
+    """Plot lead-day Liu components and valid/clipped trajectory counts.
+
+    Uses per-trajectory outputs, not gridded means, to avoid concealing
+    sample-population changes or the unbounded pre-clipping error ratio.
+    """
+    from pathlib import Path
+
+    keys = (
+        ("normalized_error", "Raw normalized error", "Ratio"),
+        ("observed_path_km", "Observed path length", "km"),
+        ("normalization_distance_km", "Liu denominator", "km"),
+        ("cumulative_separation_km", "Cumulative separation", "km"),
+        ("instantaneous_separation_km", "Endpoint separation", "km"),
+    )
+    records = [r["liu_diagnostics_daily"] for r in results
+               if r is not None and "liu_diagnostics_daily" in r]
+    if not records:
+        log.warning("No Liu diagnostics available; skipping diagnostic plots")
+        return
+
+    def matrix(record, key):
+        values = np.asarray(record[key], dtype=float)
+        if values.ndim == 1:
+            values = values[np.newaxis, :]
+        if values.ndim != 2:
+            raise ValueError(f"Expected 2D drifter-by-lead {key}; got {values.shape}")
+        return values
+
+    available = min(matrix(r, keys[0][0]).shape[1] for r in records)
+    days = [day for day in list_days if 1 <= day <= available]
+    if not days:
+        log.warning("No requested Liu diagnostic lead days in 1..%d", available)
+        return
+    positions = np.arange(len(days))
+    fig, axes = plt.subplots(3, 2, figsize=(13, 13))
+    for ax, (key, label, unit) in zip(axes.flat[:5], keys):
+        samples = []
+        for day in days:
+            data = np.concatenate([matrix(r, key)[:, day - 1] for r in records])
+            samples.append(data[np.isfinite(data)])
+        ax.boxplot([x if x.size else np.array([np.nan]) for x in samples],
+                   positions=positions, showfliers=False)
+        ax.set_xticks(positions, [str(day) for day in days])
+        ax.set_title(label)
+        ax.set_xlabel("Forecast lead (days)")
+        ax.set_ylabel(unit)
+        ax.grid(axis="y", alpha=0.25)
+    ax = axes.flat[5]
+    valid_counts, clipped_counts = [], []
+    for day in days:
+        raw = np.concatenate([matrix(r, "normalized_error")[:, day - 1]
+                              for r in records])
+        finite = raw[np.isfinite(raw)]
+        valid_counts.append(finite.size)
+        clipped_counts.append(np.count_nonzero(finite >= 1.0))
+    ax.bar(positions, valid_counts, label="Valid trajectories", alpha=0.8)
+    ax.bar(positions, clipped_counts, label="Clipped to zero", alpha=0.8)
+    ax.set_xticks(positions, [str(day) for day in days])
+    ax.set_title("Trajectory sample counts")
+    ax.set_xlabel("Forecast lead (days)")
+    ax.set_ylabel("Count")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.25)
+    fig.suptitle("Liu skill diagnostics: " + str(config.get("SYSTEM", "")))
+    fig.tight_layout()
+    output = Path(dir_plot) / (
+        "Liu_diagnostics_" + str(config.get("SYSTEM", "model")) + "_"
+        + str(config.get("DATE_START", "")) + "_"
+        + str(config.get("DATE_END", "")) + ".png"
+    )
+    fig.savefig(output, dpi=250)
+    plt.close(fig)
+    log.info("Saved Liu diagnostics: %s", output)
+
 
 def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim=None, y2lim=None, zero=None, c1='k', c2='grey', figsize=(10, 6), fontsize=14):
     """
