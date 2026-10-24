@@ -221,7 +221,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                     fig = plt.figure(figsize=(10, 8))
                     fig.suptitle(
                         f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
-                        fontweight="bold", fontsize=13, color="red", y=0.965)
+                        fontweight="bold", fontsize=13, color="red", y=0.925)
                     group_name = "_".join(map(str, group))
                     filename_out = os.path.join(
                         dir_out,
@@ -261,7 +261,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                             cmin=dict_cmin[variable], cmax=cmax,
                             colormap=dict_colormaps[variable],
                             cbcolor_spacing=spacing, cbticks_spacing=ticks)
-                    fig.tight_layout(rect=(0, 0, 1, 0.945), h_pad=0.7, w_pad=0.5)
+                    fig.tight_layout(rect=(0, 0, 1, 0.91), h_pad=0.7, w_pad=0.5)
                     fig.savefig(filename_out, dpi=200)
                     plt.close(fig)
                     log.info("Saved score maps: %s", filename_out)
