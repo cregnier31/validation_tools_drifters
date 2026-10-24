@@ -389,6 +389,65 @@ def read_traj_compute_scores(day,
             diagnostic_daily[key] = values[..., endpoint_indices]
 
 
+    # Additional paired-trajectory diagnostics at the same daily endpoints.
+    # Geodesic step distances and directions use wrapped longitude differences.
+    def step_vectors(lon, lat):
+        dlon = (np.diff(lon, axis=-1) + 180.0) % 360.0 - 180.0
+        lat_mid = np.deg2rad((lat[..., 1:] + lat[..., :-1]) / 2.0)
+        east = 6371000.0 * np.deg2rad(dlon) * np.cos(lat_mid)
+        north = 6371000.0 * np.deg2rad(np.diff(lat, axis=-1))
+        return east, north
+
+    obs_e, obs_n = step_vectors(drifter_lon, drifter_lat)
+    mod_e, mod_n = step_vectors(traj_lon, traj_lat)
+    obs_step = np.hypot(obs_e, obs_n) / 1000.0
+    mod_step = np.hypot(mod_e, mod_n) / 1000.0
+    # Missing intermediate samples invalidate the cumulative path.
+    def path_at_leads(steps):
+        valid = np.logical_and.accumulate(np.isfinite(steps), axis=-1)
+        path = np.cumsum(np.where(np.isfinite(steps), steps, 0.0), axis=-1)
+        return np.where(valid, path, np.nan)[..., np.array(endpoint_indices) - 1]
+
+    diagnostic_daily["model_path_km"] = path_at_leads(mod_step)
+    diagnostic_daily["observed_path_km"] = path_at_leads(obs_step)
+    # Daily interval headings, not headings from the original release point.
+    angular = []
+    observed_speeds = []
+    for lead_index, endpoint in enumerate(endpoint_indices):
+        previous = 0 if lead_index == 0 else endpoint_indices[lead_index - 1]
+        oe = np.nansum(obs_e[..., previous:endpoint], axis=-1)
+        on = np.nansum(obs_n[..., previous:endpoint], axis=-1)
+        me = np.nansum(mod_e[..., previous:endpoint], axis=-1)
+        mn = np.nansum(mod_n[..., previous:endpoint], axis=-1)
+        valid_steps = (np.all(np.isfinite(obs_e[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(obs_n[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(mod_e[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(mod_n[..., previous:endpoint]), axis=-1))
+        dot = oe * me + on * mn
+        cross = oe * mn - on * me
+        angle = np.degrees(np.arctan2(np.abs(cross), dot))
+        # 10 m minimum displacement avoids meaningless headings at rest.
+        angle = np.where(valid_steps & (np.hypot(oe, on) >= 10)
+                         & (np.hypot(me, mn) >= 10), angle, np.nan)
+        angular.append(angle)
+        # Observed mean speed over the complete interval from initialization.
+        hours = float(lead_hours[endpoint])
+        observed_speeds.append(diagnostic_daily["observed_path_km"][..., lead_index]
+                               * 1000.0 / (hours * 3600.0))
+    diagnostic_daily["directional_error_deg"] = np.stack(angular, axis=-1)
+    diagnostic_daily["observed_speed_ms"] = np.stack(observed_speeds, axis=-1)
+    diagnostic_daily["observed_lon"] = drifter_lon[..., endpoint_indices]
+    diagnostic_daily["observed_lat"] = drifter_lat[..., endpoint_indices]
+    diagnostic_daily["model_lon"] = traj_lon[..., endpoint_indices]
+    diagnostic_daily["model_lat"] = traj_lat[..., endpoint_indices]
+    diagnostic_daily["valid_pair"] = (np.isfinite(drifter_lon[..., endpoint_indices])
+                                     & np.isfinite(drifter_lat[..., endpoint_indices])
+                                     & np.isfinite(traj_lon[..., endpoint_indices])
+                                     & np.isfinite(traj_lat[..., endpoint_indices])).astype(float)
+    diagnostic_daily["valid_pair"] = np.where(
+        np.isfinite(drifter_lon[..., endpoint_indices]) & np.isfinite(drifter_lat[..., endpoint_indices]),
+        diagnostic_daily["valid_pair"], np.nan)
+
     # Preserve incomplete trajectories: missing observations/model points
     # must not cause entire drifters to be dropped from the diagnostics.
     valid_pairs = (np.isfinite(traj_lon) & np.isfinite(traj_lat) &
