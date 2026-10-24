@@ -111,7 +111,7 @@ def main():
     aggregate_and_save_results(results_stats, runtime["stats_out"], log)
     if not args.no_plots:
         plot_scores(runtime["dir_out_imgs"], runtime["stats_out"],
-                    runtime["config_info"], log, list_days=[1, 3, 5, 10])
+                    runtime["config_info"], log)
         compute_and_plot_histograms(results_stats, runtime["dir_out_imgs"],
                                     runtime["config_info"], log,
                                     days=[1, 3, 5, 7, 10])
