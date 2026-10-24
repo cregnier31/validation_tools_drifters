@@ -408,6 +408,7 @@ def read_traj_compute_scores(day,
         path = np.cumsum(np.where(np.isfinite(steps), steps, 0.0), axis=-1)
         return np.where(valid, path, np.nan)[..., np.array(endpoint_indices) - 1]
 
+    diagnostic_daily["skill"] = skill_score
     diagnostic_daily["model_path_km"] = path_at_leads(mod_step)
     diagnostic_daily["observed_path_km"] = path_at_leads(obs_step)
     # Daily interval headings, not headings from the original release point.
