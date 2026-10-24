@@ -127,6 +127,20 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
     v = v.reset_coords(drop=True)
     # The disk-backed ensemble-mean arrays are sliced at one depth only.
     ds = xr.Dataset({u_name: u, v_name: v})
+    # Opt-in boundary policy: repeat the final forecast velocity for two
+    # extra daily timestamps. The first covers day 28; the second is an RK4
+    # interpolation guard. No extra forecast information is introduced.
+    if os.environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1":
+        if ds.sizes["time"] < 2:
+            raise ValueError("Cannot extend GLOENS forecast with fewer than two fields")
+        original_end = ds.time.values[-1]
+        if float((ds.time.values[-1] - ds.time.values[0]) / np.timedelta64(1, "D")) < float(drift_days):
+            extension = []
+            for extra in (1, 2):
+                next_time = original_end + np.timedelta64(extra, "D")
+                extension.append(ds.isel(time=[-1]).assign_coords(time=[next_time]))
+            ds = xr.concat([ds, *extension], dim="time")
+            log.warning("GLOENS held-last-velocity boundary extension after %s for 28-day integration; final day is not independently forecast", original_end)
     with xr.open_dataset(geometry_path, engine="netcdf4") as grid:
         for name in ("glamf", "gphif"):
             coord = grid[name]
