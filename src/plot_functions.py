@@ -356,10 +356,10 @@ def compute_and_plot_histograms(results,
             continue
 
         if "sep_dist_daily" in res:
-            all_sep_daily.append(res["sep_dist_daily"])
+            all_sep_daily.append(np.asarray(res["sep_dist_daily"]).reshape(-1, np.asarray(res["sep_dist_daily"]).shape[-1]))
 
         if "liu_skill_daily" in res:
-            all_liu_daily.append(res["liu_skill_daily"])
+            all_liu_daily.append(np.asarray(res["liu_skill_daily"]).reshape(-1, np.asarray(res["liu_skill_daily"]).shape[-1]))
 
     all_sep_daily = np.concatenate(all_sep_daily, axis=0)
     all_liu_daily = np.concatenate(all_liu_daily, axis=0)
@@ -390,7 +390,7 @@ def compute_and_plot_histograms(results,
 
     fig.suptitle(f"{MODEL}, {DATE_START}-{DATE_END}", fontsize=14)
 
-    colors = ['r', 'b', 'g', 'k', 'orange']
+    colors = plt.cm.tab10(np.linspace(0, 1, max(len(days), 1)))
 
     # ==========================================================
     # Separation distance histogram
@@ -411,7 +411,7 @@ def compute_and_plot_histograms(results,
 
 
     for i, day in enumerate(days):
-        bins = np.arange(0, 200, bin_dict[day-1])
+        bins = np.arange(0, 201, 5)
 
         idx = day - 1
         if idx >= all_sep_daily.shape[1]:
@@ -421,6 +421,7 @@ def compute_and_plot_histograms(results,
         dist = dist[np.isfinite(dist)]
 
         if len(dist) == 0:
+            log.warning("No finite separation-distance samples for lead day %d", day)
             continue
 
         counts, _ = np.histogram(dist, bins=bins)
@@ -457,7 +458,7 @@ def compute_and_plot_histograms(results,
     for i, day in enumerate(days):
 
         #bins2 = np.arange(0, 3, 0.1)
-        bins2 = np.arange(0, 3, bin_dict2[day-1])
+        bins2 = np.arange(0, 3.1, 0.1)
         bin_centres2 = bins2[:-1] + (bins2[1] - bins2[0]) / 2
         idx = day - 1
         if idx >= all_liu_daily.shape[1]:
@@ -467,6 +468,7 @@ def compute_and_plot_histograms(results,
         liu = liu[np.isfinite(liu)]
 
         if len(liu) == 0:
+            log.warning("No finite Liu samples for lead day %d", day)
             continue
 
         counts, _ = np.histogram(liu, bins=bins2)
