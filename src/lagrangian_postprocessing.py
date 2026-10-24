@@ -313,22 +313,42 @@ def read_traj_compute_scores(day,
         lon2d = traj_lon[0, 0, :, :]
         lat2d = traj_lat[0, 0, :, :]
         Nd, Tm = lon2d.shape
-        Ndays = Tm // factor
+        # A trajectory with an initialization sample and 28 days at 6-hour
+        # sampling has 113 timestamps, not 112. Count elapsed lead days,
+        # rather than treating the initialization sample as a forecast step.
+        model_times = np.asarray(traj_time[0, 0, 0, :], dtype="datetime64[ns]")
+        if model_times.size != Tm:
+            raise ValueError(f"{str_date_sim}: trajectory time/position length mismatch")
+        lead_hours = ((model_times - model_times[0]) /
+                      np.timedelta64(1, "h")).astype(float)
+        Ndays = min(int(T_DRIFT), int(np.floor((lead_hours[-1] + 1e-5) / 24.0)))
         if Ndays < 1:
-            raise ValueError(
-                f"{str_date_sim}: only {Tm} model trajectory time samples for "
-                f"{Nd} particles; need at least {factor} samples for one "
-                "complete lead-day score. Check the existing Parcels Parquet "
-                "trajectory and its time coverage; no cache was modified."
-            )
-        usable = Ndays * factor
-        log.info("Number of complete lead days %d (model samples %d, used %d)",
-                 Ndays, Tm, usable)
-        sep_dist_daily = np.nanmean(sep_dist[..., :usable].reshape(Nd, Ndays, factor), axis=-1)
-        # reshape + mean
-        traj_lon_daily_tmp = np.nanmean(lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
-        traj_lat_daily_tmp = np.nanmean(lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
-        # put back original structure → For example (1, 1, 1019, 10)
+            raise ValueError(f"{str_date_sim}: no complete lead days in trajectory")
+        target_hours = 24.0 * np.arange(1, Ndays + 1)
+        endpoint_indices = []
+        for target in target_hours:
+            hits = np.flatnonzero(np.isclose(lead_hours, target, atol=1e-4))
+            if not hits.size:
+                raise ValueError(
+                    f"{str_date_sim}: missing exact lead-day endpoint at {target:g}h; "
+                    "cannot construct a complete daily score")
+            endpoint_indices.append(int(hits[-1]))
+        log.info("Complete forecast days: %d; final endpoint %.1fh; model samples %d",
+                 Ndays, lead_hours[endpoint_indices[-1]], Tm)
+        # Daily separation and observed locations are averages of the
+        # forecast samples strictly after the preceding day's endpoint.
+        sep_dist_daily = np.stack([
+            np.nanmean(sep_dist[..., (0 if i == 0 else endpoint_indices[i-1]) + 1:end + 1],
+                       axis=-1)
+            for i, end in enumerate(endpoint_indices)], axis=-1)
+        traj_lon_daily_tmp = np.stack([
+            np.nanmean(lon2d[:, (0 if i == 0 else endpoint_indices[i-1]) + 1:end + 1],
+                       axis=-1)
+            for i, end in enumerate(endpoint_indices)], axis=-1)
+        traj_lat_daily_tmp = np.stack([
+            np.nanmean(lat2d[:, (0 if i == 0 else endpoint_indices[i-1]) + 1:end + 1],
+                       axis=-1)
+            for i, end in enumerate(endpoint_indices)], axis=-1)
         traj_lon_daily = traj_lon_daily_tmp[np.newaxis, np.newaxis, :, :]
         traj_lat_daily = traj_lat_daily_tmp[np.newaxis, np.newaxis, :, :]
         # Debug
@@ -354,26 +374,7 @@ def read_traj_compute_scores(day,
         liu_score = np.insert(liu_score, 0, np.nan, axis=-1)
         Nt = liu_score.shape[-1]
 
-        # reshape
-        newshape = liu_score.shape[:-1] + (Ndays, factor)
-
-        # Forecast lead-day skill is the cumulative score at the lead-day
-        # endpoint, not an average of scores within that day. Use the last
-        # sample at or before each endpoint (some files omit the endpoint).
-        model_times = np.asarray(traj_time[0, 0, 0, :], dtype="datetime64[ns]")
-        model_times = model_times[:liu_score.shape[-1]]
-        lead_hours = ((model_times - model_times[0]) /
-                      np.timedelta64(1, "h")).astype(float)
-        target_hours = 24.0 * np.arange(1, Ndays + 1)
-        endpoint_indices = []
-        for target in target_hours:
-            hits = np.flatnonzero((lead_hours <= target + 1e-5) &
-                                  (lead_hours >= target - sampling - 1e-5))
-            if not hits.size:
-                raise ValueError(
-                    f"{str_date_sim}: no model sample within {sampling}h "
-                    f"before lead {target:g}h")
-            endpoint_indices.append(int(hits[-1]))
+        # Daily endpoints were validated against trajectory timestamps above.
         liu_daily = liu_score[..., endpoint_indices]
         log.info("Liu skill at daily lead endpoints (last available sample): %s",
                  np.nanmean(liu_daily, axis=(0, 1, 2)))
