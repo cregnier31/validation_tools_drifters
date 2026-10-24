@@ -11,7 +11,7 @@ config_base:
   project: "lagrangian_belenos"
   exp_name: "belenos_GLO12"
 
-  dir_work: "/scratch/work/regnierc/WORK_lagrangian/"
+  dir_work: "/scratch/cregnier/WORK_lagrangian/"
   dir_in: "/home/ext/mr/smer/regnierc/SAVE/codes/validation_tools_drifters/"
 
 #  copernicus_drifter: true
@@ -25,7 +25,7 @@ config_base:
 
   dir_imgs:  './imgs/'
   dir_data:  './data/'
-  loglevel: 2
+  loglevel: 1
   nb_repeats: 0
 
   forecast: true
@@ -36,10 +36,48 @@ config_base:
 
 path_data:
 
-  COPERNICUS_DAILY: "/scratch/work/regnierc/data/UV_Drifters/013_048_filtr/"
-  AOML : "/scratch/work/regnierc/data/UV_Drifters/PhOD/"
+  COPERNICUS_DAILY: "/scratch/cregnier/DATA/CURRENTS/UV_Drifters/013_048_filtr/"
+  AOML : "/scratch/cregnier/DATA/CURRENTS/UV_Drifters/PhoD/"
 
 model_params:
+
+  GLOW_FCST:
+    input_format: "zarr"
+    velocity_mode: "deterministic"
+    bucket_name: "oceanbench-bucket"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
+    path: "s3://oceanbench-bucket/dev/ml-forecast-outputs/glowcascade_v5_ring/"
+    fname_prefix: "dev/ml-forecast-outputs/glowcascade_v5_ring/"
+    lon: "lon"
+    lat: "lat"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "regular"
+    u_depth: "depth"
+    v_depth: "depth"
+    meshmask: "static/mask_GLOW.nc"
+
+
+  # CLASS1 GLOENS ensemble forecast velocity stores on CloudFerro S3.
+  # U/V store filenames are discovered automatically for each run date.
+  GLOENS_FCST:
+    input_format: "zarr"
+    velocity_mode: "mean"  # mean | member | deterministic
+    ensemble_dim: "ens"
+    ensemble_member: null  # set for velocity_mode: member
+    bucket_name: "MOISICEEF"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
+    path: "s3://MOISICEEF/"
+    fname_prefix: "glo4-ens50_ng_1d-m_"
+    lon: "nav_lon"
+    lat: "nav_lat"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "irregular"
+    meshmask: "/scratch/cregnier/static/iORCA025_meshmask_v3.1.nc"
+
 
   GLO12_FCST:
 

@@ -22,12 +22,15 @@ def retrieve_drifters_for_one_day_traj(
     obs_type,
     drift_path,
     dir_out,
-    log
+    log,
+    start_hour=0,
 ):
     yyear = day.strftime("%Y")
 
     base_dir = ( drift_path + yyear + "/" )
     end_day = day + pd.Timedelta(days=T_DRIFT)
+    if not 0 <= start_hour < 24:
+        raise ValueError("start_hour must be between 0 and 23")
     nb_points = T_DRIFT * 24
 
     fout_driftersZone = f"Drifters_{str_region}_{str_date1}_{str_date2}.csv"
@@ -40,12 +43,11 @@ def retrieve_drifters_for_one_day_traj(
     outfile2 = dir_drifters+fout_driftersZone
     print(obs_type.upper())
     if obs_type.upper() == "COPERNICUS_DAILY":
-        print("Case1")
         # ==========================================================
         # 1. Select files
         # ==========================================================
         log.debug('Select files')
-        file_list = sorted(glob.glob(base_dir + "*/*.nc"))
+        file_list = sorted(glob.glob(base_dir + "*/*.nc") + glob.glob(base_dir + "*.nc"))
         def extract_date(f):
             return pd.to_datetime(os.path.basename(f).split("_")[3], format="%Y%m%d")
 
@@ -102,51 +104,36 @@ def retrieve_drifters_for_one_day_traj(
 
         df = df.sort_values(['id', 'time'])
         df['date'] = df['time'].dt.floor('D')
-        # ==========================================================
-        # 5. Keep only complete trajectories
-        # ==========================================================
-        nb_points = T_DRIFT * 24
-        counts = df.groupby('id').size()
-        valid_ids = counts[counts >= nb_points].index
-
-        df = df[df.id.isin(valid_ids)]
-
-        log.debug(f"Valid drifters: {len(valid_ids)}")
-
-        # ==========================================================
-        # 7. Build trajectories
-        # ==========================================================
-        log.debug(f"Build trajectories")
+        # Keep a fixed hourly grid, including missing days as NaN. Do not
+        # interpolate observations: downstream statistics must mask gaps.
+        clock = pd.date_range(start=day + pd.Timedelta(hours=start_hour), periods=nb_points, freq="h")
         trajs = []
-
-        for drifter_id, g in df.groupby('id'):
-
-            g = g[(g.time >= day) & (g.time < end_day)]
-            g = g.sort_values('time')
-
-            if len(g) < nb_points:
+        rejected_no_start = 0
+        for drifter_id, g in df.groupby("id", sort=True):
+            g = g[(g.time >= clock[0]) & (g.time <= clock[-1])]
+            # Reject ambiguous duplicate observations rather than choosing one.
+            if g.time.duplicated().any():
+                log.debug("Skipping drifter %s: duplicate observation timestamps", drifter_id)
                 continue
-
-            times = g.time.values
-
-            # must start exactly at day
-            if pd.to_datetime(times[0]) != day:
+            g = g.set_index("time").reindex(clock)
+            if not np.isfinite(g.lon.iloc[0]) or not np.isfinite(g.lat.iloc[0]):
+                rejected_no_start += 1
                 continue
-
-            # strict hourly continuity
-            dt = np.diff(times) / np.timedelta64(1, 'h')
-            if not np.all(dt == 1):
-                continue
-
-            g = g.iloc[:nb_points]
-
+            n_valid = int((np.isfinite(g.lon) & np.isfinite(g.lat)).sum())
             trajs.append({
-                'id': drifter_id,
-                'lon': g.lon.values,
-                'lat': g.lat.values,
-                'time': g.time.values,
-                'date': g.date.values
+                "id": drifter_id,
+                "lon": g.lon.to_numpy(dtype=float),
+                "lat": g.lat.to_numpy(dtype=float),
+                "time": clock.to_numpy(),
+                "date": clock.floor("D").to_numpy(),
             })
+        log.info(
+            "Observation hourly alignment %s (start hour %02d): %d seeded drifters, "
+            "%d without valid initialization, %d missing hourly position pairs",
+            day.date(), start_hour, len(trajs), rejected_no_start,
+            sum(int((~np.isfinite(t["lon"]) | ~np.isfinite(t["lat"])).sum())
+                for t in trajs),
+        )
 
         if len(trajs) == 0:
             return None
@@ -329,6 +316,31 @@ def Retrieve_drifters_traj(outfile2, T_DRIFT, log, remote = False,DRIFTER_type="
     log.debug(drifters_zone_traj.head(5))
     #print(drifters_zone_traj.dtypes)
 
+    # CSV is already on the exact hourly clock; preserve missing values.
+    # Pivot by ID/time rather than relying on contiguous rows or padding
+    # missing observations with the final known position.
+    if DRIFTER_type.upper() == "COPERNICUS_DAILY":
+        ids = np.sort(drifters_zone_traj["id"].unique())
+        times = pd.date_range(
+            start=pd.to_datetime(drifters_zone_traj["time"]).min(),
+            periods=int(T_DRIFT) * 24, freq="h"
+        )
+        df = drifters_zone_traj.copy()
+        df["time"] = pd.to_datetime(df["time"])
+        # (0, 0) is an observation missing-value sentinel, not a real fix.
+        # Keep genuine equatorial or Greenwich-meridian positions.
+        zero_fix = (df["lon"] == 0) & (df["lat"] == 0)
+        df.loc[zero_fix, ["lon", "lat"]] = np.nan
+        if df.duplicated(["id", "time"]).any():
+            raise ValueError("Duplicate observation ID/timestamp pairs")
+        lon = df.pivot(index="id", columns="time", values="lon").reindex(index=ids, columns=times)
+        lat = df.pivot(index="id", columns="time", values="lat").reindex(index=ids, columns=times)
+        lon_values = lon.to_numpy(dtype=float)
+        lat_values = lat.to_numpy(dtype=float)
+        time_values = np.broadcast_to(times.to_numpy(), lon_values.shape).copy()
+        date_values = np.broadcast_to(times.floor("D").to_numpy(), lon_values.shape).copy()
+        id_values = np.broadcast_to(ids[:, None], lon_values.shape).copy()
+        return lon_values, lat_values, date_values, time_values, id_values, len(ids)
     nb_drifters_temp=len(pd.unique(drifters_zone_traj['id']))
     #remove drifters with missing entries (should be nb_days*4+1)
     #Check each drifter has n days * 4 entries
@@ -472,8 +484,9 @@ def Traj_filter_parcels(
     traj_drifter_time,
     traj_lon,
     traj_lat,
-    length_drift, 
-    log
+    length_drift,
+    log,
+    model_times=None,
 ):
     """
     Align drifter trajectories onto model trajectory time grid.
@@ -513,6 +526,32 @@ def Traj_filter_parcels(
     # ----------------------------------------------------
     # Trim model value if it's greater that observation value
     # ----------------------------------------------------
+    if model_times is not None:
+        # Align by actual Parcels timestamps; do not average midnight-based bins.
+        model_clock = np.asarray(model_times).reshape(-1).astype("datetime64[ns]")
+        if len(model_clock) != Tm or np.any(np.isnat(model_clock)) or np.any(np.diff(model_clock) <= np.timedelta64(0, "ns")):
+            raise ValueError("Invalid Parcels model timestamp axis")
+        obs_clock = np.asarray(traj_drifter_time[0]).astype("datetime64[ns]")
+        if np.any(np.isnat(obs_clock)) or np.any(np.diff(obs_clock) <= np.timedelta64(0, "ns")):
+            raise ValueError("Invalid observation timestamp axis")
+        obs_indices = np.searchsorted(obs_clock, model_clock)
+        valid = obs_indices < len(obs_clock)
+        valid[valid] &= obs_clock[obs_indices[valid]] == model_clock[valid]
+        obs_lon = np.full((Nd, Tm), np.nan)
+        obs_lat = np.full((Nd, Tm), np.nan)
+        obs_dates = np.full((Nd, Tm), np.datetime64("NaT"), dtype="datetime64[ns]")
+        obs_times = np.broadcast_to(model_clock, (Nd, Tm)).copy()
+        obs_lon[:, valid] = traj_drifter_lon[:, obs_indices[valid]]
+        obs_lat[:, valid] = traj_drifter_lat[:, obs_indices[valid]]
+        obs_dates[:, valid] = np.asarray(traj_drifter_date)[:, obs_indices[valid]].astype("datetime64[ns]")
+        log.info("Parcels observation alignment: %d/%d exact timestamps; %d missing observation pairs",
+                 int(valid.sum()), Tm,
+                 int(np.count_nonzero(~np.isfinite(obs_lon) | ~np.isfinite(obs_lat))))
+        return (np.broadcast_to(obs_lon, traj_lon.shape),
+                np.broadcast_to(obs_lat, traj_lat.shape),
+                np.broadcast_to(obs_dates, traj_lat.shape),
+                np.broadcast_to(obs_times, traj_lat.shape),
+                Tm, Nd, Td, traj_lon, traj_lat)
     if Tm > length_drift:
         log.warning(
             f"Model time dimension ({Tm}) > drifter ({Td} and length_drift {length_drift}) -> trimming model"
@@ -522,7 +561,21 @@ def Traj_filter_parcels(
         traj_lon = traj_lon[..., :length_drift]
         traj_lat = traj_lat[..., :length_drift]
         Tm = traj_lon.shape[-1]
-    factor = Td // Tm  # e.g. 240 // 40 = 6
+    # Forecast may cover 27 days while observations cover 28. Compare
+    # only the common period; never reshape 672 observed hours into 648.
+    if Tm <= 0 or Tm > Td:
+        raise ValueError(f"Incompatible trajectory lengths: observed={Td}, model={Tm}")
+    factor = Td // Tm
+    if factor < 1:
+        raise ValueError("Model has more samples than observations")
+    common = Tm * factor
+    if common != Td:
+        log.info("Trimming observed trajectories from %d to %d samples to match model", Td, common)
+        traj_drifter_lon = traj_drifter_lon[:, :common]
+        traj_drifter_lat = traj_drifter_lat[:, :common]
+        traj_drifter_date = traj_drifter_date[:, :common]
+        traj_drifter_time = traj_drifter_time[:, :common]
+        Td = common
     # --- Compute resampling factor automatically
     log.info(f"Sampling factor {factor}")
     log.debug(f"Sampling factor {factor}")
@@ -556,3 +609,94 @@ def Traj_filter_parcels(
     drifter_date = np.broadcast_to(drifter_date_2d, traj_lat.shape)
 
     return drifter_lon, drifter_lat, drifter_date, drifter_time,  Tm, Nd, Td, traj_lon, traj_lat
+
+
+def Retrieve_traj_parquet(MODEL, dir_out, log, observed_ids, observation_start=None):
+    """Read Parcels 4 particle records as legacy (1, 1, particle, time) arrays.
+
+    Parcels 4 particle_id is the zero-based initialization index, not the
+    observed platform code. observed_ids must be in the original seeding order.
+    """
+    paths = sorted(glob.glob(os.path.join(
+        dir_out, f"*Trajectories_{MODEL}_*at_SVPloc*.parquet")))
+    if len(paths) != 1:
+        raise FileNotFoundError(
+            f"Expected exactly one Parcels 4 Parquet trajectory in {dir_out}; found {paths}")
+    path = paths[0]
+    df = pd.read_parquet(path, columns=["t", "x", "y", "particle_id"])
+    if df.empty:
+        raise ValueError(f"Empty Parcels trajectory output: {path}")
+    expected = np.asarray(observed_ids)
+    if len(np.unique(expected)) != len(expected):
+        raise ValueError("Observed drifter IDs are not unique")
+    df = df.sort_values(["particle_id", "t"])
+    particle_ids = np.sort(df.particle_id.unique())
+    if np.any(particle_ids < 0) or np.any(particle_ids >= len(expected)):
+        raise ValueError("Parcels particle_id is outside the original drifter seed range")
+    # A preflight-filtered GLOENS run renumbers Parcels particle IDs.
+    # Translate them back to original observation seed indices before matching.
+    from pathlib import Path
+    import json
+    seed_map_path = Path(path).with_suffix(".seed_indices.json")
+    if seed_map_path.is_file():
+        mapping = json.loads(seed_map_path.read_text())
+        original_indices = np.asarray(mapping["original_indices"], dtype=np.int64)
+        if (mapping["original_seed_count"] != len(expected)
+                or len(original_indices) == 0
+                or np.any(original_indices < 0)
+                or np.any(original_indices >= len(expected))
+                or len(np.unique(original_indices)) != len(original_indices)):
+            raise ValueError(f"Invalid original seed mapping: {seed_map_path}")
+        if np.any(particle_ids >= len(original_indices)):
+            raise ValueError(f"Parcels particle ID exceeds seed mapping: {seed_map_path}")
+        observed_indices = original_indices[particle_ids]
+        log.info("GLOENS seed map: matched %d model particles to original observations via %s",
+                 len(particle_ids), seed_map_path)
+    else:
+        observed_indices = particle_ids
+    # Recovered/deleted particles have shorter records. Align on the common
+    # output clock, leaving missing positions as NaN (never interpolate them).
+    # The first valid sample may be missing for a particle, so use the union.
+    if df[["t", "x", "y"]].isna().any().any():
+        log.warning("Parcels Parquet contains missing time/position values")
+    df = df.dropna(subset=["t"])
+    if df.empty:
+        raise ValueError("No valid Parcels output timestamps")
+    if df.duplicated(["particle_id", "t"]).any():
+        raise ValueError("Duplicate Parcels particle/time records")
+    clock = np.sort(df.t.unique())
+    ntime = len(clock)
+    if ntime < 1:
+        raise ValueError("Empty Parcels output time axis")
+    # A pivot makes the missing records explicit and preserves the seeded IDs.
+    lon2d = df.pivot(index="particle_id", columns="t", values="x")
+    lat2d = df.pivot(index="particle_id", columns="t", values="y")
+    lon2d = lon2d.reindex(index=particle_ids, columns=clock)
+    lat2d = lat2d.reindex(index=particle_ids, columns=clock)
+    lon = lon2d.to_numpy(dtype=float)[None, None, :, :]
+    lat = lat2d.to_numpy(dtype=float)[None, None, :, :]
+    # Parcels 4 writes elapsed seconds from the model initialization.
+    # Decode after pivoting: numeric values remain the pivot column labels.
+    if pd.api.types.is_numeric_dtype(df["t"]):
+        if observation_start is None:
+            raise ValueError("Numeric Parcels timestamps require observation_start")
+        origin = pd.Timestamp(observation_start)
+        if not np.isfinite(np.asarray(clock, dtype=float)).all():
+            raise ValueError("Nonfinite Parcels elapsed seconds")
+        if abs(float(clock[0])) > 1e-6:
+            raise ValueError("Relative Parcels output does not start at zero; cannot infer origin safely")
+        clock_absolute = (origin + pd.to_timedelta(clock, unit="s")).to_numpy(dtype="datetime64[ns]")
+        log.info("Parcels relative seconds decoded using observation start %s; first=%s last=%s",
+                 origin, clock_absolute[0], clock_absolute[-1])
+    else:
+        clock_absolute = pd.to_datetime(clock).to_numpy(dtype="datetime64[ns]")
+    time_values = np.broadcast_to(clock_absolute, (1, 1, len(particle_ids), ntime))
+    ids = expected[observed_indices][None, None, :]
+    missing = np.count_nonzero(~np.isfinite(lon) | ~np.isfinite(lat))
+    short = int((df.groupby("particle_id").size() < ntime).sum())
+    log.info(
+        "Read Parcels 4 Parquet %s: %d particles, %d time samples, "
+        "%d incomplete particles, %d missing/nonfinite position pairs",
+        path, len(particle_ids), ntime, short, missing,
+    )
+    return lon, lat, time_values, ids, observed_indices

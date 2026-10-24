@@ -25,12 +25,8 @@ from scipy import stats
 #import seaborn as sns
 #sns.set_style("darkgrid", {"axes.facecolor": ".9"})
 from parcels import FieldSet, ParticleSet, JITParticle, AdvectionRK4, AdvectionEE, StatusCode, Variable, Field#, SummedField, plotTrajectoriesFile
-from parcels.tools.statuscodes import StatusCode
-from parcels.tools.statuscodes import (
-        FieldOutOfBoundError,
-        FieldSamplingError,
-        InterpolationError
-)
+# Parcels 3.1.4 no longer exports the legacy interpolation exception classes.
+# Their only remaining uses in this module are commented-out examples.
 
 import xarray as xr
 #from discrete_cmap import discrete_cmap

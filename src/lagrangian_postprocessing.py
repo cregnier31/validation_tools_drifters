@@ -2,13 +2,13 @@ import sys
 import os
 import numpy as np
 import xarray as xr
-from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
+from trajectory_io import Retrieve_traj_files, Retrieve_traj_parquet, Retrieve_drifters_traj,\
                      Traj_filter_parcels
 from spatial_binning import bin_spatial, bin_spatial_weighted
 from lagrangian_metrics import SeparationDistance,\
                         SeparationDistance_havers,\
                         SeparationDistance_havers2,\
-                        LiuScore2
+                        LiuScore2, liu_score_diagnostics
 from Logger import Logger
 import datetime
 
@@ -60,12 +60,10 @@ def read_traj_compute_scores(day,
     dir_work_mod = f"{dir_out_parcels}{str_date_sim}"
     threshold = 500.00  # threshold in km to filter out suspicious drifters
     save = False # Save suspicious drifter paths
-    if sampling == 1:
-        factor = 1
-    elif sampling == 6:
-        factor = 4
-    elif sampling == 12:
-        factor = 2
+    if sampling <= 0 or 24 % sampling:
+        raise ValueError(f"Sampling interval must divide 24 hours: {sampling}")
+    # Number of model output samples per forecast lead day.
+    factor = 24 // sampling
     #if MODEL == "SMOC":
     #    factor = 24
     #else:
@@ -79,14 +77,107 @@ def read_traj_compute_scores(day,
     traj_drifter_lon_temp,traj_drifter_lat_temp,traj_drifter_date_temp,\
         traj_drifter_time_temp,traj_drifter_id_temp,\
         nb_drifters_temp = Retrieve_drifters_traj(filename_drift,\
-        T_DRIFT, log, DRIFTER_type)
+        T_DRIFT, log, DRIFTER_type=DRIFTER_type)
     log.debug(f'Size drifters obs {np.shape(traj_drifter_lon_temp)}')
     # --------------------------------------------
     # Retrieve Model trajectories
     # --------------------------------------------
     log.debug('Retrieve model trajectories')
     log.debug('--------------------------------------------')
-    traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod, log)
+    parquet_files = __import__("glob").glob(
+        os.path.join(dir_work_mod, f"*Trajectories_{MODEL}_*at_SVPloc*.parquet"))
+    if parquet_files:
+        # Observed rows retain the same sorted drifter order used at seeding.
+        observed_ids = traj_drifter_id_temp[:, 0]
+        traj_lon, traj_lat, traj_time, traj_IDS, particle_indices = Retrieve_traj_parquet(
+            MODEL, dir_work_mod, log, observed_ids,
+            observation_start=traj_drifter_time_temp[0, 0])
+        # Align observations to particle order even if some particles are absent.
+        traj_drifter_lon_temp = traj_drifter_lon_temp[particle_indices]
+        traj_drifter_lat_temp = traj_drifter_lat_temp[particle_indices]
+        traj_drifter_date_temp = traj_drifter_date_temp[particle_indices]
+        traj_drifter_time_temp = traj_drifter_time_temp[particle_indices]
+        traj_drifter_id_temp = traj_drifter_id_temp[particle_indices]
+        nb_drifters_temp = len(particle_indices)
+    else:
+        traj_lon, traj_lat,traj_time,traj_IDS = Retrieve_traj_files(MODEL,dir_work_mod, log)
+    if parquet_files:
+        # Quality report before score-based filtering. The model particle IDs
+        # have already been mapped to their original observed drifter IDs.
+        import csv
+        from pathlib import Path
+        model_x = np.asarray(traj_lon[0, 0], dtype=float)
+        model_y = np.asarray(traj_lat[0, 0], dtype=float)
+        obs_x = np.asarray(traj_drifter_lon_temp, dtype=float)
+        obs_y = np.asarray(traj_drifter_lat_temp, dtype=float)
+        model_clock = np.asarray(traj_time[0, 0, 0]).astype("datetime64[ns]")
+        obs_clock = np.asarray(traj_drifter_time_temp[0]).astype("datetime64[ns]")
+        indices = np.searchsorted(obs_clock, model_clock)
+        matched = indices < len(obs_clock)
+        matched[matched] &= obs_clock[indices[matched]] == model_clock[matched]
+        aligned_x = np.full_like(model_x, np.nan)
+        aligned_y = np.full_like(model_y, np.nan)
+        aligned_x[:, matched] = obs_x[:, indices[matched]]
+        aligned_y[:, matched] = obs_y[:, indices[matched]]
+        finite_obs = np.isfinite(aligned_x) & np.isfinite(aligned_y)
+        finite_model = np.isfinite(model_x) & np.isfinite(model_y)
+        paired = finite_obs & finite_model
+        # Haversine separation at the exact first model timestamp.
+        lon_delta = np.deg2rad(((model_x[:, 0] - aligned_x[:, 0] + 180) % 360) - 180)
+        lat_delta = np.deg2rad(model_y[:, 0] - aligned_y[:, 0])
+        hav = (np.sin(lat_delta / 2) ** 2
+               + np.cos(np.deg2rad(model_y[:, 0]))
+               * np.cos(np.deg2rad(aligned_y[:, 0]))
+               * np.sin(lon_delta / 2) ** 2)
+        initial_km = 6371.0 * 2 * np.arcsin(np.sqrt(np.clip(hav, 0, 1)))
+        initial_km[~paired[:, 0]] = np.nan
+        initial_valid = initial_km[np.isfinite(initial_km)]
+        n_particles = model_x.shape[0]
+        # Count all original observed seeds, including those absent from Parquet.
+        import pandas as pd
+        n_observed = int(pd.read_csv(filename_drift, usecols=["id"])["id"].nunique())
+        # Day 1 covers [t0, t0+24h), not the following calendar midnight.
+        elapsed_hours = ((model_clock - model_clock[0])
+                         / np.timedelta64(1, "h"))
+        lead_days = np.floor(elapsed_hours / 24).astype(int) + 1
+        # The final sample at exactly N*24 hours belongs to lead day N,
+        # not a spurious day N+1 containing only the endpoint.
+        final_lead = max(1, int(np.ceil(elapsed_hours[-1] / 24)))
+        lead_days = np.minimum(lead_days, final_lead)
+        report = Path(dir_work_mod) / f"Trajectory_quality_{MODEL}_{str_date_sim}.csv"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        with report.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["lead_day", "seeded_drifters", "model_particles",
+                             "particles_with_model_positions", "particles_with_observations",
+                             "particles_with_valid_pairs", "valid_pairs", "possible_pairs",
+                             "missing_observation_percent", "particles_without_model_positions_this_day",
+                             "initial_separation_median_km", "initial_separation_max_km"])
+            for lead in np.unique(lead_days):
+                columns = lead_days == lead
+                obs_any = finite_obs[:, columns].any(axis=1)
+                model_any = finite_model[:, columns].any(axis=1)
+                pair_any = paired[:, columns].any(axis=1)
+                possible = int(n_particles * columns.sum())
+                writer.writerow([
+                    int(lead), n_observed, n_particles,
+                    int(model_any.sum()), int(obs_any.sum()), int(pair_any.sum()),
+                    int(paired[:, columns].sum()), possible,
+                    round(100 * (1 - finite_obs[:, columns].sum() / possible), 3)
+                    if possible else np.nan,
+                    int((~model_any).sum()),
+                    float(np.median(initial_valid)) if initial_valid.size else np.nan,
+                    float(np.max(initial_valid)) if initial_valid.size else np.nan,
+                ])
+        log.info("GLOENS trajectory quality report: %s; first-step matched=%d/%d, "
+                 "initial separation median=%s km max=%s km",
+                 report, len(initial_valid), n_particles,
+                 float(np.median(initial_valid)) if initial_valid.size else "NaN",
+                 float(np.max(initial_valid)) if initial_valid.size else "NaN")
+        if initial_valid.size and np.max(initial_valid) > 1.0:
+            log.warning("GLOENS initial model-observation separation exceeds 1 km; "
+                        "check seed ID/time alignment before interpreting scores")
+
     if nb_drifters_temp  != len(traj_IDS.squeeze()):
         drifter_traj_ids = np.unique(traj_IDS)
         traj_drifter_lon  = []
@@ -129,7 +220,8 @@ def read_traj_compute_scores(day,
                                     traj_lon,
                                     traj_lat,
                                     length_drift,
-                                    log)
+                                    log,
+                                    model_times=traj_time[0, 0, 0, :] if parquet_files else None)
         log.debug(f"Dimensions observations subsampled raw : {np.shape(drifter_lon)}")
         log.debug(f'Dimensions model Parcels : {np.shape(traj_lon)}')
         if filtered:
@@ -222,11 +314,20 @@ def read_traj_compute_scores(day,
         lat2d = traj_lat[0, 0, :, :]
         Nd, Tm = lon2d.shape
         Ndays = Tm // factor
-        log.info(f"Number of days {Ndays}")
-        sep_dist_daily = sep_dist.reshape(Nd, Ndays, factor).mean(axis=2)
+        if Ndays < 1:
+            raise ValueError(
+                f"{str_date_sim}: only {Tm} model trajectory time samples for "
+                f"{Nd} particles; need at least {factor} samples for one "
+                "complete lead-day score. Check the existing Parcels Parquet "
+                "trajectory and its time coverage; no cache was modified."
+            )
+        usable = Ndays * factor
+        log.info("Number of complete lead days %d (model samples %d, used %d)",
+                 Ndays, Tm, usable)
+        sep_dist_daily = np.nanmean(sep_dist[..., :usable].reshape(Nd, Ndays, factor), axis=-1)
         # reshape + mean
-        traj_lon_daily_tmp = lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
-        traj_lat_daily_tmp = lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor).mean(axis=2)
+        traj_lon_daily_tmp = np.nanmean(lon2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
+        traj_lat_daily_tmp = np.nanmean(lat2d[:, :Ndays*factor].reshape(Nd, Ndays, factor), axis=-1)
         # put back original structure → For example (1, 1, 1019, 10)
         traj_lon_daily = traj_lon_daily_tmp[np.newaxis, np.newaxis, :, :]
         traj_lat_daily = traj_lat_daily_tmp[np.newaxis, np.newaxis, :, :]
@@ -240,34 +341,120 @@ def read_traj_compute_scores(day,
         log.debug("Compute Liu score")
         liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T \
                     for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
+        # Preserve raw Liu components at the same lead-day endpoints as skill.
+        diagnostic_blocks = [
+            [liu_score_diagnostics(drifter_lon[i, j], drifter_lat[i, j],
+                                   traj_lon[i, j], traj_lat[i, j])
+             for j in range(traj_lon.shape[1])]
+            for i in range(traj_lon.shape[0])
+        ]
+        # Undefined or infinite Liu values must never enter means or bin counts.
+        liu_score = np.where(np.isfinite(liu_score), liu_score, np.nan)
         # Add missing value for the first step
         liu_score = np.insert(liu_score, 0, np.nan, axis=-1)
         Nt = liu_score.shape[-1]
 
         # reshape
-        newshape = liu_score.shape[:-1] + (Nt // factor, factor)
+        newshape = liu_score.shape[:-1] + (Ndays, factor)
 
-        liu_daily = np.nanmean(
-            liu_score.reshape(newshape),
-            axis=-1
-        )
-        # Compute skill score with the assumption of n=1
-        #skill_score = 1-liu_daily
+        # Forecast lead-day skill is the cumulative score at the lead-day
+        # endpoint, not an average of scores within that day. Use the last
+        # sample at or before each endpoint (some files omit the endpoint).
+        model_times = np.asarray(traj_time[0, 0, 0, :], dtype="datetime64[ns]")
+        model_times = model_times[:liu_score.shape[-1]]
+        lead_hours = ((model_times - model_times[0]) /
+                      np.timedelta64(1, "h")).astype(float)
+        target_hours = 24.0 * np.arange(1, Ndays + 1)
+        endpoint_indices = []
+        for target in target_hours:
+            hits = np.flatnonzero((lead_hours <= target + 1e-5) &
+                                  (lead_hours >= target - sampling - 1e-5))
+            if not hits.size:
+                raise ValueError(
+                    f"{str_date_sim}: no model sample within {sampling}h "
+                    f"before lead {target:g}h")
+            endpoint_indices.append(int(hits[-1]))
+        liu_daily = liu_score[..., endpoint_indices]
+        log.info("Liu skill at daily lead endpoints (last available sample): %s",
+                 np.nanmean(liu_daily, axis=(0, 1, 2)))
+        # LiuScore2 returns bounded Liu skill (1=perfect, 0=no skill).
         skill_score = liu_daily
+        diagnostic_daily = {}
+        for key in ("normalized_error", "cumulative_separation_km",
+                    "observed_path_km", "normalization_distance_km",
+                    "instantaneous_separation_km"):
+            values = np.array([[block[key].T for block in row]
+                               for row in diagnostic_blocks])
+            values = np.insert(values, 0, np.nan, axis=-1)
+            diagnostic_daily[key] = values[..., endpoint_indices]
 
-    if True:# np.prod(np.shape(np.where(np.isnan(traj_lon)))):
-        nans = np.unique(np.where(np.isnan(traj_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
-        nans = np.unique(np.where(np.isnan(drifter_lon))[2])
-        if len(nans)>0:
-            traj_lon = np.delete(traj_lon,nans,axis = 2)
-            traj_lat = np.delete(traj_lat,nans,axis = 2)
-            drifter_lon = np.delete(drifter_lon,nans,axis = 2)
-            drifter_lat = np.delete(drifter_lat,nans,axis = 2)
+
+    # Additional paired-trajectory diagnostics at the same daily endpoints.
+    # Geodesic step distances and directions use wrapped longitude differences.
+    def step_vectors(lon, lat):
+        dlon = (np.diff(lon, axis=-1) + 180.0) % 360.0 - 180.0
+        lat_mid = np.deg2rad((lat[..., 1:] + lat[..., :-1]) / 2.0)
+        east = 6371000.0 * np.deg2rad(dlon) * np.cos(lat_mid)
+        north = 6371000.0 * np.deg2rad(np.diff(lat, axis=-1))
+        return east, north
+
+    obs_e, obs_n = step_vectors(drifter_lon, drifter_lat)
+    mod_e, mod_n = step_vectors(traj_lon, traj_lat)
+    obs_step = np.hypot(obs_e, obs_n) / 1000.0
+    mod_step = np.hypot(mod_e, mod_n) / 1000.0
+    # Missing intermediate samples invalidate the cumulative path.
+    def path_at_leads(steps):
+        valid = np.logical_and.accumulate(np.isfinite(steps), axis=-1)
+        path = np.cumsum(np.where(np.isfinite(steps), steps, 0.0), axis=-1)
+        return np.where(valid, path, np.nan)[..., np.array(endpoint_indices) - 1]
+
+    diagnostic_daily["skill"] = skill_score
+    diagnostic_daily["model_path_km"] = path_at_leads(mod_step)
+    diagnostic_daily["observed_path_km"] = path_at_leads(obs_step)
+    # Daily interval headings, not headings from the original release point.
+    angular = []
+    observed_speeds = []
+    for lead_index, endpoint in enumerate(endpoint_indices):
+        previous = 0 if lead_index == 0 else endpoint_indices[lead_index - 1]
+        oe = np.nansum(obs_e[..., previous:endpoint], axis=-1)
+        on = np.nansum(obs_n[..., previous:endpoint], axis=-1)
+        me = np.nansum(mod_e[..., previous:endpoint], axis=-1)
+        mn = np.nansum(mod_n[..., previous:endpoint], axis=-1)
+        valid_steps = (np.all(np.isfinite(obs_e[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(obs_n[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(mod_e[..., previous:endpoint]), axis=-1)
+                       & np.all(np.isfinite(mod_n[..., previous:endpoint]), axis=-1))
+        dot = oe * me + on * mn
+        cross = oe * mn - on * me
+        angle = np.degrees(np.arctan2(np.abs(cross), dot))
+        # 10 m minimum displacement avoids meaningless headings at rest.
+        angle = np.where(valid_steps & (np.hypot(oe, on) >= 10)
+                         & (np.hypot(me, mn) >= 10), angle, np.nan)
+        angular.append(angle)
+        # Observed mean speed over the complete interval from initialization.
+        hours = float(lead_hours[endpoint])
+        observed_speeds.append(diagnostic_daily["observed_path_km"][..., lead_index]
+                               * 1000.0 / (hours * 3600.0))
+    diagnostic_daily["directional_error_deg"] = np.stack(angular, axis=-1)
+    diagnostic_daily["observed_speed_ms"] = np.stack(observed_speeds, axis=-1)
+    diagnostic_daily["observed_lon"] = drifter_lon[..., endpoint_indices]
+    diagnostic_daily["observed_lat"] = drifter_lat[..., endpoint_indices]
+    diagnostic_daily["model_lon"] = traj_lon[..., endpoint_indices]
+    diagnostic_daily["model_lat"] = traj_lat[..., endpoint_indices]
+    diagnostic_daily["valid_pair"] = (np.isfinite(drifter_lon[..., endpoint_indices])
+                                     & np.isfinite(drifter_lat[..., endpoint_indices])
+                                     & np.isfinite(traj_lon[..., endpoint_indices])
+                                     & np.isfinite(traj_lat[..., endpoint_indices])).astype(float)
+    diagnostic_daily["valid_pair"] = np.where(
+        np.isfinite(drifter_lon[..., endpoint_indices]) & np.isfinite(drifter_lat[..., endpoint_indices]),
+        diagnostic_daily["valid_pair"], np.nan)
+
+    # Preserve incomplete trajectories: missing observations/model points
+    # must not cause entire drifters to be dropped from the diagnostics.
+    valid_pairs = (np.isfinite(traj_lon) & np.isfinite(traj_lat) &
+                   np.isfinite(drifter_lon) & np.isfinite(drifter_lat))
+    log.info("Valid model/observation position pairs: %d / %d",
+             np.count_nonzero(valid_pairs), valid_pairs.size)
 
     # ---------------------------------------------------------
     # Remove singleton dimensions
@@ -293,14 +480,16 @@ def read_traj_compute_scores(day,
         for t in range(2, ntime + 1):
             # need at least 2 points for correlation
             try:
-                corr_lon[k, t-1] = pearsonr(
-                    lon_drift[k, :t],
-                    lon_model[k, :t]
-                )[0]
-                corr_lat[k, t-1] = pearsonr(
-                    lat_drift[k, :t],
-                    lat_model[k, :t]
-                )[0]
+                valid_lon = np.isfinite(lon_drift[k, :t]) & np.isfinite(lon_model[k, :t])
+                valid_lat = np.isfinite(lat_drift[k, :t]) & np.isfinite(lat_model[k, :t])
+                if valid_lon.sum() >= 2:
+                    corr_lon[k, t-1] = pearsonr(
+                        lon_drift[k, :t][valid_lon], lon_model[k, :t][valid_lon]
+                    )[0]
+                if valid_lat.sum() >= 2:
+                    corr_lat[k, t-1] = pearsonr(
+                        lat_drift[k, :t][valid_lat], lat_model[k, :t][valid_lat]
+                    )[0]
             except:
                 pass
 
@@ -319,8 +508,12 @@ def read_traj_compute_scores(day,
     log.debug("Compute spatially bins statistics on a regular lon/lat grid")
     mean_sep, count_sep = bin_spatial(sep_dist_daily, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     sum_sep = mean_sep * count_sep
-    lui_score_bin, count_liu_score = bin_spatial(skill_score.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
-    sum_liu = lui_score_bin * count_liu_score
+    finite_skill = np.where(np.isfinite(skill_score), skill_score, np.nan)
+    lui_score_bin, count_liu_score = bin_spatial(finite_skill.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
+    # Empty bins can have NaN means: avoid NaN * 0 contaminating aggregation.
+    sum_liu = np.where(count_liu_score > 0, lui_score_bin * count_liu_score, 0.0)
+    sum_liu = np.where(np.isfinite(sum_liu), sum_liu, 0.0)
+    count_liu_score = np.where(np.isfinite(lui_score_bin), count_liu_score, 0)
     #corr_lon_bin, count_corr_lon = bin_spatial(corr_lon, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     #sum_corr_lon = corr_lon_bin, * count_corr_lon
     # corr_lat_bin, count_corr_lat = bin_spatial(corr_lat, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
@@ -337,7 +530,8 @@ def read_traj_compute_scores(day,
     #"sum_corr_lat": sum_corr_lat,
     #"count_corr_lat": count_corr_lat,
     "sep_dist_daily": sep_dist_daily,
-    "liu_skill_daily": skill_score.squeeze()
+    "liu_skill_daily": skill_score.squeeze(),
+    "liu_diagnostics_daily": {key: values.squeeze() for key, values in diagnostic_daily.items()}
     }
 
 def aggregate_and_save_results(results,
@@ -438,8 +632,10 @@ def aggregate_and_save_results(results,
     mean_sep_total = sum_sep_total / count_sep_total
     mean_sep_total[count_sep_total == 0] = np.nan
 
-    mean_liu_total = sum_liu_total / count_liu_total
-    mean_liu_total[count_liu_total == 0] = np.nan
+    mean_liu_total = np.full_like(sum_liu_total, np.nan, dtype=float)
+    np.divide(sum_liu_total, count_liu_total, out=mean_liu_total,
+              where=count_liu_total > 0)
+    mean_liu_total[~np.isfinite(mean_liu_total)] = np.nan
 
     #sum_corr_lon_total = sum_corr_lon_total / count_corr_lon_total
     #sum_corr_lat_total = sum_corr_lat_total / count_corr_lat_total

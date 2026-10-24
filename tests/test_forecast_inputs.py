@@ -12,15 +12,15 @@ from forecast_inputs import ensemble_mean_velocity, select_forecast_window
 class ForecastInputsTests(unittest.TestCase):
     def setUp(self):
         time = np.arange(np.datetime64("2026-01-01"),
-                         np.datetime64("2026-01-30"),
+                         np.datetime64("2026-01-29"),
                          np.timedelta64(1, "D"))
         self.ds = xr.Dataset(
             {"uo": (("ens", "time", "depthu", "lat", "lon"),
-                    np.stack([np.ones((29, 1, 2, 2)),
-                              3 * np.ones((29, 1, 2, 2))])),
+                    np.stack([np.ones((28, 1, 2, 2)),
+                              3 * np.ones((28, 1, 2, 2))])),
              "vo": (("ens", "time", "depthv", "lat", "lon"),
-                    np.stack([2 * np.ones((29, 1, 2, 2)),
-                              4 * np.ones((29, 1, 2, 2))]))},
+                    np.stack([2 * np.ones((28, 1, 2, 2)),
+                              4 * np.ones((28, 1, 2, 2))]))},
             coords={"ens": [0, 1], "time": time,
                     "depthu": [0.0], "depthv": [0.0],
                     "lat": [0.0, 1.0], "lon": [0.0, 1.0]})
@@ -33,7 +33,7 @@ class ForecastInputsTests(unittest.TestCase):
 
     def test_28_day_window(self):
         result = select_forecast_window(self.ds, "2026-01-01")
-        self.assertEqual(result.sizes["time"], 29)
+        self.assertEqual(result.sizes["time"], 28)
 
     def test_reject_incomplete_window(self):
         with self.assertRaises(ValueError):

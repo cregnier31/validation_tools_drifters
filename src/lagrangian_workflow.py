@@ -125,7 +125,8 @@ def process_one_day(day, config_dict):
         obs_type,
         DRIFT_PATH,
         DIR_OUT,
-        log
+        log,
+        start_hour=12 if MODEL.upper() == "GLOENS" and leadtime == "FCST" else 0,
         )
     #if trajs_obs is None:
     if result is None:
@@ -140,7 +141,38 @@ def process_one_day(day, config_dict):
     # Compute Lagrangian dispersion of the model with Parcels
     # ========================================================
     f_traj = f"{dir_work_mod}/Trajectories_{MODEL}_{str_date_sim}_{srt_date_end}_at_SVPloc_smag.zarr"
-    if not os.path.exists(f_traj):
+    # Isolate opt-in geometry experiments from existing trajectory files.
+    # The suffix also flows through subsequent validation and plotting paths.
+    geometry_tag = os.environ.get("GLOENS_OUTPUT_TAG", "").strip()
+    if geometry_tag and MODEL.upper() == "GLOENS":
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", geometry_tag):
+            raise ValueError("GLOENS_OUTPUT_TAG must contain only letters, digits, _ or -")
+        f_traj = f_traj[:-5] + f"_{geometry_tag}.zarr"
+        log.warning("GLOENS isolated trajectory output tag: %s", geometry_tag)
+    # Parcels 4 writes Parquet, while legacy Parcels 3 writes Zarr.
+    # Reuse existing output rather than attempting to recreate it.
+    f_traj_parquet = os.path.splitext(f_traj)[0] + ".parquet"
+    is_gloens_parquet = (
+        config_info.get("input_format", "netcdf").lower() == "zarr"
+        and MODEL.upper() in ("GLOENS", "GLOW")
+    )
+    existing_traj = (
+        f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
+        else f_traj if os.path.exists(f_traj)
+        else None
+    )
+    if existing_traj is not None and config_info.get("remove_old_particules", False):
+        # Remove only the exact trajectory artifact for this experiment/cycle.
+        # Never touch cached velocities, observation inputs, or other cycles.
+        import shutil
+        if os.path.isdir(existing_traj):
+            shutil.rmtree(existing_traj)
+        else:
+            os.remove(existing_traj)
+        log.warning("Removed old trajectory output: %s", existing_traj)
+        existing_traj = None
+    if existing_traj is None:
         #return 'skipped'
         log.debug(f"\nProcessing drift with parcel for {day}")
         # ======================================================
@@ -163,41 +195,96 @@ def process_one_day(day, config_dict):
         # ======================================================
         DATE_END_PLUS_DRIFT_TIME = day + datetime.timedelta(days=DRIFT_TIME)
 
-        # Optional 28-day ensemble Zarr input. Legacy NetCDF remains unchanged.
+        # Zarr transport is independent of ensemble selection and model identity.
         if config_info.get("input_format", "netcdf").lower() == "zarr":
             if engine.lower() != "parcels":
-                raise NotImplementedError("Ensemble Zarr currently requires Parcels")
-            from forecast_inputs import prepare_ensemble_forecast
-            from parcels_tools import run_parcels_Drift_remote
-            u_store = config_info["zarr_u_store"]
-            v_store = config_info.get("zarr_v_store", u_store)
-            if int(DRIFT_TIME) != 28:
-                raise ValueError("Ensemble forecast mode requires drift_time=28")
-            with prepare_ensemble_forecast(
-                u_store, v_store, day, days=28,
-                u_name=config_info.get("zarr_u_var", "uo"),
-                v_name=config_info.get("zarr_v_var", "vo"),
-                ensemble_dim=config_info.get("zarr_ensemble_dim", "ens"),
-                depth=float(DEPTH),
-                u_depth=config_info.get("zarr_u_depth", "depthu"),
-                v_depth=config_info.get("zarr_v_depth", "depthv"),
-            ) as velocities:
-                # Existing xarray runner accepts regular lon/lat coordinates.
-                # Native NEMO staggered/curvilinear grids need a separate adapter.
-                if not ({"lon", "lat"} <= set(velocities.coords) or
-                        {"longitude", "latitude"} <= set(velocities.coords)):
-                    raise NotImplementedError(
-                        "Zarr NEMO curvilinear U/V grids require a Parcels grid adapter"
+                raise NotImplementedError("Zarr velocity inputs currently require Parcels")
+            from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
+            if config_info.get("zarr_bucket"):
+                if MODEL.upper() == "GLOW":
+                    import s3fs
+                    date = day.strftime("%Y%m%d")
+                    prefix = config_info["zarr_prefix"].strip("/")
+                    bucket = config_info["zarr_bucket"]
+                    storage_options = {
+                        "anon": True,
+                        "client_kwargs": {"endpoint_url": config_info["zarr_endpoint_url"]},
+                    }
+                    store_path = f"{bucket}/{prefix}/{date}.zarr"
+                    fs = s3fs.S3FileSystem(**storage_options)
+                    if not fs.exists(store_path):
+                        raise FileNotFoundError(f"Missing GLOW forecast store: s3://{store_path}")
+                    u_store = v_store = f"s3://{store_path}"
+                else:
+                    u_store, v_store, storage_options = discover_gloens_stores(
+                        day,
+                        bucket=config_info["zarr_bucket"],
+                        endpoint_url=config_info["zarr_endpoint_url"],
+                        prefix=config_info["zarr_prefix"],
+                        log=log
                     )
-                run_parcels_Drift_remote(
-                    MODEL, velocities,
-                    config_info.get("zarr_u_var", "uo"),
-                    config_info.get("zarr_v_var", "vo"),
-                    lon0, lat0, id_char, DRIFT_TIME, f_traj,
-                    radius_cloud=0, seeding_resolution=0,
-                    time_period=False, nb_repeats=NB_REPEATS,
-                    AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
-                )
+                log.debug(f'{u_store=} {v_store=}')
+            else:
+                u_store = config_info["zarr_u_store"]
+                v_store = config_info.get("zarr_v_store") or u_store
+                storage_options = None
+            with prepare_velocity_forecast(
+                # Daily fields are at noon: N samples span only N-1 days.
+                # Load two additional timestamps so a full N-day RK4 run
+                # has an interpolation guard beyond its final endpoint.
+                u_store, v_store, day, days=(min(int(DRIFT_TIME), 28) if MODEL.upper() == "GLOENS" and __import__("os").environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1" else int(DRIFT_TIME) + 2),
+                storage_options=storage_options,
+                mode=config_info["zarr_velocity_mode"],
+                member=config_info["zarr_ensemble_member"],
+                u_name=config_info["zarr_u_var"],
+                v_name=config_info["zarr_v_var"],
+                ensemble_dim=config_info["zarr_ensemble_dim"],
+                depth=float(DEPTH),
+                u_depth=config_info["zarr_u_depth"],
+                v_depth=config_info["zarr_v_depth"],
+                log=log,
+                cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
+            ) as velocities:
+                if config_info["gridtype"] == "irregular":
+                    from gloens_parcels import run_gloens_parcels
+                    log.debug(f'Run gloens_parcels')
+                    run_gloens_parcels(
+                        velocities, config_info["zarr_meshmask"],
+                        day, lon0, lat0, f_traj, drift_days=DRIFT_TIME,
+                        u_name=config_info["zarr_u_var"],
+                        v_name=config_info["zarr_v_var"],
+                        depth=float(DEPTH),
+                        scheme=config_info["scheme"],
+                        dt_minutes=config_info["parcels_dt_minutes"],
+                        sampling_hours=config_info["parcels_sampling_hours"],
+                        log=log,
+                        cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
+                    )
+                elif MODEL.upper() == "GLOW":
+                    from glow_parcels import run_glow_parcels
+                    run_glow_parcels(
+                        velocities, day, lon0, lat0, f_traj,
+                        drift_days=DRIFT_TIME,
+                        u_name=config_info["zarr_u_var"],
+                        v_name=config_info["zarr_v_var"],
+                        depth=float(DEPTH),
+                        scheme=config_info["scheme"],
+                        dt_minutes=config_info["parcels_dt_minutes"],
+                        sampling_hours=config_info["parcels_sampling_hours"],
+                        meshmask=config_info.get("zarr_meshmask"),
+                        log=log,
+                    )
+                else:
+                    from parcels_tools import run_parcels_Drift_remote
+                    run_parcels_Drift_remote(
+                        MODEL, velocities,
+                        config_info["zarr_u_var"],
+                        config_info["zarr_v_var"],
+                        lon0, lat0, id_char, DRIFT_TIME, f_traj,
+                        radius_cloud=0, seeding_resolution=0,
+                        time_period=False, nb_repeats=NB_REPEATS,
+                        AdvectionDiffusion_type=ADVECTION_DIFFUSION_TYPE,
+                    )
         else:
             (u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod, fname_prefix, meshmask) = Retrieve_data_local(
                     config_dict['config_model_params'],
@@ -226,6 +313,6 @@ def process_one_day(day, config_dict):
             del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
     else:
-        log.info(f"\nExisting parcels trajectory {f_traj}")
+        log.info(f"\nExisting parcels trajectory {existing_traj}; skipping advection")
     gc.collect()
     return outfile2

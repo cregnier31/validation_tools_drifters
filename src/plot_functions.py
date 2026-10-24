@@ -50,7 +50,7 @@ def area_weighted_mean(da):
     )
 
 
-def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
+def plot_scores(dir_out, file_in, config, log, list_days=None):
 
     """
         Generate spatial score maps for Lagrangian validation diagnostics.
@@ -111,6 +111,9 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
         lead times, saved in ``dir_out``.
     """
 
+    if list_days is None:
+        list_days = ([1, 3, 5, 10, 12, 15, 20, 28]
+                     if config["SYSTEM"].upper() == "GLOENS" else [1, 3, 5, 7])
     system = config['SYSTEM']
     date1 = config['DATE_START']
     date2 = config['DATE_END']
@@ -128,7 +131,7 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     dict_cmin["Nobs"] = 0
     dict_cmin["sep-dist"] = 0
     dict_cmax = {}
-    dict_cmax["Liu_score"] = 1.5
+    dict_cmax["Liu_score"] = 1.0
     dict_cmax["Nobs"] = 100
     dict_cmax["sep-dist"] = {}
     dict_cmax["sep-dist"]['DT1'] = 100 #30
@@ -193,100 +196,77 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     ncdata = xr.open_dataset(f"{file_in}", decode_times=False)
 
 
-    nb_plots = 4
-    nb_cols = 2
-    nlines = 2
-    gs = gridspec.GridSpec(
-                           nlines,
-                           nb_cols,
-                           height_ratios=[1] * nlines,
-                           left=0.05,
-                           right=0.95,
-                           wspace=0.1,
-                           hspace=0.2,
-                          )
-    path = pathlib.Path(file_in)
-    namefile= path.name
+    # Requested plotting lead days can exceed available complete forecast days.
+    # A 10-day GLOENS run commonly provides only 9 complete daily scores.
+    available_days = int(ncdata[dict_variable[list_diags[0]]].shape[-1])
+    plot_days = [day for day in list_days if 1 <= day <= available_days]
+    skipped = [day for day in list_days if day not in plot_days]
+    if skipped:
+        log.warning("Skipping unavailable plot lead days %s (available: 1..%d)",
+                    skipped, available_days)
+    if not plot_days:
+        log.warning("No requested lead days available for plotting; skipping score maps")
+        ncdata.close()
+        return
+    list_days = plot_days
+    name_listdays = "_".join(map(str, list_days))
 
-    for variable in list_diags:
-        for ind_ech, ech in enumerate(list_lead):
-            fig = plt.figure(figsize=(9, 7))
-            title = f"{variable} {system} {date1} - {date2} ({scheme} with {sampling} sample)"
-            fig.suptitle(title, fontweight="bold", fontsize=14, color="red")
-            filename_out = (
-                f"{dir_out}Lagrangian_stats_{system}_{date1}_{date2}_"
-                f"{variable}_{ech}_fcstdays{name_listdays}_"
-                f"{scheme}_sample{sampling}.png"
-            )
-            for ind_day, day in enumerate(list_days):
-                log.debug(f"Day {day}")
-                varname = dict_variable[variable]
-                results = ncdata[varname][:, :, day-1]
-                #results = np.where(results == 0, np.nan, results)
-                log.debug(np.nanmax(results))
-                log.debug(np.nanmean(results))
-                longitude = ncdata["lon"]
-                latitude = ncdata["lat"]
-                row_index = ind_day // nlines
-                col_index = ind_day
-                if (col_index) > nb_cols - 1:
-                    col_index = col_index - nb_cols
-                log.debug(f"{col_index=} {ind_day=} {nlines=}")
-                log.debug(f"{row_index=}")
-                ax_fig = fig.add_subplot(gs[row_index, col_index], projection=proj_1)
-                title_position = (0.5, 1.05)
-                #mean_value = np.nanmean(results)
-                # remove invalid values
-                global_score = area_weighted_mean(results)
-
-                valid = np.isfinite(results)
-                # latitude-dependent area weight
-                lat_rad = np.deg2rad(latitude)
-                # broadcast weights to grid shape
-                weights = np.cos(lat_rad)
-                # convert to numpy
-                weights = weights.values
-
-                # make (lat,lon)
-                weights = weights[:, np.newaxis]
-                # broadcast to field shape
-                weights = np.broadcast_to(
-                            weights,
-                            results.shape
-                            )
-                print("Weighted mean value")
-                mean_value = np.nansum(results * weights) / np.nansum(weights * valid)
-                #titre = f"{ech} {day} days (mean = {mean_value:.2f})"
-                titre = f"{ech} {day} days (mean = {global_score:.2f})"
-                map2d = plotmap(ax=ax_fig)
-                if variable == "sep-dist":
-                    cmax = dict_cmax[variable][f'DT{day}']
-                    cbcolor_spacing = dict_cbcolor[variable][f'DT{day}']
-                    cbticks_spacing = dict_cbticks[variable][f'DT{day}']
-                else:
-                    cmax = dict_cmax[variable]
-                    cbcolor_spacing = dict_cbcolor[variable]
-                    cbticks_spacing = dict_cbticks[variable]
-                log.debug(f'Plot day {day}')
-                map2d.pcolor(
-                    longitude,
-                    latitude,
-                    results,
-                    title=titre,
-                    extend="both",
-                    labelfont=7,
-                    units=dict_units[variable],
-                    cmin=dict_cmin[variable],
-                    cmax=cmax,
-                    colormap=dict_colormaps[variable],
-                    cbcolor_spacing = cbcolor_spacing,
-                    cbticks_spacing = cbticks_spacing
-                )
-                log.debug('Day ok')
-                log.debug('-----------------------------------------')
-            log.info(f"Save file {filename_out}")
-            fig.savefig(filename_out, dpi=200)
-
+    # Split long forecasts into two readable four-map figures per diagnostic.
+    day_groups = [list_days[i:i + 4] for i in range(0, len(list_days), 4)]
+    longitude, latitude = ncdata["lon"], ncdata["lat"]
+    try:
+        for variable in list_diags:
+            for ech in list_lead:
+                for group in day_groups:
+                    fig = plt.figure(figsize=(10, 8))
+                    fig.suptitle(
+                        f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
+                        fontweight="bold", fontsize=13)
+                    group_name = "_".join(map(str, group))
+                    filename_out = os.path.join(
+                        dir_out,
+                        f"Lagrangian_stats_{system}_{date1}_{date2}_"
+                        f"{variable}_{ech}_fcstdays{group_name}_"
+                        f"{scheme}_sample{sampling}.png")
+                    for index, day in enumerate(group):
+                        varname = dict_variable[variable]
+                        da = ncdata[varname]
+                        results = da.isel({da.dims[-1]: day - 1}).copy()
+                        if variable == "Nobs":
+                            results = results.where(results > 0)
+                        if not bool(np.isfinite(results).any()):
+                            log.warning("No finite %s data at lead day %d", variable, day)
+                            continue
+                        ax = fig.add_subplot(2, 2, index + 1, projection=proj_1)
+                        if variable == "Nobs":
+                            global_score = float(np.nanmean(results))
+                        else:
+                            global_score = float(area_weighted_mean(results))
+                        mapper = plotmap(ax=ax)
+                        if variable == "sep-dist":
+                            # Apply the same colour scale to all lead days in a
+                            # figure, including lead days beyond the old day-10 keys.
+                            cmax = 100 if max(group) <= 10 else 300
+                            spacing = 10 if cmax == 100 else 30
+                            ticks = spacing
+                        else:
+                            cmax = dict_cmax[variable]
+                            spacing = dict_cbcolor[variable]
+                            ticks = dict_cbticks[variable]
+                        mapper.pcolor(
+                            longitude, latitude, results,
+                            title=f"{ech} day {day} (mean = {global_score:.2f})",
+                            extend="both", labelfont=7,
+                            units=dict_units[variable],
+                            cmin=dict_cmin[variable], cmax=cmax,
+                            colormap=dict_colormaps[variable],
+                            cbcolor_spacing=spacing, cbticks_spacing=ticks)
+                    fig.tight_layout(rect=(0, 0, 1, 0.95))
+                    fig.savefig(filename_out, dpi=200)
+                    plt.close(fig)
+                    log.info("Saved score maps: %s", filename_out)
+    finally:
+        ncdata.close()
 
 
 def compute_and_plot_histograms(results,
@@ -510,6 +490,264 @@ def compute_and_plot_histograms(results,
     plt.close()
 
     log.info(f"Saved: {fig_out}")
+    if config.get("SYSTEM", "").upper() != "GLOENS":
+        plot_liu_diagnostics(results, dir_plot, config, log, list_days=days)
+
+
+def plot_liu_diagnostics(results, dir_plot, config, log,
+                         list_days=(1, 3, 5, 10)):
+    """Plot lead-day Liu components and valid/clipped trajectory counts.
+
+    Uses per-trajectory outputs, not gridded means, to avoid concealing
+    sample-population changes or the unbounded pre-clipping error ratio.
+    """
+    from pathlib import Path
+
+    keys = (
+        ("normalized_error", "Raw normalized error", "Ratio"),
+        ("observed_path_km", "Observed path length", "km"),
+        ("normalization_distance_km", "Liu denominator", "km"),
+        ("cumulative_separation_km", "Cumulative separation", "km"),
+        ("instantaneous_separation_km", "Endpoint separation", "km"),
+    )
+    records = [r["liu_diagnostics_daily"] for r in results
+               if r is not None and "liu_diagnostics_daily" in r]
+    if not records:
+        log.warning("No Liu diagnostics available; skipping diagnostic plots")
+        return
+
+    def matrix(record, key):
+        values = np.asarray(record[key], dtype=float)
+        if values.ndim == 1:
+            values = values[np.newaxis, :]
+        if values.ndim != 2:
+            raise ValueError(f"Expected 2D drifter-by-lead {key}; got {values.shape}")
+        return values
+
+    available = min(matrix(r, keys[0][0]).shape[1] for r in records)
+    days = [day for day in list_days if 1 <= day <= available]
+    if not days:
+        log.warning("No requested Liu diagnostic lead days in 1..%d", available)
+        return
+    positions = np.arange(len(days))
+    fig, axes = plt.subplots(3, 2, figsize=(13, 13))
+    for ax, (key, label, unit) in zip(axes.flat[:5], keys):
+        samples = []
+        for day in days:
+            data = np.concatenate([matrix(r, key)[:, day - 1] for r in records])
+            samples.append(data[np.isfinite(data)])
+        ax.boxplot([x if x.size else np.array([np.nan]) for x in samples],
+                   positions=positions, showfliers=False)
+        ax.set_xticks(positions, [str(day) for day in days])
+        ax.set_title(label)
+        ax.set_xlabel("Forecast lead (days)")
+        ax.set_ylabel(unit)
+        ax.grid(axis="y", alpha=0.25)
+    ax = axes.flat[5]
+    valid_counts, clipped_counts = [], []
+    for day in days:
+        raw = np.concatenate([matrix(r, "normalized_error")[:, day - 1]
+                              for r in records])
+        finite = raw[np.isfinite(raw)]
+        valid_counts.append(finite.size)
+        clipped_counts.append(np.count_nonzero(finite >= 1.0))
+    ax.bar(positions, valid_counts, label="Valid trajectories", alpha=0.8)
+    ax.bar(positions, clipped_counts, label="Clipped to zero", alpha=0.8)
+    ax.set_xticks(positions, [str(day) for day in days])
+    ax.set_title("Trajectory sample counts")
+    ax.set_xlabel("Forecast lead (days)")
+    ax.set_ylabel("Count")
+    ax.legend()
+    ax.grid(axis="y", alpha=0.25)
+    fig.suptitle("Liu skill diagnostics: " + str(config.get("SYSTEM", "")))
+    fig.tight_layout()
+    output = Path(dir_plot) / (
+        "Liu_diagnostics_" + str(config.get("SYSTEM", "model")) + "_"
+        + str(config.get("DATE_START", "")) + "_"
+        + str(config.get("DATE_END", "")) + ".png"
+    )
+    fig.savefig(output, dpi=250)
+    plt.close(fig)
+    log.info("Saved Liu diagnostics: %s", output)
+
+
+
+def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
+                                         lead_groups=((1, 3, 5, 10), (12, 15, 20, 28)),
+                                         grid_degrees=2, min_count=10):
+    """Paired-trajectory distributions and observed-position geographic diagnostics.
+
+    Speed is mean observed drifter speed since initialization. Daily angular
+    error compares paired daily displacement vectors. All missing values are
+    excluded pairwise; sparse geographic bins are masked.
+    """
+    from pathlib import Path
+    records = [r["liu_diagnostics_daily"] for r in results
+               if r is not None and "liu_diagnostics_daily" in r]
+    if not records:
+        log.warning("No extended trajectory diagnostics available")
+        return
+
+    def matrix(record, key):
+        values = np.asarray(record[key], dtype=float)
+        if values.ndim == 1:
+            values = values[np.newaxis, :]
+        if values.ndim != 2:
+            raise ValueError(f"Expected drifter-by-lead {key}, got {values.shape}")
+        return values
+
+    def samples(key, day):
+        arrays = [matrix(r, key)[:, day - 1] for r in records
+                  if key in r and matrix(r, key).shape[1] >= day]
+        return np.concatenate(arrays) if arrays else np.array([])
+
+    available = min(matrix(r, "normalized_error").shape[1] for r in records)
+    out = Path(dir_plot)
+    out.mkdir(parents=True, exist_ok=True)
+    system = str(config.get("SYSTEM", "model"))
+    stamp = f"{system}_{config.get('DATE_START', '')}_{config.get('DATE_END', '')}"
+    speed_edges = np.array([0, .3, .6, 1., 1.5, 2., np.inf])
+    speed_labels = ["0–0.3", "0.3–0.6", "0.6–1", "1–1.5", "1.5–2", "≥2"]
+    for requested in lead_groups:
+        days = [day for day in requested if 1 <= day <= available]
+        if not days:
+            continue
+        tag = "_".join(map(str, days))
+        metrics = [
+            ("observed_path_km", "Observed path length", "km"),
+            ("model_path_km", "Model path length", "km"),
+            ("normalized_error", "Normalized error", "ratio"),
+            ("instantaneous_separation_km", "Separation distance", "km"),
+            ("directional_error_deg", "Daily directional error", "degrees"),
+            ("skill", "Liu skill score", "score"),
+        ]
+        fig, axes = plt.subplots(3, 2, figsize=(13, 13))
+        for ax, (key, title, unit) in zip(axes.flat, metrics):
+            values = [v[np.isfinite(v)] for day in days
+                      for v in [samples(key, day)]]
+            ax.boxplot([v if v.size else [np.nan] for v in values],
+                       tick_labels=[str(d) for d in days], showfliers=False)
+            ax.set(title=title, xlabel="Forecast lead (days)", ylabel=unit)
+            ax.grid(axis="y", alpha=.25)
+        fig.suptitle(f"Trajectory performance: {system} (days {tag})")
+        fig.tight_layout()
+        path = out / f"Trajectory_performance_{stamp}_days{tag}.png"
+        fig.savefig(path, dpi=200)
+        plt.close(fig)
+        log.info("Saved %s", path)
+
+        fig, axes = plt.subplots(3, 2, figsize=(15, 13))
+        # Observation-focused panels: speed distribution, separation by
+        # speed, angle by speed, normalized error by speed, pair counts,
+        # and original Liu valid/zero-clipped sample counts.
+        ax = axes.flat[0]
+        speed_arrays = [samples("observed_speed_ms", day) for day in days]
+        ax.boxplot([v[np.isfinite(v)] if np.isfinite(v).any() else [np.nan]
+                    for v in speed_arrays],
+                   tick_labels=[str(d) for d in days], showfliers=False)
+        ax.set(title="Mean observed drifter speed", xlabel="Lead day", ylabel="m/s")
+        ax.grid(axis="y", alpha=.25)
+
+        for ax, key, title, unit in [
+            (axes.flat[1], "instantaneous_separation_km", "Separation by observed speed", "km"),
+            (axes.flat[2], "directional_error_deg", "Directional error by observed speed", "degrees"),
+            (axes.flat[3], "normalized_error", "Normalized error by observed speed", "ratio"),
+        ]:
+            # Each speed bin contains all valid paired samples from the
+            # requested lead days. Colours distinguish lead-day medians.
+            x = np.arange(6)
+            width = .8 / len(days)
+            for i, day in enumerate(days):
+                speeds = samples("observed_speed_ms", day)
+                values = samples(key, day)
+                if speeds.size != values.size:
+                    continue
+                medians = []
+                for k in range(6):
+                    mask = ((speeds >= speed_edges[k]) & (speeds < speed_edges[k + 1])
+                            & np.isfinite(values))
+                    medians.append(np.nanmedian(values[mask]) if mask.any() else np.nan)
+                ax.bar(x - .4 + (i + .5) * width, medians, width=width,
+                       label=f"D{day}")
+            ax.set_xticks(x, speed_labels, rotation=30)
+            ax.set(title=title, xlabel="Mean observed speed (m/s)", ylabel=f"Median ({unit})")
+            ax.legend(fontsize=8)
+            ax.grid(axis="y", alpha=.25)
+
+        valid = [np.count_nonzero(samples("valid_pair", d) == 1) for d in days]
+        total = [np.count_nonzero(np.isfinite(samples("valid_pair", d))) for d in days]
+        ax = axes.flat[4]
+        ax.bar(range(len(days)), valid)
+        for i, (v, n) in enumerate(zip(valid, total)):
+            ax.text(i, v, f"{100*v/n:.0f}%" if n else "—",
+                    ha="center", va="bottom", fontsize=8)
+        ax.set_xticks(range(len(days)), [str(d) for d in days])
+        ax.set(title="Number of valid drifter comparisons", xlabel="Lead day", ylabel="Count")
+        ax.grid(axis="y", alpha=.25)
+
+        ax = axes.flat[5]
+        valid_liu, clipped = [], []
+        for d in days:
+            raw = samples("normalized_error", d)
+            finite = raw[np.isfinite(raw)]
+            valid_liu.append(len(finite))
+            clipped.append(np.count_nonzero(finite >= 1))
+        ax.bar(range(len(days)), valid_liu, label="Valid Liu samples")
+        ax.bar(range(len(days)), clipped, label="Zero-clipped Liu samples")
+        ax.set_xticks(range(len(days)), [str(d) for d in days])
+        ax.set(title="Trajectory sample counts", xlabel="Lead day", ylabel="Count")
+        ax.legend(fontsize=8)
+        ax.grid(axis="y", alpha=.25)
+        fig.suptitle(f"Observation-based diagnostics: {system} (days {tag})")
+        fig.tight_layout()
+        path = out / f"Observation_diagnostics_{stamp}_days{tag}.png"
+        fig.savefig(path, dpi=200)
+        plt.close(fig)
+        log.info("Saved %s", path)
+
+        # Maps are binned by OBSERVED position at each lead, not seed/model
+        # position. Median per cell reduces sensitivity to outliers.
+        for key, title, vmin, vmax, cmap in [
+            ("directional_error_deg", "Daily directional error (°)", 0, 180, "magma"),
+            ("instantaneous_separation_km", "Separation distance (km)", 0, None, "viridis"),
+            ("valid_pair", "Valid comparison count per grid cell", 0, None, "Blues"),
+        ]:
+            fig, axes = plt.subplots(2, 2, figsize=(15, 8),
+                                     subplot_kw={"projection": ccrs.PlateCarree()})
+            for ax, day in zip(axes.flat, days):
+                lon = samples("observed_lon", day)
+                lat = samples("observed_lat", day)
+                val = samples(key, day)
+                valid_mask = (np.isfinite(lon) & np.isfinite(lat) & np.isfinite(val)
+                              & (lat >= -90) & (lat <= 90))
+                lon = ((lon[valid_mask] + 180) % 360) - 180
+                lat = lat[valid_mask]
+                val = val[valid_mask]
+                lon_edges = np.arange(-180, 180 + grid_degrees, grid_degrees)
+                lat_edges = np.arange(-90, 90 + grid_degrees, grid_degrees)
+                counts, _, _ = np.histogram2d(lat, lon, bins=[lat_edges, lon_edges])
+                grid = np.full(counts.shape, np.nan)
+                lat_id = np.searchsorted(lat_edges, lat, side="right") - 1
+                lon_id = np.searchsorted(lon_edges, lon, side="right") - 1
+                for iy, ix in zip(*np.where(counts >= min_count)):
+                    mask = (lat_id == iy) & (lon_id == ix)
+                    grid[iy, ix] = (np.count_nonzero(val[mask] == 1)
+                                    if key == "valid_pair" else np.median(val[mask]))
+                mesh = ax.pcolormesh(lon_edges, lat_edges, grid, transform=ccrs.PlateCarree(),
+                                     cmap=cmap, vmin=vmin, vmax=vmax, shading="flat")
+                ax.coastlines(linewidth=.5)
+                ax.set_global()
+                ax.set_title(f"Day {day} (bins ≥{min_count} comparisons)")
+                fig.colorbar(mesh, ax=ax, shrink=.7)
+            for ax in list(axes.flat)[len(days):]:
+                ax.set_visible(False)
+            fig.suptitle(f"{title}: {system}, observed locations, {grid_degrees}° bins")
+            fig.tight_layout()
+            path = out / f"Geographic_{key}_{stamp}_days{tag}.png"
+            fig.savefig(path, dpi=200)
+            plt.close(fig)
+            log.info("Saved %s", path)
+
 
 def init_fig(title=None, xlabel=None, ylabel=None, y2label=None, xlim=None, ylim=None, y2lim=None, zero=None, c1='k', c2='grey', figsize=(10, 6), fontsize=14):
     """
