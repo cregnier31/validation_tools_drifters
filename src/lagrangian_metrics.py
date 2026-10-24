@@ -737,36 +737,37 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log)
     #sys.exit(1)
     
 def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod, n=1.0):
-    """Liu index from cumulative separation / summed cumulative observed travel.
+    """Liu-Weisberg trajectory skill (time, drifter), with 1=perfect.
 
-    Uses the user's original loop indexing: at output index i, both sums
-    include samples strictly before i. Converts the ratio to skill 1-s/n,
-    clipped to [0, 1]. Returns (time, drifter).
+    At each lead, divide cumulative model-observation separation by the
+    sum of cumulative observed path lengths. Do not double-accumulate
+    the denominator. Invalid samples break a trajectory's valid prefix.
     """
     if not np.isfinite(n) or n <= 0:
         raise ValueError("Liu tolerance n must be finite and positive")
 
-    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
-    di_SVP_MOD = SepDistanceEachTimestep(
+    observed_steps = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+    separations = SepDistanceEachTimestep(
         traj_drifter_lon[:, 1:], traj_drifter_lat[:, 1:],
         traj_lon_mod[:, 1:], traj_lat_mod[:, 1:]
     )
-    valid = (np.isfinite(dli_drifters) & np.isfinite(di_SVP_MOD))
-    steps = np.where(valid, dli_drifters, 0.0)
-    separations = np.where(valid, di_SVP_MOD, 0.0)
-    liu_index = []
-    den = np.zeros(di_SVP_MOD.shape[0], dtype=float)
-    for i in range(di_SVP_MOD.shape[1]):
-        den += np.sum(steps[:, :i], axis=1)
-        numerator = np.sum(separations[:, :i], axis=1)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            ratio = np.where(den > 0, numerator / den, np.nan)
-        skill = np.maximum(0.0, 1.0 - ratio / n)
-        # At each i, score is defined only for trajectories with a valid
-        # current sample and a nonzero accumulated observed distance.
-        skill = np.where(valid[:, i] & (den > 0), skill, np.nan)
-        liu_index.append(skill)
-    return np.asarray(liu_index)
+    valid = np.isfinite(observed_steps) & np.isfinite(separations)
+    # A Liu score at lead k requires an uninterrupted observed/model
+    # trajectory from initialization through k.
+    valid_prefix = np.logical_and.accumulate(valid, axis=1)
+    steps = np.where(valid, observed_steps, 0.0)
+    errors = np.where(valid, separations, 0.0)
+    cumulative_observed_path = np.cumsum(steps, axis=1)
+    denominator = np.cumsum(cumulative_observed_path, axis=1)
+    numerator = np.cumsum(errors, axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.divide(
+            numerator, denominator,
+            out=np.full_like(numerator, np.nan, dtype=float),
+            where=denominator > 0,
+        )
+    skill = np.maximum(0.0, 1.0 - ratio / n)
+    return np.where(valid_prefix & (denominator > 0), skill, np.nan).T
 
 
 
