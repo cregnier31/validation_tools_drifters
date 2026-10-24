@@ -60,28 +60,22 @@ def run_glow_parcels(velocities, day, lon0, lat0, output_path, *,
         log.info("GLOW mask %s not applied: velocity NaNs determine invalid cells; "
                  "mask depth coordinates differ from velocity depths", meshmask)
 
-    # Parcels 4 supports FieldSet.from_xarray_dataset in some builds;
-    # from_data is the compatible fallback for regular rectilinear grids.
-    ds = xr.Dataset({"U": u, "V": v})
-    constructor = getattr(parcels.FieldSet, "from_xarray_dataset", None)
-    if constructor is not None:
-        fieldset = constructor(
-            ds, {"U": "U", "V": "V"},
-            {"lon": "lon", "lat": "lat", "time": "time"},
-            mesh="spherical", allow_time_extrapolation=False,
-        )
-    else:
-        log.info("GLOW: Parcels %s has no from_xarray_dataset; using from_data",
-                 parcels.__version__)
-        # Explicit 2D selection above ensures only one depth is materialized.
-        fieldset = parcels.FieldSet.from_data(
-            {"U": np.asarray(u.values, dtype=np.float32),
-             "V": np.asarray(v.values, dtype=np.float32)},
-            {"lon": np.asarray(u.lon.values),
-             "lat": np.asarray(u.lat.values),
-             "time": np.asarray(u.time.values)},
-            mesh="spherical", allow_time_extrapolation=False,
-        )
+    # Parcels 4 requires SGRID metadata; legacy from_data/from_xarray_dataset
+    # constructors do not exist. GLOW velocities are collocated A-grid fields.
+    # The Copernicus Marine converter supports this regular-grid layout.
+    u = u.rename({"lat": "latitude", "lon": "longitude"})
+    v = v.rename({"lat": "latitude", "lon": "longitude"})
+    for arr in (u, v):
+        arr.latitude.attrs.update({"axis": "Y", "units": "degrees_north"})
+        arr.longitude.attrs.update({"axis": "X", "units": "degrees_east"})
+        arr.time.attrs["axis"] = "T"
+    sgrid = parcels.convert.copernicusmarine_to_sgrid(
+        fields={"U": u, "V": v}
+    )
+    log.info("GLOW SGRID converted: %s", dict(sgrid.sizes))
+    fieldset = parcels.FieldSet.from_sgrid_conventions(sgrid, mesh="spherical")
+    if hasattr(fieldset, "describe"):
+        fieldset.describe()
     seed_lon = np.asarray(lon0, dtype=np.float64)
     seed_lat = np.asarray(lat0, dtype=np.float64)
     if seed_lon.shape != seed_lat.shape:
