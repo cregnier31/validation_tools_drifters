@@ -21,19 +21,46 @@ def forecast_run_date(store):
 
 
 def open_velocity_dataset(source, *, storage_options=None, chunks=None):
-    """Open local NetCDF or local/remote Zarr lazily; caller closes dataset."""
+    """Open local NetCDF files or local/remote Zarr lazily; caller closes dataset.
+
+    NetCDF accepts a single file, a glob pattern, or a sequence of files.
+    Multi-file datasets are combined by coordinates. Zarr accepts a store URL
+    or local path, including trailing slashes.
+    """
+    from glob import glob
+    from os import PathLike
+
+    if isinstance(source, (list, tuple)):
+        paths = [str(path) for path in source]
+        if not paths:
+            raise ValueError("NetCDF file sequence cannot be empty")
+        if any(path.rstrip("/").endswith(".zarr") for path in paths):
+            raise ValueError("Pass a single Zarr store, not a sequence of stores")
+        if storage_options:
+            raise ValueError("storage_options only applies to Zarr")
+        return (xr.open_dataset(paths[0], chunks=chunks) if len(paths) == 1
+                else xr.open_mfdataset(paths, combine="by_coords", chunks=chunks))
+
+    if not isinstance(source, (str, PathLike)):
+        raise TypeError("source must be a path, Zarr URL, or sequence of NetCDF paths")
     source = str(source)
     if source.rstrip("/").endswith(".zarr"):
         if source.startswith(("s3://", "gs://", "https://", "http://")):
             import fsspec
-            import s3fs
             if source.startswith("s3://"):
-                source = s3fs.S3Map(root=source, s3=s3fs.S3FileSystem(**(storage_options or {})), check=False)
+                import s3fs
+                source = s3fs.S3Map(root=source.rstrip("/"), s3=s3fs.S3FileSystem(**(storage_options or {})), check=False)
             else:
                 source = fsspec.get_mapper(source, **(storage_options or {}))
         return xr.open_zarr(source, consolidated=False, chunks=chunks or {})
     if storage_options:
         raise ValueError("storage_options only applies to Zarr")
+    if any(char in source for char in "*?["):
+        paths = sorted(glob(source))
+        if not paths:
+            raise FileNotFoundError(f"No NetCDF files match {source!r}")
+        return (xr.open_dataset(paths[0], chunks=chunks) if len(paths) == 1
+                else xr.open_mfdataset(paths, combine="by_coords", chunks=chunks))
     return xr.open_dataset(source, chunks=chunks)
 
 
