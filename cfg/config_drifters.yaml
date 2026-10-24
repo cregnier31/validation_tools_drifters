@@ -41,6 +41,24 @@ path_data:
 
 model_params:
 
+  GLOW_FCST:
+    input_format: "zarr"
+    velocity_mode: "deterministic"
+    bucket_name: "oceanbench-bucket"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
+    path: "s3://oceanbench-bucket/dev/ml-forecast-outputs/glowcascade_v5_ring/"
+    fname_prefix: "dev/ml-forecast-outputs/glowcascade_v5_ring/"
+    lon: "lon"
+    lat: "lat"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "regular"
+    u_depth: "depth"
+    v_depth: "depth"
+    meshmask: "static/mask_GLOW.nc"
+
+
   # CLASS1 GLOENS ensemble forecast velocity stores on CloudFerro S3.
   # U/V store filenames are discovered automatically for each run date.
   GLOENS_FCST:
