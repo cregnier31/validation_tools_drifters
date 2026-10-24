@@ -155,7 +155,7 @@ def process_one_day(day, config_dict):
     f_traj_parquet = os.path.splitext(f_traj)[0] + ".parquet"
     is_gloens_parquet = (
         config_info.get("input_format", "netcdf").lower() == "zarr"
-        and config_info.get("gridtype") == "irregular"
+        and MODEL.upper() in ("GLOENS", "GLOW")
     )
     existing_traj = (
         f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
@@ -259,6 +259,20 @@ def process_one_day(day, config_dict):
                         sampling_hours=config_info["parcels_sampling_hours"],
                         log=log,
                         cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
+                    )
+                elif MODEL.upper() == "GLOW":
+                    from glow_parcels import run_glow_parcels
+                    run_glow_parcels(
+                        velocities, day, lon0, lat0, f_traj,
+                        drift_days=DRIFT_TIME,
+                        u_name=config_info["zarr_u_var"],
+                        v_name=config_info["zarr_v_var"],
+                        depth=float(DEPTH),
+                        scheme=config_info["scheme"],
+                        dt_minutes=config_info["parcels_dt_minutes"],
+                        sampling_hours=config_info["parcels_sampling_hours"],
+                        meshmask=config_info.get("zarr_meshmask"),
+                        log=log,
                     )
                 else:
                     from parcels_tools import run_parcels_Drift_remote
