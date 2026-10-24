@@ -48,12 +48,16 @@ def main():
     config_path = str(ROOT / "cfg/config_drifters.yaml")
     runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
-    if args.system.upper() == "GLOENS" and args.lead == "FCST":
-        from Lagrangian_tool_GLOENS import discover_cycles
+    if args.system.upper() in ("GLOENS", "GLOW") and args.lead == "FCST":
         import yaml
         with open(config_path, encoding="utf-8") as stream:
             cfg = yaml.safe_load(stream)
-        days = discover_cycles(cfg, first, last)
+        if args.system.upper() == "GLOENS":
+            from Lagrangian_tool_GLOENS import discover_cycles
+            days = discover_cycles(cfg, first, last)
+        else:
+            from glow_discovery import discover_glow_cycles
+            days = discover_glow_cycles(cfg, first, last)
     else:
         days = runtime["start_days"]
     if len(days) == 0:
