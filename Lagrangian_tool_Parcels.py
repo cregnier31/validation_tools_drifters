@@ -114,7 +114,7 @@ def main():
                     runtime["config_info"], log)
         compute_and_plot_histograms(results_stats, runtime["dir_out_imgs"],
                                     runtime["config_info"], log,
-                                    days=([1, 3, 5, 10, 12, 15, 20, 28]
+                                    days=([1, 3, 5, 10, 15, 20, 28]
                                           if runtime["config_info"]["SYSTEM"].upper() == "GLOENS"
                                           else [1, 3, 5, 7, 10]))
         if runtime["config_info"]["SYSTEM"].upper() == "GLOENS":
