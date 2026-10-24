@@ -201,14 +201,28 @@ def process_one_day(day, config_dict):
                 raise NotImplementedError("Zarr velocity inputs currently require Parcels")
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
-                log.debug("discover_gloens_stores")
-                u_store, v_store, storage_options = discover_gloens_stores(
-                    day,
-                    bucket=config_info["zarr_bucket"],
-                    endpoint_url=config_info["zarr_endpoint_url"],
-                    prefix=config_info["zarr_prefix"],
-                    log=log
-                )
+                if MODEL.upper() == "GLOW":
+                    import s3fs
+                    date = day.strftime("%Y%m%d")
+                    prefix = config_info["zarr_prefix"].strip("/")
+                    bucket = config_info["zarr_bucket"]
+                    storage_options = {
+                        "anon": True,
+                        "client_kwargs": {"endpoint_url": config_info["zarr_endpoint_url"]},
+                    }
+                    store_path = f"{bucket}/{prefix}/{date}.zarr"
+                    fs = s3fs.S3FileSystem(**storage_options)
+                    if not fs.exists(store_path):
+                        raise FileNotFoundError(f"Missing GLOW forecast store: s3://{store_path}")
+                    u_store = v_store = f"s3://{store_path}"
+                else:
+                    u_store, v_store, storage_options = discover_gloens_stores(
+                        day,
+                        bucket=config_info["zarr_bucket"],
+                        endpoint_url=config_info["zarr_endpoint_url"],
+                        prefix=config_info["zarr_prefix"],
+                        log=log
+                    )
                 log.debug(f'{u_store=} {v_store=}')
             else:
                 u_store = config_info["zarr_u_store"]
