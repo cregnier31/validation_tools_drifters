@@ -346,7 +346,11 @@ def run_gloens_parcels(velocities, meshmask, day, lon0, lat0, output_path, drift
         raise ValueError("Requested drift duration must be positive and divisible by dt")
     available_seconds = float((times[-1] - times[0]) / np.timedelta64(1, "s"))
     # Reserve one integration step for the final RK4 interpolation lookup.
-    if available_seconds - dt_seconds < requested_seconds:
+    extrapolation_seconds = max(0.0, requested_seconds - available_seconds)
+    allow_boundary = __import__("os").environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1"
+    if extrapolation_seconds > 0 and allow_boundary and extrapolation_seconds <= 86400:
+        log.warning("GLOENS extrapolating last velocity field for %.2f hours beyond %s; day-28 results rely on held boundary velocities", extrapolation_seconds / 3600, times[-1])
+    elif available_seconds - dt_seconds < requested_seconds:
         raise ValueError(
             f"GLOENS forecast covers {available_seconds / 86400:.3f} days "
             f"({times[0]} to {times[-1]}), insufficient for the requested "
