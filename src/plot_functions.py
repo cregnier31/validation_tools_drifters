@@ -710,6 +710,7 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
         for key, title, vmin, vmax, cmap in [
             ("directional_error_deg", "Daily directional error (°)", 0, 180, "magma"),
             ("instantaneous_separation_km", "Separation distance (km)", 0, None, "viridis"),
+            ("valid_pair", "Valid comparison count per grid cell", 0, None, "Blues"),
         ]:
             fig, axes = plt.subplots(2, 2, figsize=(15, 8),
                                      subplot_kw={"projection": ccrs.PlateCarree()})
@@ -730,7 +731,8 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                 lon_id = np.searchsorted(lon_edges, lon, side="right") - 1
                 for iy, ix in zip(*np.where(counts >= min_count)):
                     mask = (lat_id == iy) & (lon_id == ix)
-                    grid[iy, ix] = np.median(val[mask])
+                    grid[iy, ix] = (np.count_nonzero(val[mask] == 1)
+                                    if key == "valid_pair" else np.median(val[mask]))
                 mesh = ax.pcolormesh(lon_edges, lat_edges, grid, transform=ccrs.PlateCarree(),
                                      cmap=cmap, vmin=vmin, vmax=vmax, shading="flat")
                 ax.coastlines(linewidth=.5)
