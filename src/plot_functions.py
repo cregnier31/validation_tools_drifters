@@ -490,7 +490,8 @@ def compute_and_plot_histograms(results,
     plt.close()
 
     log.info(f"Saved: {fig_out}")
-    plot_liu_diagnostics(results, dir_plot, config, log, list_days=days)
+    if config.get("SYSTEM", "").upper() != "GLOENS":
+        plot_liu_diagnostics(results, dir_plot, config, log, list_days=days)
 
 
 def plot_liu_diagnostics(results, dir_plot, config, log,
