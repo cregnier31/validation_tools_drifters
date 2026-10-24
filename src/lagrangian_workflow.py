@@ -232,7 +232,7 @@ def process_one_day(day, config_dict):
                 # Daily fields are at noon: N samples span only N-1 days.
                 # Load two additional timestamps so a full N-day RK4 run
                 # has an interpolation guard beyond its final endpoint.
-                u_store, v_store, day, days=int(DRIFT_TIME) + 2,
+                u_store, v_store, day, days=(min(int(DRIFT_TIME), 28) if MODEL.upper() == "GLOENS" and __import__("os").environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1" else int(DRIFT_TIME) + 2),
                 storage_options=storage_options,
                 mode=config_info["zarr_velocity_mode"],
                 member=config_info["zarr_ensemble_member"],
