@@ -56,7 +56,7 @@ def main():
         days = discover_cycles(cfg, first, last)
     else:
         days = runtime["start_days"]
-    if not days:
+    if len(days) == 0:
         raise RuntimeError("No initialization dates found in selected period")
     duration = runtime["config_info"]["drift_time"]
     summary_path = ROOT / "outputs" / (
