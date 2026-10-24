@@ -507,7 +507,7 @@ def read_traj_compute_scores(day,
     # Spatially bins statistics on a regular lon/lat grid
     # -----------------------------------------------------
     log.debug("Compute spatially bins statistics on a regular lon/lat grid")
-    mean_sep, count_sep = bin_spatial(sep_dist_daily, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
+    mean_sep, count_sep = bin_spatial(sep_dist_daily.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     sum_sep = mean_sep * count_sep
     finite_skill = np.where(np.isfinite(skill_score), skill_score, np.nan)
     lui_score_bin, count_liu_score = bin_spatial(finite_skill.squeeze(), traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
