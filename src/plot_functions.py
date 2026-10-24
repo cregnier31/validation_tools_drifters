@@ -50,7 +50,7 @@ def area_weighted_mean(da):
     )
 
 
-def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
+def plot_scores(dir_out, file_in, config, log, list_days=None):
 
     """
         Generate spatial score maps for Lagrangian validation diagnostics.
@@ -111,6 +111,9 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
         lead times, saved in ``dir_out``.
     """
 
+    if list_days is None:
+        list_days = ([1, 3, 5, 10, 12, 15, 20, 28]
+                     if config["SYSTEM"].upper() == "GLOENS" else [1, 3, 5, 7])
     system = config['SYSTEM']
     date1 = config['DATE_START']
     date2 = config['DATE_END']
@@ -208,109 +211,62 @@ def plot_scores(dir_out, file_in, config, log, list_days = [1, 3, 5, 7]):
     list_days = plot_days
     name_listdays = "_".join(map(str, list_days))
 
-    nb_plots = 4
-    nb_cols = 2
-    nlines = 2
-    gs = gridspec.GridSpec(
-                           nlines,
-                           nb_cols,
-                           height_ratios=[1] * nlines,
-                           left=0.05,
-                           right=0.95,
-                           wspace=0.1,
-                           hspace=0.2,
-                          )
-    path = pathlib.Path(file_in)
-    namefile= path.name
-
-    for variable in list_diags:
-        for ind_ech, ech in enumerate(list_lead):
-            fig = plt.figure(figsize=(9, 7))
-            title = f"{variable} {system} {date1} - {date2} ({scheme} with {sampling} sample)"
-            fig.suptitle(title, fontweight="bold", fontsize=14, color="red")
-            filename_out = (
-                f"{dir_out}Lagrangian_stats_{system}_{date1}_{date2}_"
-                f"{variable}_{ech}_fcstdays{name_listdays}_"
-                f"{scheme}_sample{sampling}.png"
-            )
-            for ind_day, day in enumerate(list_days):
-                log.debug(f"Day {day}")
-                varname = dict_variable[variable]
-                # Keep the xarray DataArray: area_weighted_mean needs its
-                # latitude coordinate (results.lat) for geographic weights.
-                results = ncdata[varname].isel({ncdata[varname].dims[-1]: day - 1}).copy()
-                if variable == "Nobs":
-                    results = results.where(results > 0)  # mask empty bins
-                if np.isfinite(results).any():
-                    log.debug(np.nanmax(results))
-                    log.debug(np.nanmean(results))
-                else:
-                    log.warning("No finite %s scores for lead day %d; skipping map panel", variable, day)
-                    continue
-                longitude = ncdata["lon"]
-                latitude = ncdata["lat"]
-                row_index = ind_day // nlines
-                col_index = ind_day
-                if (col_index) > nb_cols - 1:
-                    col_index = col_index - nb_cols
-                log.debug(f"{col_index=} {ind_day=} {nlines=}")
-                log.debug(f"{row_index=}")
-                ax_fig = fig.add_subplot(gs[row_index, col_index], projection=proj_1)
-                title_position = (0.5, 1.05)
-                #mean_value = np.nanmean(results)
-                # remove invalid values
-                global_score = (float(np.nanmean(results)) if variable == "Nobs"
-                                else area_weighted_mean(results))
-
-                valid = np.isfinite(results)
-                # latitude-dependent area weight
-                lat_rad = np.deg2rad(latitude)
-                # broadcast weights to grid shape
-                weights = np.cos(lat_rad)
-                # convert to numpy
-                weights = weights.values
-
-                # make (lat,lon)
-                weights = weights[:, np.newaxis]
-                # broadcast to field shape
-                weights = np.broadcast_to(
-                            weights,
-                            results.shape
-                            )
-                print("Weighted mean value")
-                weight_sum = np.nansum(weights * valid)
-                mean_value = np.nansum(results * weights) / weight_sum if weight_sum > 0 else np.nan
-                #titre = f"{ech} {day} days (mean = {mean_value:.2f})"
-                titre = f"{ech} {day} days (mean = {global_score:.2f})"
-                map2d = plotmap(ax=ax_fig)
-                if variable == "sep-dist":
-                    cmax = dict_cmax[variable][f'DT{day}']
-                    cbcolor_spacing = dict_cbcolor[variable][f'DT{day}']
-                    cbticks_spacing = dict_cbticks[variable][f'DT{day}']
-                else:
-                    cmax = dict_cmax[variable]
-                    cbcolor_spacing = dict_cbcolor[variable]
-                    cbticks_spacing = dict_cbticks[variable]
-                log.debug(f'Plot day {day}')
-                map2d.pcolor(
-                    longitude,
-                    latitude,
-                    results,
-                    title=titre,
-                    extend="both",
-                    labelfont=7,
-                    units=dict_units[variable],
-                    cmin=dict_cmin[variable],
-                    cmax=cmax,
-                    colormap=dict_colormaps[variable],
-                    cbcolor_spacing = cbcolor_spacing,
-                    cbticks_spacing = cbticks_spacing
-                )
-                log.debug('Day ok')
-                log.debug('-----------------------------------------')
-            log.info(f"Save file {filename_out}")
-            fig.savefig(filename_out, dpi=200)
-
+    # Split long forecasts into two readable four-map figures per diagnostic.
+    day_groups = [list_days[i:i + 4] for i in range(0, len(list_days), 4)]
+    longitude, latitude = ncdata["lon"], ncdata["lat"]
+    try:
+        for variable in list_diags:
+            for ech in list_lead:
+                for group in day_groups:
+                    fig = plt.figure(figsize=(10, 8))
+                    fig.suptitle(
+                        f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
+                        fontweight="bold", fontsize=13)
+                    group_name = "_".join(map(str, group))
+                    filename_out = os.path.join(
+                        dir_out,
+                        f"Lagrangian_stats_{system}_{date1}_{date2}_"
+                        f"{variable}_{ech}_fcstdays{group_name}_"
+                        f"{scheme}_sample{sampling}.png")
+                    for index, day in enumerate(group):
+                        varname = dict_variable[variable]
+                        da = ncdata[varname]
+                        results = da.isel({da.dims[-1]: day - 1}).copy()
+                        if variable == "Nobs":
+                            results = results.where(results > 0)
+                        if not bool(np.isfinite(results).any()):
+                            log.warning("No finite %s data at lead day %d", variable, day)
+                            continue
+                        ax = fig.add_subplot(2, 2, index + 1, projection=proj_1)
+                        if variable == "Nobs":
+                            global_score = float(np.nanmean(results))
+                        else:
+                            global_score = float(area_weighted_mean(results))
+                        mapper = plotmap(ax=ax)
+                        if variable == "sep-dist":
+                            # Apply the same colour scale to all lead days in a
+                            # figure, including lead days beyond the old day-10 keys.
+                            cmax = 100 if max(group) <= 10 else 300
+                            spacing = 10 if cmax == 100 else 30
+                            ticks = spacing
+                        else:
+                            cmax = dict_cmax[variable]
+                            spacing = dict_cbcolor[variable]
+                            ticks = dict_cbticks[variable]
+                        mapper.pcolor(
+                            longitude, latitude, results,
+                            title=f"{ech} day {day} (mean = {global_score:.2f})",
+                            extend="both", labelfont=7,
+                            units=dict_units[variable],
+                            cmin=dict_cmin[variable], cmax=cmax,
+                            colormap=dict_colormaps[variable],
+                            cbcolor_spacing=spacing, cbticks_spacing=ticks)
+                    fig.tight_layout(rect=(0, 0, 1, 0.95))
+                    fig.savefig(filename_out, dpi=200)
+                    plt.close(fig)
+                    log.info("Saved score maps: %s", filename_out)
+    finally:
+        ncdata.close()
 
 
 def compute_and_plot_histograms(results,
