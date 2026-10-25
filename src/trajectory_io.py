@@ -31,7 +31,8 @@ def retrieve_drifters_for_one_day_traj(
     end_day = day + pd.Timedelta(days=T_DRIFT)
     if not 0 <= start_hour < 24:
         raise ValueError("start_hour must be between 0 and 23")
-    nb_points = T_DRIFT * 24
+    # Include both initialization (t=0) and the final t=T_DRIFT*24h endpoint.
+    nb_points = T_DRIFT * 24 + 1
 
     fout_driftersZone = f"Drifters_{str_region}_{str_date1}_{str_date2}.csv"
     dir_drifters = dir_out+'/DRIFTERS/'
@@ -323,7 +324,7 @@ def Retrieve_drifters_traj(outfile2, T_DRIFT, log, remote = False,DRIFTER_type="
         ids = np.sort(drifters_zone_traj["id"].unique())
         times = pd.date_range(
             start=pd.to_datetime(drifters_zone_traj["time"]).min(),
-            periods=int(T_DRIFT) * 24, freq="h"
+            periods=int(T_DRIFT) * 24 + 1, freq="h"
         )
         df = drifters_zone_traj.copy()
         df["time"] = pd.to_datetime(df["time"])
