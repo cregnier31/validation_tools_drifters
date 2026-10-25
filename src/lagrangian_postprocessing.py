@@ -520,6 +520,44 @@ def read_traj_compute_scores(day,
     # corr_lat_bin, count_corr_lat = bin_spatial(corr_lat, traj_lon_daily.squeeze(), traj_lat_daily.squeeze(), res=resolution)
     #sum_corr_lat = corr_lat_bin, * count_corr_lat
 
+    # Audit why a spatial daily-mean score may exist while endpoint-based
+    # performance diagnostics have no finite samples at the same lead.
+    if MODEL.upper() in ("GLOENS", "GLOW"):
+        import csv
+        from pathlib import Path
+        audit_path = Path(dir_work_mod) / (
+            f"Score_valid_counts_{MODEL}_{str_date_sim}.csv")
+        audit_keys = ("model_path_km", "observed_path_km",
+                      "instantaneous_separation_km", "normalized_error",
+                      "directional_error_deg", "skill")
+        spatial_sep = np.asarray(sep_dist_daily, dtype=float)
+        spatial_liu = np.asarray(skill_score, dtype=float)
+        with audit_path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.writer(stream)
+            writer.writerow(["lead_day", "daily_mean_separation_valid",
+                             "daily_liu_valid", *audit_keys])
+            for lead in range(Ndays):
+                counts = [
+                    int(np.count_nonzero(np.isfinite(
+                        np.asarray(diagnostic_daily[key], dtype=float)[..., lead])))
+                    for key in audit_keys
+                ]
+                writer.writerow([
+                    lead + 1,
+                    int(np.count_nonzero(np.isfinite(spatial_sep[..., lead]))),
+                    int(np.count_nonzero(np.isfinite(spatial_liu[..., lead]))),
+                    *counts,
+                ])
+                if lead + 1 in (20, 27, 28):
+                    log.info(
+                        "Score validity day %d: daily_sep=%d daily_liu=%d %s",
+                        lead + 1,
+                        int(np.count_nonzero(np.isfinite(spatial_sep[..., lead]))),
+                        int(np.count_nonzero(np.isfinite(spatial_liu[..., lead]))),
+                        dict(zip(audit_keys, counts)),
+                    )
+        log.info("Saved per-lead score validity audit: %s", audit_path)
+
     log.info(f"Done {day}")
     return {
     "sum_sep": sum_sep,
