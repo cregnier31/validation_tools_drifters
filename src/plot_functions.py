@@ -112,7 +112,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
     """
 
     if list_days is None:
-        list_days = ([1, 3, 5, 7, 9, 10, 15, 20, 28]
+        list_days = ([1, 3, 5, 7, 9]
                      if config["SYSTEM"].upper() == "GLOENS"
                      else [1, 3, 5, 7, 9] if config["SYSTEM"].upper() == "GLOW"
                      else [1, 3, 5, 7])
