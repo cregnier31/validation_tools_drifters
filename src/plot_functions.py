@@ -750,7 +750,7 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                 # A global 2-degree grid is the parent grid. Dense parent
                 # cells (>=10 pairs) are drawn at 2 degrees; sparse parents
                 # (<10 pairs) are split into four 1-degree children, retaining
-                # only children with >=5 pairs. Children never overlap parents.
+                # only children with >=1 pair. Children never overlap parents.
                 parent_edges_lon = np.arange(-180, 181, 2)
                 parent_edges_lat = np.arange(-90, 91, 2)
                 parent_counts, _, _ = np.histogram2d(
@@ -774,7 +774,7 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                     lat[sparse], lon[sparse], bins=[fine_lat, fine_lon])
                 child_lat = np.clip(np.searchsorted(fine_lat, lat, side="right") - 1, 0, 179)
                 child_lon = np.clip(np.searchsorted(fine_lon, lon, side="right") - 1, 0, 359)
-                for iy, ix in zip(*np.where(fine_counts >= 5)):
+                for iy, ix in zip(*np.where(fine_counts >= 1)):
                     selected = sparse & (child_lat == iy) & (child_lon == ix)
                     fine_grid[iy, ix] = (
                         np.count_nonzero(val[selected] == 1)
@@ -800,7 +800,7 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                          np.isfinite(fine_grid).sum())
                 ax.coastlines(linewidth=.5)
                 ax.set_global()
-                ax.set_title(f"Day {day} (2°: ≥10; sparse 1°: ≥5)")
+                ax.set_title(f"Day {day} (2°: ≥10; sparse 1°: ≥1)")
                 fig.colorbar(mesh, ax=ax, shrink=.7)
             for ax in list(axes.flat)[len(days):]:
                 ax.set_visible(False)
