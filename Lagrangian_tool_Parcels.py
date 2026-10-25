@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--delete-failed-particles", action="store_true",
                         help="Retire Parcels particles with grid-search errors and continue the cycle")
     parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--plots-only", action="store_true",
+                        help="Regenerate figures from existing annual pickle and NetCDF statistics")
     parser.add_argument("--remove-old-trajectories", action="store_true",
                         help="Delete only existing model trajectory outputs for selected cycles before rerunning")
     args = parser.parse_args()
@@ -48,6 +50,40 @@ def main():
     config_path = str(ROOT / "cfg/config_drifters.yaml")
     runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
+    if args.plots_only:
+        if args.no_plots or args.remove_old_trajectories:
+            parser.error("--plots-only cannot be combined with --no-plots or --remove-old-trajectories")
+        pickle_file = Path(runtime["pickle_file"])
+        stats_file = Path(runtime["stats_out"])
+        if not pickle_file.is_file() or not stats_file.is_file():
+            parser.error(
+                f"--plots-only requires existing annual outputs: "
+                f"pickle={pickle_file} (exists={pickle_file.is_file()}), "
+                f"NetCDF={stats_file} (exists={stats_file.is_file()})"
+            )
+        with pickle_file.open("rb") as stream:
+            results_stats = pickle.load(stream)
+        if not results_stats:
+            parser.error(f"Annual results pickle contains no successful cycles: {pickle_file}")
+        log.info("Plots only: %d cycles from %s; NetCDF %s",
+                 len(results_stats), pickle_file, stats_file)
+        plot_scores(runtime["dir_out_imgs"], str(stats_file),
+                    runtime["config_info"], log)
+        compute_and_plot_histograms(
+            results_stats, runtime["dir_out_imgs"], runtime["config_info"], log,
+            days=([1, 3, 5, 7, 9] if args.system.upper() in ("GLOENS", "GLOW")
+                  else [1, 3, 5, 7, 10]))
+        if args.system.upper() in ("GLOENS", "GLOW"):
+            from plot_functions import plot_extended_trajectory_diagnostics
+            lead_groups = (((1, 3, 5, 7, 9),)
+                           if args.system.upper() == "GLOW"
+                           else ((1, 3, 5, 7), (9, 12, 15, 18), (24, 28)))
+            plot_extended_trajectory_diagnostics(
+                results_stats, runtime["dir_out_imgs"], runtime["config_info"], log,
+                lead_groups=lead_groups)
+        print(f"[{args.system}] Plots regenerated from existing annual statistics",
+              flush=True)
+        return
     if args.system.upper() in ("GLOENS", "GLOW") and args.lead == "FCST":
         import yaml
         with open(config_path, encoding="utf-8") as stream:
