@@ -611,11 +611,6 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
     out = Path(dir_plot)
     out.mkdir(parents=True, exist_ok=True)
     system = str(config.get("SYSTEM", "model"))
-    # Use finer geographic bins for a single GLOENS initialization only.
-    # Keep the annual/multi-initialization maps at 2° and >=10 samples.
-    if (system.upper() == "GLOENS"
-            and str(config.get("DATE_START")) == str(config.get("DATE_END"))):
-        grid_degrees, min_count = 1, 5
     stamp = f"{system}_{config.get('DATE_START', '')}_{config.get('DATE_END', '')}"
     speed_edges = np.array([0, .3, .6, 1., 1.5, 2., np.inf])
     speed_labels = ["0–0.3", "0.3–0.6", "0.6–1", "1–1.5", "1.5–2", "≥2"]
@@ -752,25 +747,64 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                 lon = ((lon[valid_mask] + 180) % 360) - 180
                 lat = lat[valid_mask]
                 val = val[valid_mask]
-                lon_edges = np.arange(-180, 180 + grid_degrees, grid_degrees)
-                lat_edges = np.arange(-90, 90 + grid_degrees, grid_degrees)
-                counts, _, _ = np.histogram2d(lat, lon, bins=[lat_edges, lon_edges])
-                grid = np.full(counts.shape, np.nan)
-                lat_id = np.searchsorted(lat_edges, lat, side="right") - 1
-                lon_id = np.searchsorted(lon_edges, lon, side="right") - 1
-                for iy, ix in zip(*np.where(counts >= min_count)):
-                    mask = (lat_id == iy) & (lon_id == ix)
-                    grid[iy, ix] = (np.count_nonzero(val[mask] == 1)
-                                    if key == "valid_pair" else np.median(val[mask]))
-                mesh = ax.pcolormesh(lon_edges, lat_edges, grid, transform=ccrs.PlateCarree(),
-                                     cmap=cmap, vmin=vmin, vmax=vmax, shading="flat")
+                # A global 2-degree grid is the parent grid. Dense parent
+                # cells (>=10 pairs) are drawn at 2 degrees; sparse parents
+                # (<10 pairs) are split into four 1-degree children, retaining
+                # only children with >=5 pairs. Children never overlap parents.
+                parent_edges_lon = np.arange(-180, 181, 2)
+                parent_edges_lat = np.arange(-90, 91, 2)
+                parent_counts, _, _ = np.histogram2d(
+                    lat, lon, bins=[parent_edges_lat, parent_edges_lon])
+                parent_lat = np.searchsorted(parent_edges_lat, lat, side="right") - 1
+                parent_lon = np.searchsorted(parent_edges_lon, lon, side="right") - 1
+                # Handle points exactly on the northern/eastern boundary.
+                parent_lat = np.clip(parent_lat, 0, parent_counts.shape[0] - 1)
+                parent_lon = np.clip(parent_lon, 0, parent_counts.shape[1] - 1)
+                fine_lon = np.arange(-180, 181, 1)
+                fine_lat = np.arange(-90, 91, 1)
+                fine_grid = np.full((180, 360), np.nan)
+                coarse_grid = np.full((90, 180), np.nan)
+                for iy, ix in zip(*np.where(parent_counts >= 10)):
+                    selected = (parent_lat == iy) & (parent_lon == ix)
+                    coarse_grid[iy, ix] = (
+                        np.count_nonzero(val[selected] == 1)
+                        if key == "valid_pair" else np.median(val[selected]))
+                sparse = parent_counts[parent_lat, parent_lon] < 10
+                fine_counts, _, _ = np.histogram2d(
+                    lat[sparse], lon[sparse], bins=[fine_lat, fine_lon])
+                child_lat = np.clip(np.searchsorted(fine_lat, lat, side="right") - 1, 0, 179)
+                child_lon = np.clip(np.searchsorted(fine_lon, lon, side="right") - 1, 0, 359)
+                for iy, ix in zip(*np.where(fine_counts >= 5)):
+                    selected = sparse & (child_lat == iy) & (child_lon == ix)
+                    fine_grid[iy, ix] = (
+                        np.count_nonzero(val[selected] == 1)
+                        if key == "valid_pair" else np.median(val[selected]))
+                # Draw both resolutions with the same colour normalization.
+                from matplotlib.colors import Normalize
+                finite_values = np.concatenate([
+                    coarse_grid[np.isfinite(coarse_grid)],
+                    fine_grid[np.isfinite(fine_grid)]])
+                scale_max = vmax if vmax is not None else (
+                    float(finite_values.max()) if finite_values.size else 1.0)
+                if scale_max <= vmin:
+                    scale_max = vmin + 1.0
+                norm = Normalize(vmin=vmin, vmax=scale_max)
+                mesh = ax.pcolormesh(parent_edges_lon, parent_edges_lat,
+                                     coarse_grid, transform=ccrs.PlateCarree(),
+                                     cmap=cmap, norm=norm, shading="flat")
+                ax.pcolormesh(fine_lon, fine_lat, fine_grid,
+                              transform=ccrs.PlateCarree(),
+                              cmap=cmap, norm=norm, shading="flat")
+                log.info("Geographic %s day %d: %d dense 2-degree bins, %d sparse 1-degree bins",
+                         key, day, np.isfinite(coarse_grid).sum(),
+                         np.isfinite(fine_grid).sum())
                 ax.coastlines(linewidth=.5)
                 ax.set_global()
-                ax.set_title(f"Day {day} (bins ≥{min_count} comparisons)")
+                ax.set_title(f"Day {day} (2°: ≥10; sparse 1°: ≥5)")
                 fig.colorbar(mesh, ax=ax, shrink=.7)
             for ax in list(axes.flat)[len(days):]:
                 ax.set_visible(False)
-            fig.suptitle(f"{title}: {system}, observed locations, {grid_degrees}° bins")
+            fig.suptitle(f"{title}: {system}, observed locations, adaptive 2°/1° bins")
             fig.tight_layout()
             path = out / f"Geographic_{key}_{stamp}_days{tag}.png"
             fig.savefig(path, dpi=200)
