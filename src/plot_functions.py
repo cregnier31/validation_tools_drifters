@@ -112,7 +112,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
     """
 
     if list_days is None:
-        list_days = ([1, 3, 5, 7, 9]
+        list_days = ([1, 3, 5, 9, 12, 15, 20, 28]
                      if config["SYSTEM"].upper() == "GLOENS"
                      else [1, 3, 5, 7, 9] if config["SYSTEM"].upper() == "GLOW"
                      else [1, 3, 5, 7])
@@ -220,8 +220,8 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
         for variable in list_diags:
             for ech in list_lead:
                 for group in day_groups:
-                    fig = plt.figure(figsize=(9, 7))
-                    title_position = (0.5, 1.05)
+                    fig = plt.figure(figsize=(11, 10))
+                    title_position = (0.5, 0.975)
                     fig.suptitle(
                         f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
                         fontweight="bold", fontsize=13, color="red",
@@ -265,7 +265,11 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                             cmin=dict_cmin[variable], cmax=cmax,
                             colormap=dict_colormaps[variable],
                             cbcolor_spacing=spacing, cbticks_spacing=ticks)
-                    fig.tight_layout(h_pad=0.7, w_pad=0.5)
+                    # Leave space for each map title and its horizontal colorbar.
+                    # tight_layout previously pushed the row titles into the
+                    # colorbars and left excessive space above the figure.
+                    fig.subplots_adjust(left=0.05, right=0.97, bottom=0.07,
+                                        top=0.90, hspace=0.55, wspace=0.12)
                     fig.savefig(filename_out, dpi=200)
                     plt.close(fig)
                     log.info("Saved score maps: %s", filename_out)
