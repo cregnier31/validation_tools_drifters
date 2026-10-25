@@ -116,11 +116,17 @@ def main():
                                     runtime["config_info"], log,
                                     days=([1, 3, 5, 10, 15, 20, 28]
                                           if runtime["config_info"]["SYSTEM"].upper() == "GLOENS"
+                                          else [1, 3, 5, 9]
+                                          if runtime["config_info"]["SYSTEM"].upper() == "GLOW"
                                           else [1, 3, 5, 7, 10]))
-        if runtime["config_info"]["SYSTEM"].upper() == "GLOENS":
+        if runtime["config_info"]["SYSTEM"].upper() in ("GLOENS", "GLOW"):
             from plot_functions import plot_extended_trajectory_diagnostics
+            lead_groups = (((1, 3, 5, 9),)
+                           if runtime["config_info"]["SYSTEM"].upper() == "GLOW"
+                           else ((1, 3, 5, 10), (12, 15, 20, 28)))
             plot_extended_trajectory_diagnostics(
-                results_stats, runtime["dir_out_imgs"], runtime["config_info"], log)
+                results_stats, runtime["dir_out_imgs"], runtime["config_info"], log,
+                lead_groups=lead_groups)
 
 
 if __name__ == "__main__":
