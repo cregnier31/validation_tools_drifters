@@ -49,11 +49,33 @@ def run_glow_parcels(velocities, day, lon0, lat0, output_path, *,
     required = timedelta(days=drift_days).total_seconds()
     dt_seconds = timedelta(minutes=dt_minutes).total_seconds()
     available = (times[-1] - times[0]).total_seconds()
-    if required % dt_seconds or available < required + dt_seconds:
-        raise ValueError(
-            f"GLOW forecast spans {available/86400:.2f} days; need {drift_days} days "
-            "plus one RK4 integration timestep. Reduce --drift-days or extend the forecast."
-        )
+    if required % dt_seconds:
+        raise ValueError("GLOW drift duration must be divisible by the RK4 timestep")
+    # GLOW supplies N daily fields for N requested forecast days. The last
+    # native field is at day N-1, so extend its velocity unchanged through
+    # day N+1 to provide a full-day tail and an RK4 interpolation guard.
+    # This is persistence extrapolation, not additional forecast information.
+    if available < required + dt_seconds:
+        if len(times) != drift_days or not np.all(
+                np.diff(times.values) == np.timedelta64(1, "D")):
+            raise ValueError(
+                f"GLOW forecast spans {available/86400:.2f} days; need "
+                f"{drift_days} days plus one RK4 timestep. Expected "
+                f"{drift_days} consecutive daily fields for persistence extension."
+            )
+        extension_times = [
+            times[-1] + pd.Timedelta(days=1),
+            times[-1] + pd.Timedelta(days=2),
+        ]
+        u = xr.concat([u, *[u.isel(time=-1).expand_dims(time=[t])
+                            for t in extension_times]], dim="time")
+        v = xr.concat([v, *[v.isel(time=-1).expand_dims(time=[t])
+                            for t in extension_times]], dim="time")
+        log.warning(
+            "GLOW: extending last daily U/V field at %s unchanged to %s "
+            "for %d-day integration (persistence extrapolation)",
+            times[-1], extension_times[-1], drift_days)
+
     if meshmask:
         # GLOW mask has different vertical coordinates from uo/vo. Do not
         # align it by velocity depth index or silently infer its value coding.
