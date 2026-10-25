@@ -335,6 +335,44 @@ def read_traj_compute_scores(day,
             endpoint_indices.append(int(hits[-1]))
         log.info("Complete forecast days: %d; final endpoint %.1fh; model samples %d",
                  Ndays, lead_hours[endpoint_indices[-1]], Tm)
+        # Inspect exact endpoint availability before daily averaging can hide
+        # a missing observation at the final forecast timestamp.
+        if MODEL.upper() == "GLOENS" and Ndays >= 28:
+            import csv
+            from pathlib import Path
+            obs_x = np.asarray(drifter_lon, dtype=float)
+            obs_y = np.asarray(drifter_lat, dtype=float)
+            mod_x = np.asarray(traj_lon, dtype=float)
+            mod_y = np.asarray(traj_lat, dtype=float)
+            audit_path = Path(dir_work_mod) / (
+                f"Endpoint_validity_{MODEL}_{str_date_sim}.csv")
+            with audit_path.open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.writer(stream)
+                writer.writerow(["elapsed_hours", "sample_index",
+                                 "valid_observation_positions",
+                                 "valid_model_positions", "valid_pairs",
+                                 "valid_separation"])
+                for target in (648.0, 654.0, 660.0, 666.0, 672.0):
+                    hits = np.flatnonzero(np.isclose(
+                        lead_hours, target, atol=1e-4))
+                    if not hits.size:
+                        writer.writerow([target, "missing", 0, 0, 0, 0])
+                        continue
+                    index = int(hits[-1])
+                    obs_valid = (np.isfinite(obs_x[..., index])
+                                 & np.isfinite(obs_y[..., index]))
+                    mod_valid = (np.isfinite(mod_x[..., index])
+                                 & np.isfinite(mod_y[..., index]))
+                    pair_valid = obs_valid & mod_valid
+                    sep_valid = np.isfinite(
+                        np.asarray(sep_dist, dtype=float)[..., index])
+                    counts = (int(obs_valid.sum()), int(mod_valid.sum()),
+                              int(pair_valid.sum()), int(sep_valid.sum()))
+                    writer.writerow([target, index, *counts])
+                    log.info(
+                        "Endpoint audit %.0fh index=%d: obs=%d model=%d "
+                        "pairs=%d separation=%d", target, index, *counts)
+            log.info("Saved endpoint availability audit: %s", audit_path)
         # Daily separation and observed locations are averages of the
         # forecast samples strictly after the preceding day's endpoint.
         sep_dist_daily = np.stack([
