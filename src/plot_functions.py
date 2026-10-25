@@ -740,8 +740,11 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
             ("instantaneous_separation_km", "Separation distance (km)", 0, None, "viridis"),
             ("valid_pair", "Valid comparison count per grid cell", 0, None, "Blues"),
         ]:
-            fig, axes = plt.subplots(2, 2, figsize=(15, 8),
+            fig, axes = plt.subplots(2, 2, figsize=(15, 10),
                                      subplot_kw={"projection": ccrs.PlateCarree()})
+            # Reserve space for horizontal colorbars below each map.
+            fig.subplots_adjust(left=.04, right=.97, bottom=.09,
+                                top=.89, hspace=.55, wspace=.18)
             for ax, day in zip(axes.flat, days):
                 lon = samples("observed_lon", day)
                 lat = samples("observed_lat", day)
@@ -788,8 +791,12 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                 finite_values = np.concatenate([
                     coarse_grid[np.isfinite(coarse_grid)],
                     fine_grid[np.isfinite(fine_grid)]])
-                scale_max = vmax if vmax is not None else (
-                    float(finite_values.max()) if finite_values.size else 1.0)
+                # Fixed separation scales allow lead-time comparisons.
+                if key == "instantaneous_separation_km":
+                    scale_max = 100.0 if day <= 10 else 300.0
+                else:
+                    scale_max = vmax if vmax is not None else (
+                        float(finite_values.max()) if finite_values.size else 1.0)
                 if scale_max <= vmin:
                     scale_max = vmin + 1.0
                 norm = Normalize(vmin=vmin, vmax=scale_max)
@@ -805,11 +812,18 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                 ax.coastlines(linewidth=.5)
                 ax.set_global()
                 ax.set_title(f"Day {day} (2°: ≥10; sparse 1°: ≥1)")
-                fig.colorbar(mesh, ax=ax, shrink=.7)
+                from matplotlib.cm import ScalarMappable
+                colorbar = fig.colorbar(
+                    ScalarMappable(norm=norm, cmap=cmap), ax=ax,
+                    orientation="horizontal", fraction=.055, pad=.12,
+                    aspect=30, extend="max" if key == "instantaneous_separation_km" else "neither")
+                if key == "instantaneous_separation_km":
+                    colorbar.set_ticks(np.linspace(0, scale_max, 6))
+                    colorbar.set_label("Separation distance (km)", fontsize=9)
+                colorbar.ax.tick_params(labelsize=8)
             for ax in list(axes.flat)[len(days):]:
                 ax.set_visible(False)
             fig.suptitle(f"{title}: {system}, observed locations, adaptive 2°/1° bins")
-            fig.tight_layout()
             path = out / f"Geographic_{key}_{stamp}_days{tag}.png"
             fig.savefig(path, dpi=200)
             plt.close(fig)
