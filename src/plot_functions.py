@@ -611,6 +611,11 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
     out = Path(dir_plot)
     out.mkdir(parents=True, exist_ok=True)
     system = str(config.get("SYSTEM", "model"))
+    # Use finer geographic bins for a single GLOENS initialization only.
+    # Keep the annual/multi-initialization maps at 2° and >=10 samples.
+    if (system.upper() == "GLOENS"
+            and str(config.get("DATE_START")) == str(config.get("DATE_END"))):
+        grid_degrees, min_count = 1, 5
     stamp = f"{system}_{config.get('DATE_START', '')}_{config.get('DATE_END', '')}"
     speed_edges = np.array([0, .3, .6, 1., 1.5, 2., np.inf])
     speed_labels = ["0–0.3", "0.3–0.6", "0.6–1", "1–1.5", "1.5–2", "≥2"]
