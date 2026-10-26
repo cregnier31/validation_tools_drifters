@@ -219,7 +219,8 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
         for variable in list_diags:
             for ech in list_lead:
                 for group in day_groups:
-                    # A shorter canvas avoids excessive whitespace between map rows.\n                    fig = plt.figure(figsize=(11, 7.6))
+                    # A shorter canvas avoids excessive whitespace between map rows.
+                    fig = plt.figure(figsize=(11, 7.6))
                     title_position = (0.5, 0.975)
                     fig.suptitle(
                         f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
