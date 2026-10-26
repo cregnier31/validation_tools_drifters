@@ -744,7 +744,7 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                                      subplot_kw={"projection": ccrs.PlateCarree()})
             # Reserve space for horizontal colorbars below each map.
             fig.subplots_adjust(left=.04, right=.97, bottom=.09,
-                                top=.89, hspace=.55, wspace=.18)
+                                top=.89, hspace=.18, wspace=.18)
             for ax, day in zip(axes.flat, days):
                 lon = samples("observed_lon", day)
                 lat = samples("observed_lat", day)
