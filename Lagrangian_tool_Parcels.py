@@ -293,6 +293,10 @@ def main():
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--pickle-file", type=Path, default=None,
                         help="Existing annual pickle path for --audit-liu")
+    parser.add_argument("--postprocess-only", action="store_true",
+                        help="Recompute scores from existing tagged Parquet and observations, without advection")
+    parser.add_argument("--trajectory-tag", default="domcfg_v31",
+                        help="Existing tagged trajectory suffix for --postprocess-only")
     parser.add_argument("--audit-liu", action="store_true",
                         help="Audit existing annual Liu metrics without running Parcels")
     parser.add_argument("--plots-only", action="store_true",
@@ -313,6 +317,74 @@ def main():
     config_path = str(ROOT / "cfg/config_drifters.yaml")
     runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
+    if args.postprocess_only:
+        import os
+        import yaml
+        from trajectory_io import retrieve_drifters_for_one_day_traj
+        if args.audit_liu or args.plots_only or args.remove_old_trajectories:
+            parser.error("--postprocess-only cannot be combined with audit, plots-only or trajectory removal")
+        if args.system.upper() != "GLOENS" or args.lead != "FCST":
+            parser.error("--postprocess-only currently supports GLOENS FCST only")
+        with open(config_path, encoding="utf-8") as stream:
+            cfg = yaml.safe_load(stream)
+        from Lagrangian_tool_GLOENS import discover_cycles
+        days = discover_cycles(cfg, first, last)
+        if not days:
+            parser.error("No GLOENS initialization dates found")
+        duration = runtime["config_info"]["drift_time"]
+        tag = args.trajectory_tag
+        from datetime import timedelta
+        base_dir = Path(runtime["config_info"]["dir_work"]) / args.scheme / "DRIFT_GLOENS"
+        cycle_specs = []
+        for day in days:
+            start = day.strftime("%Y%m%d")
+            end = (day + timedelta(days=int(duration))).strftime("%Y%m%d")
+            experiment = (f"Parcels_Drift-GLOENS_FCST_{args.scheme}_"
+                          f"drift{duration}_dt15_{start}-{start}_{tag}")
+            cycle_dir = base_dir / experiment / ("ZONE_" + runtime["config_info"]["STR_REGION"])
+            traj_dir = cycle_dir / start
+            trajectory = traj_dir / (
+                f"Trajectories_GLOENS_{start}_{end}_at_SVPloc_smag_{tag}.parquet")
+            if not trajectory.exists():
+                raise FileNotFoundError(
+                    f"Missing trajectory for {start}: {trajectory}. "
+                    "No advection will be attempted.")
+            cycle_specs.append((day, cycle_dir, trajectory))
+        log.info("Preflight OK: %d existing trajectory files; no advection", len(cycle_specs))
+        postprocessed = []
+        for day, cycle_dir, trajectory in cycle_specs:
+            start = day.strftime("%Y%m%d")
+            end = (day + timedelta(days=int(duration))).strftime("%Y%m%d")
+            cycle_runtime = build_runtime_config(
+                (day, day, *base, False), config_path, drift_days=args.drift_days)
+            info = cycle_runtime["config_info"]
+            info["DIR_OUT"] = str(cycle_dir) + "/"
+            observation = retrieve_drifters_for_one_day_traj(
+                day, duration, info["lon_min"], info["lon_max"],
+                info["lat_min"], info["lat_max"], info["STR_REGION"],
+                start, end, info["obs_type"], info["path_data"],
+                info["DIR_OUT"], log, start_hour=12)
+            if observation is None:
+                raise FileNotFoundError(f"No observation input for {start}")
+            _, observation_csv = observation
+            stats = read_traj_compute_scores(
+                day, info, observation_csv, filtered=True)
+            if stats is None:
+                raise ValueError(f"No scores produced for {start}")
+            postprocessed.append(stats)
+            log.info("Postprocessed %s (%d/%d)", start, len(postprocessed), len(cycle_specs))
+        output_pickle = Path(runtime["pickle_file"]).with_name(
+            Path(runtime["pickle_file"]).stem + f"_{tag}_persistence.pkl")
+        output_pickle.parent.mkdir(parents=True, exist_ok=True)
+        with output_pickle.open("wb") as stream:
+            pickle.dump(postprocessed, stream, protocol=pickle.HIGHEST_PROTOCOL)
+        log.info("Saved postprocessed annual pickle: %s", output_pickle)
+        audit_liu(postprocessed, runtime["dir_out_imgs"], log)
+        audit_liu_survivors(postprocessed, runtime["dir_out_imgs"], log)
+        audit_persistence(postprocessed, runtime["dir_out_imgs"], log)
+        print(f"Postprocessing complete; original annual pickle untouched: {output_pickle}",
+              flush=True)
+        return
     if args.audit_liu:
         pickle_file = args.pickle_file if args.pickle_file is not None else Path(runtime["pickle_file"])
         if not pickle_file.is_file():
