@@ -3,6 +3,7 @@
 import argparse
 from datetime import datetime
 import sys
+import os
 
 def parse_args():
     """
@@ -19,7 +20,10 @@ def parse_args():
     parser.add_argument('--typeobs', type=str, default="COPERNICUS_DAILY", help='type of observation')
     parser.add_argument('--remove-old-particules', action='store_true', help='Delete existing trajectory output before rerunning')
     parser.add_argument('--engine', type=str,  default="parcels", help='Engine choosen forthe dispersion')
+    parser.add_argument('--scores-only', action='store_true', help='Reuse existing Parcels trajectories; skip advection')
     args = parser.parse_args()
+    if args.scores_only:
+        os.environ['LAGRANGIAN_SCORES_ONLY'] = '1'
     list_lead = ['HDCT', 'FCST']
     list_scheme = ['AdvectionRK4', 'K_smag', 'AdvectionEE']
     list_obs_type = ['COPERNICUS_DAILY', 'AOML']
