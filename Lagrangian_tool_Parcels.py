@@ -94,6 +94,8 @@ def main():
     parser.add_argument("--delete-failed-particles", action="store_true",
                         help="Retire Parcels particles with grid-search errors and continue the cycle")
     parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--pickle-file", type=Path, default=None,
+                        help="Existing annual pickle path for --audit-liu")
     parser.add_argument("--audit-liu", action="store_true",
                         help="Audit existing annual Liu metrics without running Parcels")
     parser.add_argument("--plots-only", action="store_true",
@@ -115,7 +117,7 @@ def main():
     runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
     if args.audit_liu:
-        pickle_file = Path(runtime["pickle_file"])
+        pickle_file = args.pickle_file if args.pickle_file is not None else Path(runtime["pickle_file"])
         if not pickle_file.is_file():
             parser.error(f"Annual results pickle missing: {pickle_file}")
         with pickle_file.open("rb") as stream:
