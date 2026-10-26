@@ -2,7 +2,7 @@
 """Compare endpoint separation boxplots from annual trajectory-diagnostic pickles.
 
 Usage:
- python scripts/compare_system_separation.py --gloens-pickle PATH --glow-pickle PATH
+ python scripts/compare_system_separation.py --system GLOENS PATH --system GLOW PATH\n python scripts/compare_system_separation.py --system GLOENS PATH --system GLOW PATH --system OTHER PATH
 """
 import argparse
 import pickle
@@ -50,17 +50,18 @@ def samples_at(arrays, day):
     return values[np.isfinite(values)]
 
 
-def draw_comparison(gloens, glow, days, output):
-    fig, ax = plt.subplots(figsize=(14, 6.5))
-    colors = {"GLOENS": "#2374AB", "GLOW": "#E68632"}
+def draw_comparison(systems, days, output):
+    fig, ax = plt.subplots(figsize=(max(12, len(days) * 1.2), 6.5))
+    palette = plt.get_cmap("tab10")
+    count = len(systems)
+    width = min(0.7 / count, 0.34)
     counts = {}
-    for label, arrays, shift in (("GLOENS", gloens, -0.19),
-                                 ("GLOW", glow, 0.19)):
+    legend = []
+    for index, (label, arrays) in enumerate(systems):
+        color = palette(index % 10)
+        shift = (index - (count - 1) / 2) * width
         data, positions = [], []
         for i, day in enumerate(days):
-            # GLOW is a 9-day forecast: never plot it beyond its horizon.
-            if label == "GLOW" and day > 9:
-                continue
             values = samples_at(arrays, day)
             counts[(label, day)] = len(values)
             if values.size:
@@ -68,29 +69,27 @@ def draw_comparison(gloens, glow, days, output):
                 positions.append(i + shift)
         if not data:
             continue
-        box = ax.boxplot(data, positions=positions, widths=0.32,
+        box = ax.boxplot(data, positions=positions, widths=width * 0.9,
                          showfliers=False, patch_artist=True, manage_ticks=False,
-                         whis=1.5, medianprops={"color": "#202020", "linewidth": 1.6})
+                         whis=1.5, medianprops={"color": "#202020", "linewidth": 1.4})
         for patch in box["boxes"]:
-            patch.set_facecolor(colors[label])
+            patch.set_facecolor(color)
             patch.set_alpha(0.55)
-            patch.set_edgecolor(colors[label])
+            patch.set_edgecolor(color)
         for part in ("whiskers", "caps"):
             for line in box[part]:
-                line.set_color(colors[label])
+                line.set_color(color)
+        legend.append(Patch(facecolor=color, edgecolor=color, alpha=0.55, label=label))
     ax.set_xticks(range(len(days)), [str(d) for d in days])
     ax.set_xlabel("Forecast lead (days)")
     ax.set_ylabel("Model–observation endpoint separation (km)")
-    ax.set_title("Drifter separation distance: GLOENS vs GLOW")
+    ax.set_title("Drifter separation distance: " + " vs ".join(name for name, _ in systems))
     ax.grid(axis="y", alpha=0.25)
     ax.set_axisbelow(True)
     ax.set_ylim(bottom=0)
-    ax.legend(handles=[Patch(facecolor=colors[k], edgecolor=colors[k],
-                             alpha=0.55, label=k)
-                       for k in ("GLOENS", "GLOW")], loc="upper left")
+    ax.legend(handles=legend, loc="upper left")
     fig.text(0.5, 0.01,
-             "Boxes: 25th–75th percentile; center: median; whiskers: 1.5×IQR; outliers hidden. "
-             "GLOW available through day 9.",
+             "Boxes: 25th–75th percentile; center: median; whiskers: 1.5×IQR; outliers hidden.",
              ha="center", fontsize=9)
     fig.tight_layout(rect=(0, 0.045, 1, 1))
     output = Path(output)
@@ -102,22 +101,33 @@ def draw_comparison(gloens, glow, days, output):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--gloens-pickle", type=Path, required=True)
-    parser.add_argument("--glow-pickle", type=Path, required=True)
+    parser.add_argument("--system", nargs=2, action="append", metavar=("NAME", "PICKLE"),
+                        help="System name and annual pickle; repeat for each system")
+    parser.add_argument("--gloens-pickle", type=Path, help="Legacy GLOENS pickle option")
+    parser.add_argument("--glow-pickle", type=Path, help="Legacy GLOW pickle option")
     parser.add_argument("--output", type=Path,
-                        default=Path("imgs/AdvectionRK4/GLOENS_GLOW_separation_boxplots.png"))
+                        default=Path("imgs/AdvectionRK4/system_separation_boxplots.png"))
     parser.add_argument("--days", type=int, nargs="+", default=DEFAULT_DAYS)
     args = parser.parse_args()
+    selected = list(args.system or [])
+    if args.gloens_pickle:
+        selected.append(("GLOENS", str(args.gloens_pickle)))
+    if args.glow_pickle:
+        selected.append(("GLOW", str(args.glow_pickle)))
+    if len(selected) < 2:
+        parser.error("Provide at least two systems using --system NAME PICKLE")
+    names = [name for name, _ in selected]
+    if len(names) != len(set(names)):
+        parser.error("System names must be unique")
     days = sorted(set(args.days))
-    if any(d < 1 or d > 28 for d in days):
-        parser.error("Lead days must be between 1 and 28")
-    gloens = load_separation(args.gloens_pickle)
-    glow = load_separation(args.glow_pickle)
-    counts = draw_comparison(gloens, glow, days, args.output)
+    if any(d < 1 for d in days):
+        parser.error("Lead days must be positive")
+    systems = [(name, load_separation(path)) for name, path in selected]
+    counts = draw_comparison(systems, days, args.output)
     print(f"Saved {args.output}")
     for day in days:
-        print(f"Day {day:2d}: GLOENS n={counts.get(('GLOENS', day), 0):6d}; "
-              f"GLOW n={counts.get(('GLOW', day), 0):6d}")
+        print(f"Day {day:2d}: " + "; ".join(
+            f"{name} n={counts.get((name, day), 0):6d}" for name, _ in systems))
 
 
 if __name__ == "__main__":
