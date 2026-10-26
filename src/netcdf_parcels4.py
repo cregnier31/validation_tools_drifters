@@ -69,6 +69,12 @@ def run_netcdf_parcels4(u_files, v_files, u_variable, v_variable, meshmask,
     if not np.isfinite(lon0).all() or not np.isfinite(lat0).all():
         raise ValueError("Nonfinite drifter seed coordinates")
 
+    # Retrieve_data_local returns meshmask as a list (one path per input).
+    if isinstance(meshmask, (list, tuple)):
+        unique_meshes = {str(item) for item in meshmask}
+        if len(unique_meshes) != 1:
+            raise ValueError(f"Expected one shared NEMO meshmask, got: {sorted(unique_meshes)}")
+        meshmask = unique_meshes.pop()
     grid_path = Path(meshmask)
     if not grid_path.is_file():
         raise FileNotFoundError(f"NEMO meshmask not found: {grid_path}")
