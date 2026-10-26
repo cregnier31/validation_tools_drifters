@@ -86,7 +86,6 @@ def draw_comparison(systems, days, output):
     ax.set_title("Drifter separation distance: " + " vs ".join(name for name, _ in systems))
     ax.grid(axis="y", alpha=0.25)
     ax.set_axisbelow(True)
-    ax.set_ylim(bottom=0)
     ax.legend(handles=legend, loc="upper left")
     fig.text(0.5, 0.01,
              "Boxes: 25th–75th percentile; center: median; whiskers: 1.5×IQR; outliers hidden.",
