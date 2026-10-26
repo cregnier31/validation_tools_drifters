@@ -17,6 +17,68 @@ from lagrangian_postprocessing import read_traj_compute_scores, aggregate_and_sa
 from plot_functions import plot_scores, compute_and_plot_histograms
 
 
+def audit_liu(results, output_dir, log):
+    """Audit per-lead Liu formula, changing sample counts, and large errors."""
+    import numpy as np
+    out = Path(output_dir) / "Liu_consistency_audit.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    columns = ["day", "valid_pairs", "cycles", "mean_skill",
+               "mean_endpoint_sep_km", "mean_cumulative_sep_km",
+               "mean_observed_path_km", "mean_denominator_km",
+               "mean_normalized_error", "fraction_skill_gt_08",
+               "fraction_sep_gt_200km", "high_skill_large_sep_count",
+               "formula_mismatches", "max_formula_difference"]
+    with out.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns)
+        writer.writeheader()
+        for day in (1, 3, 5, 9, 12, 15, 20, 28):
+            chunks = []
+            for result in results:
+                if not result or "liu_diagnostics_daily" not in result:
+                    continue
+                diag = result["liu_diagnostics_daily"]
+                keys = ("normalized_error", "instantaneous_separation_km",
+                        "cumulative_separation_km", "observed_path_km",
+                        "normalization_distance_km")
+                try:
+                    arrays = [np.asarray(result["liu_skill_daily"], dtype=float)]
+                    arrays += [np.asarray(diag[key], dtype=float) for key in keys]
+                    arrays = [a.reshape(1, -1) if a.ndim == 1 else a
+                              for a in arrays]
+                    if any(a.ndim != 2 or a.shape != arrays[0].shape
+                           or a.shape[1] < day for a in arrays):
+                        continue
+                    block = np.stack([a[:, day - 1] for a in arrays], axis=1)
+                    block = block[np.isfinite(block).all(axis=1)]
+                    if block.size:
+                        chunks.append(block)
+                except (KeyError, ValueError):
+                    continue
+            row = dict.fromkeys(columns, "")
+            row["day"] = day
+            row["cycles"] = len(chunks)
+            row["valid_pairs"] = sum(len(chunk) for chunk in chunks)
+            if chunks:
+                data = np.concatenate(chunks)
+                skill, ratio, sep, cumulative, path, denominator = data.T
+                diff = np.abs(skill - np.maximum(0, 1 - ratio))
+                row.update(mean_skill=float(np.mean(skill)),
+                           mean_endpoint_sep_km=float(np.mean(sep)),
+                           mean_cumulative_sep_km=float(np.mean(cumulative)),
+                           mean_observed_path_km=float(np.mean(path)),
+                           mean_denominator_km=float(np.mean(denominator)),
+                           mean_normalized_error=float(np.mean(ratio)),
+                           fraction_skill_gt_08=float(np.mean(skill > .8)),
+                           fraction_sep_gt_200km=float(np.mean(sep > 200)),
+                           high_skill_large_sep_count=int(np.sum((skill > .8) & (sep > 200))),
+                           formula_mismatches=int(np.sum(diff > 1e-6)),
+                           max_formula_difference=float(np.max(diff)))
+            writer.writerow(row)
+            log.info("Liu audit day %d: %s valid pairs, %s formula mismatches",
+                     day, row["valid_pairs"], row["formula_mismatches"])
+    print(f"Liu consistency audit saved: {out}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date1", required=True, help="YYYYMMDD")
@@ -32,6 +94,8 @@ def main():
     parser.add_argument("--delete-failed-particles", action="store_true",
                         help="Retire Parcels particles with grid-search errors and continue the cycle")
     parser.add_argument("--no-plots", action="store_true")
+    parser.add_argument("--audit-liu", action="store_true",
+                        help="Audit existing annual Liu metrics without running Parcels")
     parser.add_argument("--plots-only", action="store_true",
                         help="Regenerate figures from existing annual pickle and NetCDF statistics")
     parser.add_argument("--remove-old-trajectories", action="store_true",
@@ -50,6 +114,14 @@ def main():
     config_path = str(ROOT / "cfg/config_drifters.yaml")
     runtime = build_runtime_config((first, last, *base, False), config_path, drift_days=args.drift_days)
     log = runtime["log"]
+    if args.audit_liu:
+        pickle_file = Path(runtime["pickle_file"])
+        if not pickle_file.is_file():
+            parser.error(f"Annual results pickle missing: {pickle_file}")
+        with pickle_file.open("rb") as stream:
+            audit_results = pickle.load(stream)
+        audit_liu(audit_results, runtime["dir_out_imgs"], log)
+        return
     if args.plots_only:
         if args.no_plots or args.remove_old_trajectories:
             parser.error("--plots-only cannot be combined with --no-plots or --remove-old-trajectories")
