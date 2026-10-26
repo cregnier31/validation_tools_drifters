@@ -153,9 +153,15 @@ def process_one_day(day, config_dict):
     # Parcels 4 writes Parquet, while legacy Parcels 3 writes Zarr.
     # Reuse existing output rather than attempting to recreate it.
     f_traj_parquet = os.path.splitext(f_traj)[0] + ".parquet"
+    use_netcdf_parcels4 = (
+        os.environ.get("LAGRANGIAN_NETCDF_PARCELS4", "0") == "1"
+        and config_info.get("input_format", "netcdf").lower() == "netcdf"
+        and engine.lower() == "parcels"
+    )
     is_gloens_parquet = (
-        config_info.get("input_format", "netcdf").lower() == "zarr"
-        and MODEL.upper() in ("GLOENS", "GLOW")
+        (config_info.get("input_format", "netcdf").lower() == "zarr"
+         and MODEL.upper() in ("GLOENS", "GLOW"))
+        or use_netcdf_parcels4
     )
     existing_traj = (
         f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
@@ -294,7 +300,28 @@ def process_one_day(day, config_dict):
                     DIR_OUT, DIR_IN, DIR_WORK,
                     DEPTH, log, leadtime=leadtime
                 )
-            run_lagrangian(
+            if use_netcdf_parcels4:
+                from netcdf_parcels4 import run_netcdf_parcels4
+                if config_info["gridtype"] != "irregular":
+                    raise NotImplementedError(
+                        "Parcels 4 NetCDF SGRID runner requires an irregular NEMO grid"
+                    )
+                if NB_REPEATS not in (None, 0):
+                    raise NotImplementedError(
+                        "Repeated particle releases are not yet supported by the "
+                        "Parcels 4 NetCDF runner"
+                    )
+                run_netcdf_parcels4(
+                    u_files_mod_temp, v_files_mod_temp, var_u_mod, var_v_mod,
+                    meshmask, lon0, lat0, ids, DRIFT_TIME, f_traj_parquet,
+                    depth=float(DEPTH),
+                    scheme=config_info["scheme"],
+                    dt_minutes=config_info["parcels_dt_minutes"],
+                    sampling_hours=config_info["parcels_sampling_hours"],
+                    log=log,
+                )
+            else:
+                run_lagrangian(
                 engine,
                 config_info,
                 MODEL,
