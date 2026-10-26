@@ -105,12 +105,14 @@ def run_netcdf_parcels4(u_files, v_files, u_variable, v_variable, meshmask,
             raise ValueError("U/V times must match and contain at least two samples")
         if np.any(np.diff(times) <= np.timedelta64(0, "ns")):
             raise ValueError("Velocity timestamps must be strictly increasing")
-        needed = timedelta(days=float(drift_days)) + timedelta(minutes=float(dt_minutes))
+        # The final RK4 step samples velocities no later than the requested
+        # endpoint. A velocity record at that endpoint is sufficient.
+        needed = timedelta(days=float(drift_days))
         coverage = pd.Timestamp(times[-1]) - pd.Timestamp(times[0])
         if coverage < needed:
             raise ValueError(
-                f"Velocity coverage {coverage} insufficient for drift {drift_days}d "
-                f"plus RK4 guard step {dt_minutes}min. Supply more daily NetCDF files."
+                f"Velocity coverage {coverage} insufficient for drift {drift_days}d. "
+                "Supply NetCDF records through the requested integration endpoint."
             )
         with xr.open_dataset(grid_path) as geometry:
             coords = geometry[["glamf", "gphif"]]
