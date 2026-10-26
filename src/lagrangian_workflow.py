@@ -165,7 +165,7 @@ def process_one_day(day, config_dict):
     )
     existing_traj = (
         f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
-        else f_traj if os.path.exists(f_traj)
+        else f_traj if not is_gloens_parquet and os.path.exists(f_traj)
         else None
     )
     if existing_traj is not None and config_info.get("remove_old_particules", False):
