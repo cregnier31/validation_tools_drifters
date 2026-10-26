@@ -79,6 +79,81 @@ def audit_liu(results, output_dir, log):
     print(f"Liu consistency audit saved: {out}", flush=True)
 
 
+def audit_liu_survivors(results, output_dir, log):
+    """Compare all valid trajectories with the fixed day-28 survivor cohort."""
+    import numpy as np
+    out = Path(output_dir) / "Liu_survivor_cohort_audit.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    days = (1, 3, 5, 9, 12, 15, 20, 28)
+    columns = ("day", "cohort", "valid_pairs", "contributing_cycles",
+               "mean_liu_skill", "mean_endpoint_sep_km",
+               "mean_observed_path_km", "mean_endpoint_error_over_path",
+               "median_endpoint_error_over_path")
+    rows = []
+    for day in days:
+        for cohort in ("all_valid", "day28_survivors"):
+            samples = []
+            cycles = 0
+            for result in results:
+                if not result:
+                    continue
+                try:
+                    skill = np.asarray(result["liu_skill_daily"], dtype=float)
+                    diag = result["liu_diagnostics_daily"]
+                    sep = np.asarray(diag["instantaneous_separation_km"], dtype=float)
+                    path = np.asarray(diag["observed_path_km"], dtype=float)
+                    if skill.ndim == 1:
+                        skill = skill[np.newaxis, :]
+                    if sep.ndim == 1:
+                        sep = sep[np.newaxis, :]
+                    if path.ndim == 1:
+                        path = path[np.newaxis, :]
+                    if (skill.ndim != 2 or skill.shape != sep.shape
+                            or skill.shape != path.shape or skill.shape[1] < day):
+                        continue
+                    valid = (np.isfinite(skill[:, day - 1])
+                             & np.isfinite(sep[:, day - 1])
+                             & np.isfinite(path[:, day - 1])
+                             & (path[:, day - 1] > 0))
+                    if cohort == "day28_survivors":
+                        if skill.shape[1] < 28:
+                            continue
+                        valid &= (np.isfinite(skill[:, 27])
+                                  & np.isfinite(sep[:, 27])
+                                  & np.isfinite(path[:, 27])
+                                  & (path[:, 27] > 0))
+                    if np.any(valid):
+                        cycles += 1
+                        samples.append(np.column_stack((
+                            skill[valid, day - 1],
+                            sep[valid, day - 1],
+                            path[valid, day - 1])))
+                except (KeyError, ValueError, IndexError):
+                    continue
+            row = dict.fromkeys(columns, "")
+            row.update(day=day, cohort=cohort,
+                       valid_pairs=sum(len(a) for a in samples),
+                       contributing_cycles=cycles)
+            if samples:
+                skill, sep, path = np.concatenate(samples).T
+                endpoint_ratio = sep / path
+                row.update(mean_liu_skill=float(np.mean(skill)),
+                           mean_endpoint_sep_km=float(np.mean(sep)),
+                           mean_observed_path_km=float(np.mean(path)),
+                           mean_endpoint_error_over_path=float(np.mean(endpoint_ratio)),
+                           median_endpoint_error_over_path=float(np.median(endpoint_ratio)))
+            rows.append(row)
+            log.info("Liu cohort day %d %s: %d valid pairs",
+                     day, cohort, row["valid_pairs"])
+    with out.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Liu survivor cohort audit saved: {out}", flush=True)
+
+
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--date1", required=True, help="YYYYMMDD")
@@ -123,6 +198,7 @@ def main():
         with pickle_file.open("rb") as stream:
             audit_results = pickle.load(stream)
         audit_liu(audit_results, runtime["dir_out_imgs"], log)
+        audit_liu_survivors(audit_results, runtime["dir_out_imgs"], log)
         return
     if args.plots_only:
         if args.no_plots or args.remove_old_trajectories:
