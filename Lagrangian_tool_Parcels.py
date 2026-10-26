@@ -292,13 +292,15 @@ def main():
                         help="Retire Parcels particles with grid-search errors and continue the cycle")
     parser.add_argument("--no-plots", action="store_true")
     parser.add_argument("--pickle-file", type=Path, default=None,
-                        help="Existing annual pickle path for --audit-liu")
+                        help="Existing annual pickle path for --audit-liu or --plots-only")
     parser.add_argument("--postprocess-only", action="store_true",
                         help="Recompute scores from existing tagged Parquet and observations, without advection")
     parser.add_argument("--trajectory-tag", default="domcfg_v31",
                         help="Existing tagged trajectory suffix for --postprocess-only")
     parser.add_argument("--audit-liu", action="store_true",
                         help="Audit existing annual Liu metrics without running Parcels")
+    parser.add_argument("--stats-file", type=Path, default=None,
+                        help="Existing annual NetCDF path for --plots-only")
     parser.add_argument("--plots-only", action="store_true",
                         help="Regenerate figures from existing annual pickle and NetCDF statistics")
     parser.add_argument("--remove-old-trajectories", action="store_true",
@@ -398,8 +400,8 @@ def main():
     if args.plots_only:
         if args.no_plots or args.remove_old_trajectories:
             parser.error("--plots-only cannot be combined with --no-plots or --remove-old-trajectories")
-        pickle_file = Path(runtime["pickle_file"])
-        stats_file = Path(runtime["stats_out"])
+        pickle_file = args.pickle_file if args.pickle_file is not None else Path(runtime["pickle_file"])
+        stats_file = args.stats_file if args.stats_file is not None else Path(runtime["stats_out"])
         if not pickle_file.is_file() or not stats_file.is_file():
             parser.error(
                 f"--plots-only requires existing annual outputs: "
