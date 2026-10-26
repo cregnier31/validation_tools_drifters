@@ -79,6 +79,87 @@ def audit_liu(results, output_dir, log):
     print(f"Liu consistency audit saved: {out}", flush=True)
 
 
+def audit_persistence(results, output_dir, log):
+    """Compare model and stationary-persistence skill on identical valid pairs."""
+    import numpy as np
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    days = (1, 3, 5, 9, 12, 15, 20, 28)
+    keys = ("liu_skill_daily", "persistence_liu_skill_daily",
+            "liu_diagnostics_daily", "persistence_sep_daily")
+    if not any(result and all(key in result for key in keys)
+               for result in results):
+        log.warning("Persistence diagnostics missing from annual pickle; "
+                    "recompute trajectory scores with the updated postprocessor.")
+        return
+    output = Path(output_dir)
+    output.mkdir(parents=True, exist_ok=True)
+    csv_path = output / "Liu_persistence_comparison.csv"
+    columns = ("day", "paired_count", "model_mean_liu", "persistence_mean_liu",
+               "model_mean_sep_km", "persistence_mean_sep_km",
+               "fraction_model_better_liu", "fraction_model_lower_sep")
+    rows = []
+    for day in days:
+        blocks = []
+        for result in results:
+            if not result or not all(key in result for key in keys):
+                continue
+            try:
+                values = [
+                    np.asarray(result["liu_skill_daily"], dtype=float),
+                    np.asarray(result["persistence_liu_skill_daily"], dtype=float),
+                    np.asarray(result["liu_diagnostics_daily"]["instantaneous_separation_km"], dtype=float),
+                    np.asarray(result["persistence_sep_daily"], dtype=float)]
+                values = [v.reshape(1, -1) if v.ndim == 1 else v for v in values]
+                if (any(v.ndim != 2 or v.shape != values[0].shape
+                        or v.shape[1] < day for v in values)):
+                    continue
+                block = np.column_stack([v[:, day - 1] for v in values])
+                block = block[np.isfinite(block).all(axis=1)]
+                if len(block):
+                    blocks.append(block)
+            except (KeyError, ValueError, IndexError):
+                continue
+        row = dict.fromkeys(columns, "")
+        row["day"] = day
+        row["paired_count"] = sum(len(b) for b in blocks)
+        if blocks:
+            model_skill, persist_skill, model_sep, persist_sep = np.concatenate(blocks).T
+            row.update(model_mean_liu=float(np.mean(model_skill)),
+                       persistence_mean_liu=float(np.mean(persist_skill)),
+                       model_mean_sep_km=float(np.mean(model_sep)),
+                       persistence_mean_sep_km=float(np.mean(persist_sep)),
+                       fraction_model_better_liu=float(np.mean(model_skill > persist_skill)),
+                       fraction_model_lower_sep=float(np.mean(model_sep < persist_sep)))
+        rows.append(row)
+    with csv_path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=columns)
+        writer.writeheader()
+        writer.writerows(rows)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+    for ax, pairs, title, ylabel in (
+        (axes[0], ("model_mean_liu", "persistence_mean_liu"),
+         "Relative trajectory skill", "Liu skill"),
+        (axes[1], ("model_mean_sep_km", "persistence_mean_sep_km"),
+         "Endpoint separation", "Distance (km)")):
+        for key, label in zip(pairs, ("GLOENS", "Stationary persistence")):
+            ax.plot(days, [float(row[key]) if row[key] != "" else np.nan
+                           for row in rows], "-o", label=label)
+        ax.set_title(title)
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("Forecast lead (days)")
+        ax.set_xticks(days)
+        ax.grid(alpha=0.25)
+        ax.legend()
+    axes[0].set_ylim(0, 1)
+    fig.tight_layout()
+    image_path = output / "Liu_persistence_comparison.png"
+    fig.savefig(image_path, dpi=180)
+    plt.close(fig)
+    print(f"Persistence comparison saved: {csv_path} and {image_path}", flush=True)
+
+
 def audit_liu_survivors(results, output_dir, log):
     """Compare all valid trajectories with the fixed day-28 survivor cohort."""
     import numpy as np
@@ -240,6 +321,7 @@ def main():
             audit_results = pickle.load(stream)
         audit_liu(audit_results, runtime["dir_out_imgs"], log)
         audit_liu_survivors(audit_results, runtime["dir_out_imgs"], log)
+        audit_persistence(audit_results, runtime["dir_out_imgs"], log)
         return
     if args.plots_only:
         if args.no_plots or args.remove_old_trajectories:
