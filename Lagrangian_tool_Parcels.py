@@ -150,6 +150,47 @@ def audit_liu_survivors(results, output_dir, log):
         writer.writeheader()
         writer.writerows(rows)
     print(f"Liu survivor cohort audit saved: {out}", flush=True)
+    # The same trajectory population is retained across every plotted lead
+    # for the survivor curve, avoiding lead-dependent sample composition.
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    fig, axes = plt.subplots(2, 2, figsize=(13, 9), sharex=True)
+    panels = (
+        ("mean_liu_skill", "Mean Liu relative trajectory skill", "Liu skill"),
+        ("mean_endpoint_sep_km", "Mean endpoint separation", "Separation (km)"),
+        ("mean_endpoint_error_over_path",
+         "Mean endpoint separation / observed path", "Relative endpoint error"),
+        ("valid_pairs", "Valid trajectory pairs", "Number of pairs"),
+    )
+    for cohort, label, style in (
+        ("all_valid", "All valid at each lead", "-o"),
+        ("day28_survivors", "Fixed day-28 survivor cohort", "--s"),
+    ):
+        cohort_rows = [row for row in rows if row["cohort"] == cohort]
+        x = [row["day"] for row in cohort_rows]
+        for ax, (key, title, ylabel) in zip(axes.flat, panels):
+            y = [float(row[key]) if row[key] != "" else float("nan")
+                 for row in cohort_rows]
+            ax.plot(x, y, style, linewidth=1.8, markersize=4, label=label)
+            ax.set_title(title)
+            ax.set_ylabel(ylabel)
+            ax.grid(alpha=0.25)
+            ax.set_xticks(days)
+    for ax in axes[1]:
+        ax.set_xlabel("Forecast lead (days)")
+    axes[0, 0].set_ylim(0, 1)
+    handles, labels = axes[0, 0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2,
+               bbox_to_anchor=(0.5, 0.945), frameon=False)
+    fig.suptitle("Liu score and endpoint-error diagnostics: all vs fixed cohort",
+                 fontsize=14, y=0.995)
+    fig.subplots_adjust(left=0.09, right=0.97, bottom=0.08,
+                        top=0.85, hspace=0.36, wspace=0.28)
+    figure_path = out.with_name("Liu_survivor_cohort_diagnostics.png")
+    fig.savefig(figure_path, dpi=180)
+    plt.close(fig)
+    print(f"Liu survivor cohort figure saved: {figure_path}", flush=True)
 
 
 
