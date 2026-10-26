@@ -269,7 +269,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                     # tight_layout previously pushed the row titles into the
                     # colorbars and left excessive space above the figure.
                     fig.subplots_adjust(left=0.05, right=0.97, bottom=0.07,
-                                        top=0.90, hspace=0.55, wspace=0.12)
+                                        top=0.90, hspace=0.18, wspace=0.12)
                     fig.savefig(filename_out, dpi=200)
                     plt.close(fig)
                     log.info("Saved score maps: %s", filename_out)
