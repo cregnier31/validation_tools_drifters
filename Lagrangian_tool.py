@@ -45,13 +45,85 @@ filtered = True
 log.info(f"Start Lagrangian_tool {runtime['config_info']['PERIOD']} {runtime['config_info']['SYSTEM']}")
 log.info("Running trajectory computation with n_jobs=%d", njobs)
 t0 = perf_counter()
-if njobs == 1:
-    results = [process_one_day(day, runtime) for day in runtime["start_days"]]
+scores_only = os.environ.get("LAGRANGIAN_SCORES_ONLY") == "1"
+if scores_only:
+    from trajectory_io import retrieve_drifters_for_one_day_traj
+    from pathlib import Path
+    import csv
+    import zarr
+
+    info = runtime["config_info"]
+    model = info["SYSTEM"]
+    report = Path(runtime["pickle_file"]).with_name("zarr_validation_" + model + ".csv")
+    report.parent.mkdir(parents=True, exist_ok=True)
+    results = []
+    eligible = []
+    failures = []
+    for day in runtime["start_days"]:
+        stamp = day.strftime("%Y%m%d")
+        folder = Path(info["DIR_OUT"]) / stamp
+        paths = sorted(folder.glob(f"*Trajectories_{model}_*at_SVPloc*.zarr"))
+        reason = None
+        if len(paths) != 1:
+            reason = f"expected one Zarr store; found {len(paths)}"
+        else:
+            try:
+                root = zarr.open_group(str(paths[0]), mode="r")
+                required = ("lon", "lat", "time", "label")
+                missing = [key for key in required if key not in root]
+                if missing:
+                    reason = "missing variables: " + ", ".join(missing)
+                else:
+                    bad = [key for key in required
+                           if root[key].attrs.get("_ARRAY_DIMENSIONS") is None]
+                    shapes = [root[key].shape for key in ("lon", "lat", "time")]
+                    if bad:
+                        reason = "missing dimension metadata: " + ", ".join(bad)
+                    elif len(set(shapes)) != 1 or len(shapes[0]) != 2:
+                        reason = f"inconsistent trajectory shapes: {shapes}"
+                    elif shapes[0][1] < 2:
+                        reason = f"single-sample trajectory: {shapes[0]}"
+                    elif root["label"].shape != (shapes[0][0],):
+                        reason = "label length differs from trajectory count"
+            except Exception as exc:
+                reason = f"cannot inspect Zarr: {exc}"
+        if reason:
+            log.warning("Skipping %s: %s", stamp, reason)
+            failures.append((stamp, str(paths[0]) if paths else "", reason))
+            continue
+        end = (day + dt.timedelta(days=int(info["drift_time"]))).strftime("%Y%m%d")
+        try:
+            observed = retrieve_drifters_for_one_day_traj(
+                day, info["drift_time"], info["lon_min"], info["lon_max"],
+                info["lat_min"], info["lat_max"], info["STR_REGION"],
+                stamp, end, info["obs_type"], info["path_data"],
+                info["DIR_OUT"], log,
+                start_hour=12 if model.upper() == "GLOENS" and info["leadtime"] == "FCST" else 0)
+            if observed is None:
+                raise ValueError("no drifter observations")
+            results.append(observed[1])
+            eligible.append(day)
+        except Exception as exc:
+            log.warning("Skipping %s: observations unavailable: %s", stamp, exc)
+            failures.append((stamp, str(paths[0]), f"observations: {exc}"))
+    with report.open("w", newline="") as stream:
+        writer = csv.writer(stream)
+        writer.writerow(["date", "zarr_store", "reason"])
+        writer.writerows(failures)
+    log.info("Zarr validation: %d eligible, %d excluded; report: %s",
+             len(eligible), len(failures), report)
+    if not eligible:
+        raise RuntimeError("No usable trajectories; see " + str(report))
+    score_days = eligible
 else:
-    results = Parallel(n_jobs=njobs)(
-        delayed(process_one_day)(day, runtime)
-        for day in runtime["start_days"]
-    )
+    if njobs == 1:
+        results = [process_one_day(day, runtime) for day in runtime["start_days"]]
+    else:
+        results = Parallel(n_jobs=njobs)(
+            delayed(process_one_day)(day, runtime)
+            for day in runtime["start_days"]
+        )
+    score_days = runtime["start_days"]
 
 traj_time = perf_counter() - t0
 log.info(
@@ -65,7 +137,7 @@ log.info(
 log.info("Running lagrangian scores...")
 t0 = perf_counter()
 
-if len(runtime["start_days"]) > njobs:
+if len(score_days) > njobs:
     results_stats = Parallel(n_jobs=njobs)(
         delayed(read_traj_compute_scores)(
                     day,
@@ -73,7 +145,7 @@ if len(runtime["start_days"]) > njobs:
                     results[ind_day],
                     filtered=filtered,
         )
-        for ind_day, day in enumerate(runtime["start_days"])
+        for ind_day, day in enumerate(score_days)
     )
 else:
     results_stats = []
