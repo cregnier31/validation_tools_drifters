@@ -640,8 +640,6 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
             ax.boxplot([v if v.size else [np.nan] for v in values],
                        tick_labels=[str(d) for d in days], showfliers=False)
             ax.set(title=title, xlabel="Forecast lead (days)", ylabel=unit)
-            if key == "instantaneous_separation_km":
-                ax.set_ylim(bottom=0)
             ax.grid(axis="y", alpha=.25)
         fig.suptitle(f"Trajectory performance: {system} (days {tag})")
         fig.tight_layout()
