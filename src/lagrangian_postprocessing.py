@@ -399,6 +399,31 @@ def read_traj_compute_scores(day,
         log.debug("Compute Liu score")
         liu_score = np.array([[LiuScore2(drifter_lon[i,j],drifter_lat[i,j],traj_lon[i,j],traj_lat[i,j]).T \
                     for j in range(traj_lon.shape[1])] for i in range (traj_lon.shape[0])])
+        # Stationary-persistence reference: the forecast remains at the
+        # observed release position for every subsequent sample.
+        persistence_lon = np.broadcast_to(
+            drifter_lon[..., :1], drifter_lon.shape).copy()
+        persistence_lat = np.broadcast_to(
+            drifter_lat[..., :1], drifter_lat.shape).copy()
+        persistence_blocks = [
+            [liu_score_diagnostics(drifter_lon[i, j], drifter_lat[i, j],
+                                   persistence_lon[i, j], persistence_lat[i, j])
+             for j in range(drifter_lon.shape[1])]
+            for i in range(drifter_lon.shape[0])
+        ]
+        persistence_skill = np.array([
+            [block["skill"].T for block in row]
+            for row in persistence_blocks
+        ])
+        persistence_separation = np.array([
+            [block["instantaneous_separation_km"].T for block in row]
+            for row in persistence_blocks
+        ])
+        persistence_skill = np.insert(persistence_skill, 0, np.nan, axis=-1)
+        persistence_separation = np.insert(
+            persistence_separation, 0, np.nan, axis=-1)
+        persistence_skill_daily = persistence_skill[..., endpoint_indices]
+        persistence_separation_daily = persistence_separation[..., endpoint_indices]
         # Preserve raw Liu components at the same lead-day endpoints as skill.
         diagnostic_blocks = [
             [liu_score_diagnostics(drifter_lon[i, j], drifter_lat[i, j],
@@ -608,6 +633,8 @@ def read_traj_compute_scores(day,
     #"count_corr_lat": count_corr_lat,
     "sep_dist_daily": sep_dist_daily,
     "liu_skill_daily": skill_score.squeeze(),
+    "persistence_liu_skill_daily": persistence_skill_daily.squeeze(),
+    "persistence_sep_daily": persistence_separation_daily.squeeze(),
     "liu_diagnostics_daily": {key: values.squeeze() for key, values in diagnostic_daily.items()}
     }
 
