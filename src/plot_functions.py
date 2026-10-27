@@ -398,7 +398,8 @@ def compute_and_plot_histograms(results,
 
     fig.suptitle(f"{MODEL}, {DATE_START}-{DATE_END}", fontsize=14)
 
-    colors = plt.cm.tab10(np.linspace(0, 1, max(len(days), 1)))
+    lead_colors = {1: "red", 3: "blue", 5: "green", 7: "black", 9: "yellow"}
+    fallback_colors = plt.cm.tab10(np.linspace(0, 1, max(len(days), 1)))
 
     # ==========================================================
     # Separation distance histogram
@@ -436,7 +437,7 @@ def compute_and_plot_histograms(results,
         freq = counts / len(dist)
 
         bin_centres = bins[:-1] + (bins[1] - bins[0]) / 2
-        ax.plot(bin_centres, freq, lw=2, color=colors[i], label=f"{day} day")
+        ax.plot(bin_centres, freq, lw=2, color=lead_colors.get(day, fallback_colors[i]), label=f"{day} day")
 
     ax.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax.set_ylabel("Frequency")
@@ -482,7 +483,7 @@ def compute_and_plot_histograms(results,
         counts, _ = np.histogram(liu, bins=bins2)
         freq = counts / len(liu)
 
-        ax.plot(bin_centres2, freq, lw=2, color=colors[i], label=f"{day} day")
+        ax.plot(bin_centres2, freq, lw=2, color=lead_colors.get(day, fallback_colors[i]), label=f"{day} day")
 
     ax.set_xlabel("Liu index")
     ax.set_ylabel("Frequency")
