@@ -49,7 +49,14 @@ def open_velocity_dataset(source, *, storage_options=None, chunks=None):
             import fsspec
             if source.startswith("s3://"):
                 import s3fs
-                source = s3fs.S3Map(root=source.rstrip("/"), s3=s3fs.S3FileSystem(**(storage_options or {})), check=False)
+                # Match the proven CloudFerro access pattern: use a bucket/key
+                # root rather than an s3:// URL when constructing S3Map.
+                root = source.removeprefix("s3://").rstrip("/")
+                source = s3fs.S3Map(
+                    root=root,
+                    s3=s3fs.S3FileSystem(**(storage_options or {})),
+                    check=False,
+                )
             else:
                 source = fsspec.get_mapper(source, **(storage_options or {}))
         return xr.open_zarr(source, consolidated=False, chunks=chunks or {})
