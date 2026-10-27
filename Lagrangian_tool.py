@@ -214,7 +214,9 @@ compute_and_plot_histograms(results_stats,
 # Plot final scores
 #------------------------------------------
 log.info("Plot final scores")
-list_days = [1, 3, 5, 7, 9]
+list_days = ([1, 3, 5, 9, 12, 15, 20, 28]
+             if runtime["config_info"]["SYSTEM"].upper() == "GLOENS"
+             else [1, 3, 5, 9])
 #list_days = [1, 3, 5]
 log.info(f"plot_scores Stats {runtime['stats_out']}")
 plot_scores(runtime['dir_out_imgs'],
