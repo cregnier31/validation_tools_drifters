@@ -745,13 +745,13 @@ def run_parcels_Drift(config_prod,
                         runtime=timedelta(days=T_DRIFT),
                         dt=timedelta(minutes=T_delta)*k_forback,
                         #recovery=recovery,
-                        verbose_progress=False,
+                        verbose_progress=True,
                         output_file=output_file1)
     else:
         pset1.execute(sum_kernels,
                         runtime=timedelta(days=T_DRIFT),
                         dt=timedelta(minutes=T_delta)*k_forback,
-                        verbose_progress=False,
+                        verbose_progress=True,
                         output_file=output_file1)
 
     #output_file1.export()
