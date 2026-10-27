@@ -47,7 +47,7 @@ model_params:
     input_format: "zarr"
     velocity_mode: "deterministic"
     bucket_name: "oceanbench-bucket"
-    endpoint_url: "https://minio.dive.edito.eu"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
     path: "s3://oceanbench-bucket/public/ml-forecast-outputs/glonet/"
     fname_prefix: "public/ml-forecast-outputs/glonet/"
     lon: "longitude"
