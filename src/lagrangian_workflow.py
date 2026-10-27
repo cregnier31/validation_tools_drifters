@@ -222,7 +222,7 @@ def process_one_day(day, config_dict):
                 raise NotImplementedError("Zarr velocity inputs currently require Parcels")
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
-                if MODEL.upper() == "GLOW":
+                if MODEL.upper() in ("GLOW", "GLONET", "GLONET2"):
                     import s3fs
                     date = day.strftime("%Y%m%d")
                     prefix = config_info["zarr_prefix"].strip("/")
@@ -234,7 +234,7 @@ def process_one_day(day, config_dict):
                     store_path = f"{bucket}/{prefix}/{date}.zarr"
                     fs = s3fs.S3FileSystem(**storage_options)
                     if not fs.exists(store_path):
-                        raise FileNotFoundError(f"Missing GLOW forecast store: s3://{store_path}")
+                        raise FileNotFoundError(f"Missing regular-grid forecast store: s3://{store_path}")
                     u_store = v_store = f"s3://{store_path}"
                 else:
                     u_store, v_store, storage_options = discover_gloens_stores(
@@ -253,7 +253,7 @@ def process_one_day(day, config_dict):
                 # GLOW provides N daily fields for an N-day forecast; its runner
                 # explicitly extends the final velocity field for RK4.
                 # Other systems retain their existing interpolation guard.
-                u_store, v_store, day, days=(int(DRIFT_TIME) if MODEL.upper() == "GLOW" else min(int(DRIFT_TIME), 28) if MODEL.upper() == "GLOENS" and os.environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1" else int(DRIFT_TIME) + 2),
+                u_store, v_store, day, days=(int(DRIFT_TIME) if MODEL.upper() in ("GLOW", "GLONET", "GLONET2") else min(int(DRIFT_TIME), 28) if MODEL.upper() == "GLOENS" and os.environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1" else int(DRIFT_TIME) + 2),
                 storage_options=storage_options,
                 mode=config_info["zarr_velocity_mode"],
                 member=config_info["zarr_ensemble_member"],
