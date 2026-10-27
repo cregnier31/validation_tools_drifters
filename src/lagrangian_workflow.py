@@ -223,7 +223,6 @@ def process_one_day(day, config_dict):
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
                 if MODEL.upper() in ("GLOW", "GLONET", "GLONET2"):
-                    import s3fs
                     date = day.strftime("%Y%m%d")
                     prefix = config_info["zarr_prefix"].strip("/")
                     bucket = config_info["zarr_bucket"]
@@ -232,9 +231,9 @@ def process_one_day(day, config_dict):
                         "client_kwargs": {"endpoint_url": config_info["zarr_endpoint_url"]},
                     }
                     store_path = f"{bucket}/{prefix}/{date}.zarr"
-                    fs = s3fs.S3FileSystem(**storage_options)
-                    if not fs.exists(store_path):
-                        raise FileNotFoundError(f"Missing regular-grid forecast store: s3://{store_path}")
+                    # Do not HEAD/LIST the Zarr prefix: some S3 endpoints deny
+                    # directory probes while allowing reads of known object keys.
+                    # open_zarr will validate access to the actual metadata.
                     u_store = v_store = f"s3://{store_path}"
                 else:
                     u_store, v_store, storage_options = discover_gloens_stores(
