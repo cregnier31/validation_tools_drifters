@@ -27,7 +27,8 @@ from utils import build_runtime_config
 from cli import parse_args
 from lagrangian_workflow import process_one_day
 from lagrangian_postprocessing import aggregate_and_save_results, read_traj_compute_scores
-from plot_functions import plot_scores, compute_and_plot_histograms
+from plot_functions import (plot_scores, compute_and_plot_histograms,
+                            plot_extended_trajectory_diagnostics)
 #------------------------------------------
 # parse arguments and define outputs
 #------------------------------------------
@@ -221,3 +222,12 @@ plot_scores(runtime['dir_out_imgs'],
             runtime['config_info'],
             log,
             list_days=list_days)
+
+# Geographic maps and extended trajectory diagnostics for available lead days.
+log.info("Plot extended trajectory diagnostics and geographic maps")
+plot_extended_trajectory_diagnostics(
+    results_stats,
+    runtime['dir_out_imgs'],
+    runtime['config_info'],
+    log,
+)
