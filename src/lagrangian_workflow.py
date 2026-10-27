@@ -186,8 +186,7 @@ def process_one_day(day, config_dict):
         existing_traj = None
     if existing_traj is None:
         #return 'skipped'
-        log.debug(f"
-Processing drift with parcel for {day}")
+        log.debug(f"\nProcessing drift with parcel for {day}")
         # ======================================================
         # Initial conditions
         # ======================================================
@@ -196,8 +195,7 @@ Processing drift with parcel for {day}")
         ids = [traj['id'] for traj in trajs_obs]
         #with open("/home/smer/regnierc/code/validation_tools_drifters/drifter_ids_model.txt", "w") as f:
         #    for did in ids:
-        #        f.write(f"{did}
-")
+        #        f.write(f"{did}\n")
         log.debug(f'Min {min(lon0)}')
         log.debug(f'Max {max(lon0)}')
         id_char = convert_id_to_char_array(ids, string_length=8)
