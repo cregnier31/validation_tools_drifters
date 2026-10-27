@@ -398,7 +398,10 @@ def compute_and_plot_histograms(results,
 
     fig.suptitle(f"{MODEL}, {DATE_START}-{DATE_END}", fontsize=14)
 
-    lead_colors = {1: "red", 3: "blue", 5: "green", 7: "black", 9: "yellow"}
+    lead_colors = {
+        1: "red", 3: "blue", 5: "green", 7: "black", 9: "yellow",
+        12: "purple", 15: "cyan", 20: "magenta", 28: "orange",
+    }
     fallback_colors = plt.cm.tab10(np.linspace(0, 1, max(len(days), 1)))
 
     # ==========================================================
