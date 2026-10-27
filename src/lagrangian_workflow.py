@@ -158,7 +158,7 @@ def process_one_day(day, config_dict):
         and config_info.get("input_format", "netcdf").lower() == "netcdf"
         and engine.lower() == "parcels"
     )
-    is_gloens_parquet = (
+    use_parcels3_parquet = (\n        os.environ.get("LAGRANGIAN_PARCELS3_PARQUET", "0") == "1"\n        and not use_netcdf_parcels4\n        and config_info.get("input_format", "netcdf").lower() == "netcdf"\n        and engine.lower() == "parcels"\n    )\n    is_gloens_parquet = (
         (config_info.get("input_format", "netcdf").lower() == "zarr"
          and MODEL.upper() in ("GLOENS", "GLOW"))
         or use_netcdf_parcels4
