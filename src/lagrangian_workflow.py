@@ -168,22 +168,31 @@ def process_one_day(day, config_dict):
         (config_info.get("input_format", "netcdf").lower() == "zarr"
          and MODEL.upper() in ("GLOENS", "GLOW"))
         or use_netcdf_parcels4
+        or use_parcels3_parquet
     )
+    # Explicit opt-in: discard both trajectory formats for this date so that
+    # a stale Parquet cannot mask a new Parcels 3 simulation.
+    remove_trajectories = os.environ.get("LAGRANGIAN_REMOVE_TRAJECTORIES", "0") == "1"
+    if remove_trajectories or config_info.get("remove_old_particules", False):
+        import shutil
+        for artifact in (f_traj, f_traj_parquet):
+            if os.path.isdir(artifact):
+                shutil.rmtree(artifact)
+                log.warning("Removed old trajectory output: %s", artifact)
+            elif os.path.isfile(artifact):
+                os.remove(artifact)
+                log.warning("Removed old trajectory output: %s", artifact)
     existing_traj = (
         f_traj_parquet if is_gloens_parquet and os.path.exists(f_traj_parquet)
         else f_traj if not is_gloens_parquet and os.path.exists(f_traj)
         else None
     )
-    if existing_traj is not None and config_info.get("remove_old_particules", False):
-        # Remove only the exact trajectory artifact for this experiment/cycle.
-        # Never touch cached velocities, observation inputs, or other cycles.
-        import shutil
-        if os.path.isdir(existing_traj):
-            shutil.rmtree(existing_traj)
-        else:
-            os.remove(existing_traj)
-        log.warning("Removed old trajectory output: %s", existing_traj)
-        existing_traj = None
+    if use_parcels3_parquet and existing_traj is None and os.path.isdir(f_traj):
+        from parcels3_parquet import convert_parcels3_zarr
+        convert_parcels3_zarr(
+            f_traj, f_traj_parquet, [traj["id"] for traj in trajs_obs], log=log
+        )
+        existing_traj = f_traj_parquet
     if existing_traj is None:
         #return 'skipped'
         log.debug(f"\nProcessing drift with parcel for {day}")
@@ -343,6 +352,9 @@ def process_one_day(day, config_dict):
                 time_period=False,
                 nb_repeats=NB_REPEATS
             )
+            if use_parcels3_parquet:
+                from parcels3_parquet import convert_parcels3_zarr
+                convert_parcels3_zarr(f_traj, f_traj_parquet, ids, log=log)
             del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
     else:
