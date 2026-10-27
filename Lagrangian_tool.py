@@ -208,13 +208,13 @@ compute_and_plot_histograms(results_stats,
                             runtime['config_info'],
                             log,
                             #days=[1, 3, 5])
-                            days=[1, 3, 5, 7, 10])
+                            days=[1, 3, 5, 7, 9])
 
 #------------------------------------------
 # Plot final scores
 #------------------------------------------
 log.info("Plot final scores")
-list_days = [1, 3, 5, 10]
+list_days = [1, 3, 5, 7, 9]
 #list_days = [1, 3, 5]
 log.info(f"plot_scores Stats {runtime['stats_out']}")
 plot_scores(runtime['dir_out_imgs'],
