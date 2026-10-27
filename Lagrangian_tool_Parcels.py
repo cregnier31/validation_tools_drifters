@@ -418,7 +418,9 @@ def main():
                     runtime["config_info"], log)
         compute_and_plot_histograms(
             results_stats, runtime["dir_out_imgs"], runtime["config_info"], log,
-            days=[1, 3, 5, 7, 9])
+            days=([1, 3, 5, 7, 9, 12, 15, 20, 28]
+                  if args.system.upper() == "GLOENS"
+                  else [1, 3, 5, 7, 9]))
         if args.system.upper() in ("GLOENS", "GLOW"):
             from plot_functions import plot_extended_trajectory_diagnostics
             lead_groups = (((1, 3, 5, 7, 9),)
@@ -496,7 +498,7 @@ def main():
                     runtime["config_info"], log)
         compute_and_plot_histograms(results_stats, runtime["dir_out_imgs"],
                                     runtime["config_info"], log,
-                                    days=([1, 3, 5, 7, 9]
+                                    days=([1, 3, 5, 7, 9, 12, 15, 20, 28]
                                           if runtime["config_info"]["SYSTEM"].upper() == "GLOENS"
                                           else [1, 3, 5, 7, 9]
                                           if runtime["config_info"]["SYSTEM"].upper() == "GLOW"
