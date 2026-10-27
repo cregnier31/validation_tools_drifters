@@ -358,7 +358,6 @@ def process_one_day(day, config_dict):
             del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
     else:
-        log.info(f"
-Existing parcels trajectory {existing_traj}; skipping advection")
+        log.info("Existing Parcels trajectory %s; skipping advection", existing_traj)
     gc.collect()
     return outfile2
