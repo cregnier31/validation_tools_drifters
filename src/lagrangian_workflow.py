@@ -158,7 +158,13 @@ def process_one_day(day, config_dict):
         and config_info.get("input_format", "netcdf").lower() == "netcdf"
         and engine.lower() == "parcels"
     )
-    use_parcels3_parquet = (\n        os.environ.get("LAGRANGIAN_PARCELS3_PARQUET", "0") == "1"\n        and not use_netcdf_parcels4\n        and config_info.get("input_format", "netcdf").lower() == "netcdf"\n        and engine.lower() == "parcels"\n    )\n    is_gloens_parquet = (
+    use_parcels3_parquet = (
+        os.environ.get("LAGRANGIAN_PARCELS3_PARQUET", "0") == "1"
+        and not use_netcdf_parcels4
+        and config_info.get("input_format", "netcdf").lower() == "netcdf"
+        and engine.lower() == "parcels"
+    )
+    is_gloens_parquet = (
         (config_info.get("input_format", "netcdf").lower() == "zarr"
          and MODEL.upper() in ("GLOENS", "GLOW"))
         or use_netcdf_parcels4
@@ -180,7 +186,8 @@ def process_one_day(day, config_dict):
         existing_traj = None
     if existing_traj is None:
         #return 'skipped'
-        log.debug(f"\nProcessing drift with parcel for {day}")
+        log.debug(f"
+Processing drift with parcel for {day}")
         # ======================================================
         # Initial conditions
         # ======================================================
@@ -189,7 +196,8 @@ def process_one_day(day, config_dict):
         ids = [traj['id'] for traj in trajs_obs]
         #with open("/home/smer/regnierc/code/validation_tools_drifters/drifter_ids_model.txt", "w") as f:
         #    for did in ids:
-        #        f.write(f"{did}\n")
+        #        f.write(f"{did}
+")
         log.debug(f'Min {min(lon0)}')
         log.debug(f'Max {max(lon0)}')
         id_char = convert_id_to_char_array(ids, string_length=8)
@@ -340,6 +348,7 @@ def process_one_day(day, config_dict):
             del u_files_mod_temp, v_files_mod_temp, meshmask
         del lon0, lat0, ids, id_char
     else:
-        log.info(f"\nExisting parcels trajectory {existing_traj}; skipping advection")
+        log.info(f"
+Existing parcels trajectory {existing_traj}; skipping advection")
     gc.collect()
     return outfile2
