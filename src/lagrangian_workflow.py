@@ -166,7 +166,7 @@ def process_one_day(day, config_dict):
     )
     is_gloens_parquet = (
         (config_info.get("input_format", "netcdf").lower() == "zarr"
-         and MODEL.upper() in ("GLOENS", "GLOW"))
+         and engine.lower() == "parcels")
         or use_netcdf_parcels4
         or use_parcels3_parquet
     )
@@ -281,7 +281,7 @@ def process_one_day(day, config_dict):
                         log=log,
                         cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
                     )
-                elif MODEL.upper() == "GLOW":
+                elif config_info["gridtype"] == "regular":
                     from glow_parcels import run_glow_parcels
                     run_glow_parcels(
                         velocities, day, lon0, lat0, f_traj,
