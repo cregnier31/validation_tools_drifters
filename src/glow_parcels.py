@@ -36,8 +36,14 @@ def run_glow_parcels(velocities, day, lon0, lat0, output_path, *,
     log.info("GLOW requested depth %.2f m, selected U %.3f m and V %.3f m",
              depth, float(u.depth), float(v.depth))
     # Drop scalar depth coordinates so xarray does not attempt depth alignment.
-    u = u.reset_coords(drop=True).transpose("time", "lat", "lon")
-    v = v.reset_coords(drop=True).transpose("time", "lat", "lon")
+    # Normalize either GLOW (lat/lon) or GLONET (latitude/longitude).
+    for coord, canonical in (("lat", "latitude"), ("lon", "longitude")):
+        if coord in u.dims:
+            u = u.rename({coord: canonical})
+        if coord in v.dims:
+            v = v.rename({coord: canonical})
+    u = u.reset_coords(drop=True).transpose("time", "latitude", "longitude")
+    v = v.reset_coords(drop=True).transpose("time", "latitude", "longitude")
     if u.shape != v.shape:
         raise ValueError(f"GLOW U/V shape mismatch: {u.shape}, {v.shape}")
     times = pd.to_datetime(u.time.values)
@@ -85,8 +91,6 @@ def run_glow_parcels(velocities, day, lon0, lat0, output_path, *,
     # Parcels 4 requires SGRID metadata; legacy from_data/from_xarray_dataset
     # constructors do not exist. GLOW velocities are collocated A-grid fields.
     # The Copernicus Marine converter supports this regular-grid layout.
-    u = u.rename({"lat": "latitude", "lon": "longitude"})
-    v = v.rename({"lat": "latitude", "lon": "longitude"})
     for arr in (u, v):
         arr.latitude.attrs.update({"axis": "Y", "units": "degrees_north"})
         arr.longitude.attrs.update({"axis": "X", "units": "degrees_east"})
