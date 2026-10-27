@@ -41,6 +41,24 @@ path_data:
 
 model_params:
 
+  # GLONET deterministic daily forecast on EDITO S3.
+  # Store name: YYYYMMDD.zarr (e.g. 20240103.zarr).
+  GLONET_FCST:
+    input_format: "zarr"
+    velocity_mode: "deterministic"
+    bucket_name: "oceanbench-bucket"
+    endpoint_url: "https://minio.dive.edito.eu"
+    path: "s3://oceanbench-bucket/public/ml-forecast-outputs/glonet/"
+    fname_prefix: "public/ml-forecast-outputs/glonet/"
+    lon: "longitude"
+    lat: "latitude"
+    time: "time"
+    var_u: "uo"
+    var_v: "vo"
+    grid_type: "regular"
+    u_depth: "depth"
+    v_depth: "depth"
+
   GLOW_FCST:
     input_format: "zarr"
     velocity_mode: "deterministic"
