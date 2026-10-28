@@ -288,8 +288,8 @@ def process_one_day(day, config_dict):
                         cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
                     )
                 elif config_info["gridtype"] == "regular":
-                    from glow_parcels import run_glow_parcels
-                    run_glow_parcels(
+                    from regular_parcels import run_regular_parcels
+                    run_regular_parcels(
                         velocities, day, lon0, lat0, f_traj,
                         drift_days=DRIFT_TIME,
                         u_name=config_info["zarr_u_var"],
