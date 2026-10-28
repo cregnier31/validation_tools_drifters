@@ -36,7 +36,7 @@ import yaml
 import datetime as dt
 from Logger import Logger
 
-def build_runtime_config(args, config_path):
+def build_runtime_config(args, config_path, drift_days=None):
     """
     Build full runtime configuration for Lagrangian workflow.
     """
@@ -44,7 +44,7 @@ def build_runtime_config(args, config_path):
     # ------------------------------------------
     # 1. Parse CLI args
     # ------------------------------------------
-    DATE_START, DATE_END, leadtime, SYSTEM, scheme, obs_type, engine = args
+    DATE_START, DATE_END, leadtime, SYSTEM, scheme, obs_type, engine, remove_old_particules = args
     # ------------------------------------------
     # 2. Load YAML
     with open(config_path, "r") as f:
@@ -78,7 +78,12 @@ def build_runtime_config(args, config_path):
     config_info["scheme"] = scheme
     config_info["obs_type"] = obs_type
     config_info["engine"] = engine
-    length_time =int(config_info["drift_time"])
+    config_info["remove_old_particules"] = remove_old_particules
+    if drift_days is not None:
+        if isinstance(drift_days, bool) or not isinstance(drift_days, int) or drift_days < 1:
+            raise ValueError("drift_days must be a positive integer")
+        config_info["drift_time"] = drift_days
+    length_time = int(config_info["drift_time"])
     # ------------------------------------------
     # 3. Inject runtime args
     # ------------------------------------------
@@ -89,6 +94,27 @@ def build_runtime_config(args, config_path):
     config_info["lat"] = config_model_params[f'{SYSTEM}_{leadtime}']['lat']
     config_info["time"] = config_model_params[f'{SYSTEM}_{leadtime}']['time']
     config_info["path_data"] = config_path_data[obs_type]
+    # Input format and forecast selection are model settings, not model-name rules.
+    model_settings = config_model_params[f"{SYSTEM}_{leadtime}"]
+    config_info["input_format"] = model_settings.get("input_format", "netcdf").lower()
+    if config_info["input_format"] == "zarr":
+        config_info["zarr_bucket"] = model_settings.get("bucket_name")
+        config_info["zarr_endpoint_url"] = model_settings.get("endpoint_url")
+        config_info["zarr_prefix"] = model_settings.get("fname_prefix")
+        config_info["zarr_u_store"] = model_settings.get("u_store")
+        config_info["zarr_v_store"] = model_settings.get("v_store")
+        config_info["zarr_u_var"] = model_settings["var_u"]
+        config_info["zarr_v_var"] = model_settings["var_v"]
+        config_info["zarr_meshmask"] = model_settings.get("meshmask")
+        config_info["zarr_velocity_mode"] = model_settings.get("velocity_mode", "deterministic")
+        config_info["zarr_ensemble_dim"] = model_settings.get("ensemble_dim", "ens")
+        config_info["zarr_ensemble_member"] = model_settings.get("ensemble_member")
+        config_info["zarr_u_depth"] = model_settings.get("u_depth", "depthu")
+        config_info["zarr_v_depth"] = model_settings.get("v_depth", "depthv")
+        if not ((config_info["zarr_bucket"] and config_info["zarr_endpoint_url"] and config_info["zarr_prefix"]) or config_info["zarr_u_store"]):
+            raise ValueError(f"Configure either S3 discovery or u_store in model_params.{SYSTEM}_{leadtime}")
+        if config_info["zarr_velocity_mode"] not in ("mean", "member", "deterministic"):
+            raise ValueError("velocity_mode must be mean, member or deterministic")
     # ------------------------------------------
     # 4. Dates
     # ------------------------------------------
@@ -124,13 +150,21 @@ def build_runtime_config(args, config_path):
         f"{DATE_END.strftime('%Y%m%d')}"
     )
 
+    # Keep opt-in geometry validation products separate from baseline products.
+    output_tag = os.environ.get("GLOENS_OUTPUT_TAG", "").strip() if SYSTEM.upper() == "GLOENS" else ""
+    if output_tag:
+        import re
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", output_tag):
+            raise ValueError("GLOENS_OUTPUT_TAG must contain only letters, digits, _ or -")
+        EXP_NAME += f"_{output_tag}"
     config_info["EXP_NAME"] = EXP_NAME
 
     # ------------------------------------------
     # 7. Output directory
     # ------------------------------------------
-    dir_out_data = config_info['dir_data'] + scheme + "/"
-    dir_out_imgs = config_info['dir_imgs'] + scheme + "/"
+    output_subdir = f"{output_tag}/" if output_tag else ""
+    dir_out_data = config_info['dir_data'] + scheme + f"/drift{length_time}/" + output_subdir
+    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/{SYSTEM}/" + output_subdir
     if not os.path.exists(dir_out_imgs):
         print(f'\ncreate folder : {dir_out_imgs}')
         # Create directory where to store images:
