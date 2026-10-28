@@ -259,10 +259,7 @@ def process_one_day(day, config_dict):
                 v_store = config_info.get("zarr_v_store") or u_store
                 storage_options = None
             with prepare_velocity_forecast(
-                # Regular-grid direct-date Zarr models provide N daily fields for an N-day forecast; their runner
-                # explicitly extends the final velocity field for RK4.
-                # Other systems retain their existing interpolation guard.
-                u_store, v_store, day, days=(int(DRIFT_TIME) if MODEL.upper() in DIRECT_DATE_ZARR_MODELS else min(int(DRIFT_TIME), 28) if MODEL.upper() == "GLOENS" and os.environ.get("GLOENS_ALLOW_LAST_DAY_EXTRAPOLATION", "0") == "1" else int(DRIFT_TIME) + 2),
+                u_store, v_store, day, days=int(DRIFT_TIME),
                 storage_options=storage_options,
                 mode=config_info["zarr_velocity_mode"],
                 member=config_info["zarr_ensemble_member"],
