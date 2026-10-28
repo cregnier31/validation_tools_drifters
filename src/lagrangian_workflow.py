@@ -222,7 +222,7 @@ def process_one_day(day, config_dict):
                 raise NotImplementedError("Zarr velocity inputs currently require Parcels")
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
-                if MODEL.upper() in ("GLOW", "GLONET", "GLONET2"):
+                if MODEL.upper() in ("GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8"):
                     date = day.strftime("%Y%m%d")
                     prefix = config_info["zarr_prefix"].strip("/")
                     bucket = config_info["zarr_bucket"]
