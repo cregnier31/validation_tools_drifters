@@ -235,7 +235,12 @@ def process_one_day(day, config_dict):
                         "anon": True,
                         "client_kwargs": {"endpoint_url": config_info["zarr_endpoint_url"]},
                     }
-                    store_path = f"{bucket}/{prefix}/{date}.zarr"
+                    # Accept a legacy bucket_name containing the prefix without duplicating it.
+                    bucket = bucket.removeprefix("s3://").strip("/")
+                    if prefix and (bucket == prefix or bucket.endswith(f"/{prefix}")):
+                        store_path = f"{bucket}/{date}.zarr"
+                    else:
+                        store_path = f"{bucket}/{prefix}/{date}.zarr" if prefix else f"{bucket}/{date}.zarr"
                     # Do not HEAD/LIST the Zarr prefix: some S3 endpoints deny
                     # directory probes while allowing reads of known object keys.
                     # open_zarr will validate access to the actual metadata.
