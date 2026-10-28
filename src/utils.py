@@ -164,7 +164,7 @@ def build_runtime_config(args, config_path, drift_days=None):
     # ------------------------------------------
     output_subdir = f"{output_tag}/" if output_tag else ""
     dir_out_data = config_info['dir_data'] + scheme + f"/drift{length_time}/" + output_subdir
-    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/" + output_subdir
+    dir_out_imgs = config_info['dir_imgs'] + scheme + f"/drift{length_time}/{SYSTEM}/" + output_subdir
     if not os.path.exists(dir_out_imgs):
         print(f'\ncreate folder : {dir_out_imgs}')
         # Create directory where to store images:
