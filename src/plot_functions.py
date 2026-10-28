@@ -615,7 +615,9 @@ def plot_extended_trajectory_diagnostics(results, dir_plot, config, log,
                   if key in r and matrix(r, key).shape[1] >= day]
         return np.concatenate(arrays) if arrays else np.array([])
 
-    available = min(matrix(r, "normalized_error").shape[1] for r in records)
+    # Do not let a short cycle suppress later leads from longer cycles.
+    available = max(matrix(r, "normalized_error").shape[1] for r in records)
+    log.info("Extended diagnostics: maximum available lead day %d", available)
     out = Path(dir_plot)
     out.mkdir(parents=True, exist_ok=True)
     system = str(config.get("SYSTEM", "model"))
