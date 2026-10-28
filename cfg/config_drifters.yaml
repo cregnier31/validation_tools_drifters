@@ -25,7 +25,7 @@ config_base:
 
   dir_imgs:  './imgs/'
   dir_data:  './data/'
-  loglevel: 1
+  loglevel: 2
   nb_repeats: 0
 
   forecast: true
@@ -58,6 +58,7 @@ model_params:
     grid_type: "regular"
     u_depth: "depth"
     v_depth: "depth"
+    meshmask: "/scratch/cregnier/static/mask_GLONET.nc"
 
   GLOW_FCST:
     input_format: "zarr"
@@ -99,22 +100,36 @@ model_params:
 
   GLO12_FCST:
 
-    path: "/utmp/smer/regnierc/SORT-2/DAILY/GLO12Q/glo12qv4/"
-    fname_prefix: "GLO12_ng_1d-m_"
-    lon: "nav_lon"
-    lat: "nav_lat"
-    time: "time_counter"
+    #path: "/utmp/smer/regnierc/SORT-2/DAILY/GLO12Q/glo12qv4/"
+    #fname_prefix: "GLO12_ng_1d-m_"
+    #lon: "nav_lon"
+    #lat: "nav_lat"
+    #time: "time_counter"
+    #var_u: "uo"
+    #var_v: "vo"
+    #grid_type: "irregular"
+    #path_ssh: ""
+    #var_ssh: ""
+    #fname_prefix_ssh: ""
+
+    #meshmask: "/utmp/smer/regnierc/staticinput/allmeshes.nc"
+
+    #indice_date: 68
+    #color: "blue"
+    input_format: "zarr"
+    velocity_mode: "deterministic"
+    bucket_name: "oceanbench-bucket/public/GLO12"
+    endpoint_url: "https://s3.waw3-1.cloudferro.com"
+    path: "s3://oceanbench-bucket/public/GLO12"
+    lon: "longitude"
+    lat: "latitude"
+    time: "time"
     var_u: "uo"
     var_v: "vo"
-    grid_type: "irregular"
-    path_ssh: ""
-    var_ssh: ""
-    fname_prefix_ssh: ""
-
-    meshmask: "/utmp/smer/regnierc/staticinput/allmeshes.nc"
-
-    indice_date: 68
-    color: "blue"
+    grid_type: "regular"
+    u_depth: "depth"
+    v_depth: "depth"
+    meshmask: "/scratch/cregnier/static/mask_GLO12.nc"
 
   GLO12_NWCT:
 
@@ -275,7 +290,7 @@ parcels:
   defaults:
 
     AdvectionRK4:
-      dt_minutes: 5
+      dt_minutes: 15
       sampling_hours: 1
 
     AdvectionEE:
@@ -295,7 +310,7 @@ parcels:
         sampling_hours: 6
 
       AdvectionRK4:
-        dt_minutes: 60
+        dt_minutes: 15
         sampling_hours: 6
 
       AdvectionEE:
