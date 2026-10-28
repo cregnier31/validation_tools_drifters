@@ -5,6 +5,11 @@ import numpy as np
 from scipy.stats import pearsonr
 import pandas as pd
 from configparser import ConfigParser
+
+# Models whose S3 forecast stores are named YYYYMMDD.zarr.
+DIRECT_DATE_ZARR_MODELS = frozenset({
+    "GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8",
+})
 from data_io import Retrieve_data_local
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels, retrieve_drifters_for_one_day_traj
@@ -222,7 +227,7 @@ def process_one_day(day, config_dict):
                 raise NotImplementedError("Zarr velocity inputs currently require Parcels")
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
-                if MODEL.upper() in ("GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8"):
+                if MODEL.upper() in DIRECT_DATE_ZARR_MODELS:
                     date = day.strftime("%Y%m%d")
                     prefix = config_info["zarr_prefix"].strip("/")
                     bucket = config_info["zarr_bucket"]
