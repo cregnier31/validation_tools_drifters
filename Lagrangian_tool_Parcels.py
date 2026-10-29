@@ -449,6 +449,13 @@ def main():
             days = discover_glow_cycles(cfg, first, last)
     else:
         days = runtime["start_days"]
+    # Weekly Wednesday forecast systems: only launch available initialization cycles.
+    # Do not start a new 10-day trajectory on intervening calendar dates.
+    if args.lead.upper() == "FCST" and args.system.upper() in {"GLO12", "GLO12_TEST8", "GLONET", "GLONET2"}:
+        original_count = len(days)
+        days = [day for day in days if day.weekday() == 2]
+        log.info("%s weekly Wednesday forecast launches: %d of %d dates selected",
+                 args.system, len(days), original_count)
     if len(days) == 0:
         raise RuntimeError("No initialization dates found in selected period")
     duration = runtime["config_info"]["drift_time"]
