@@ -10,7 +10,7 @@ from configparser import ConfigParser
 DIRECT_DATE_ZARR_MODELS = frozenset({
     "GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8",
 })
-WEEKLY_WEDNESDAY_ZARR_MODELS = frozenset({"GLO12", "GLO12_TEST8"})
+WEEKLY_WEDNESDAY_ZARR_MODELS = frozenset({"GLO12", "GLO12_TEST8", "GLONET", "GLONET2"})
 from data_io import Retrieve_data_local
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels, retrieve_drifters_for_one_day_traj
@@ -229,7 +229,7 @@ def process_one_day(day, config_dict):
             from forecast_inputs import prepare_velocity_forecast, discover_gloens_stores
             if config_info.get("zarr_bucket"):
                 if MODEL.upper() in DIRECT_DATE_ZARR_MODELS:
-                    # GLO12 stores are initialized weekly on Wednesdays, not daily.
+                    # These forecast stores are initialized weekly on Wednesdays, not daily.
                     # Keep the simulation date unchanged for the forecast-window selection.
                     store_day = day
                     if MODEL.upper() in WEEKLY_WEDNESDAY_ZARR_MODELS:
