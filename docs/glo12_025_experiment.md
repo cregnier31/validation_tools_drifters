@@ -1,18 +1,47 @@
-# GLO12_025 Lagrangian resolution-sensitivity experiment
+# GLO12_025: two-environment conservative remapping
 
-Run the original GLO12 forecast and the conservative 1/4-degree variant independently:
+**Do not install xESMF or ESMF in the working Parcels environment.**
+
+## 1. Create a dedicated preprocessing environment (once)
 
 ```bash
-bash Launch_Parcels.sh 20240103 20240131 GLO12 --console yes --lead FCST --scheme AdvectionRK4 --drift-days 10 --delete-failed-particles
-bash Launch_Parcels.sh 20240103 20240131 GLO12_025 --console yes --lead FCST --scheme AdvectionRK4 --drift-days 10 --delete-failed-particles
+conda create -n glo12_regrid --override-channels -c conda-forge \
+  python=3.11 xesmf esmpy xarray scipy netcdf4 zarr s3fs -y
 ```
 
-The second command reads the **same weekly GLO12 Zarr stores** and retains exactly ten daily input fields per initialization. Before Parcels integration, it uses xESMF/ESMF `conservative_normed` area-overlap remapping on each eastward and northward velocity component. Missing source values are ignored with a 50% valid-area threshold (`na_thres=0.5`). The target is a regular 0.25-degree grid with cells wholly within the source's latitude/longitude coverage. Source and target coordinate arrays determine the sparse remapping weights, which are cached under `DIR_WORK/glo12_025_weights/`.
+## 2. Pull the implementation
 
-**Dependency:** install `xesmf` and an ESMF backend (`esmpy`) in the **Parcels Python environment**, preferably from conda-forge. This is an opt-in dependency: baseline GLO12, GLONET and GLOENS runs do not import it.
+```bash
+git pull --ff-only origin feature/gloens-s3-zarr-discovery
+```
 
-Outputs for `GLO12_025` have their own system name in the trajectory directory, filenames, statistics and plots. Do not reuse native GLO12 trajectories for this experiment.
+## 3. Generate the weights (once per unchanged source grid)
 
-**Interpretation:** the experiment spatially filters GLO12 velocities; it does not turn GLO12 into a dynamically native quarter-degree ocean model. To compare GLO12, GLO12_025 and GLOENS fairly, pair the same initialization dates, observed drifters, valid-particle cohort, integration parameters and score definitions. The original runner's end-of-window persistence extension is unchanged.
+Use the same cache directory as the Parcels runner. The runtime's `DIR_WORK` is the configured `dir_work` plus the advection scheme (`AdvectionRK4/` by default).
 
-**Validation before production:** check ESMF installation, first-run memory and weight generation, coastal masks, and Parcels behavior on a short weekly cycle. This implementation has not been executed on the HPC cluster.
+```bash
+conda run -n glo12_regrid python scripts/generate_glo12_025_weights.py \
+  --store s3://oceanbench-bucket/public/GLO12/20240103.zarr \
+  --endpoint-url https://s3.waw3-1.cloudferro.com \
+  --cache-dir /scratch/cregnier/WORK_lagrangian/AdvectionRK4/glo12_025_weights
+```
+
+This step alone imports xESMF/ESMF. The generated NetCDF sparse weight file is keyed by the exact source and target coordinate arrays. Generation may be memory-intensive for a global grid.
+
+## 4. Run GLO12_025 with the existing Parcels environment
+
+```bash
+bash Launch_Parcels.sh 20240103 20240103 GLO12_025 \
+  --console yes --lead FCST --scheme AdvectionRK4 \
+  --drift-days 10 --delete-failed-particles
+```
+
+After a successful single-cycle test, extend the dates. The Parcels environment needs SciPy, xarray and a NetCDF reader, but **not** xESMF/ESMF. A missing weight file raises an explicit error with its expected path.
+
+The runtime loads ESMF's sparse row/column/weight arrays, excludes missing source values, and masks target cells with less than 50% valid contributing area. The method uses **first-order conservative** weights, not bilinear sampling. The 1/4-degree target is a regular geographic grid, not the native curvilinear GLOENS grid.
+
+## 5. Validate scientifically
+
+Check the target grid and land/coastal masking; compare particle survival and the paired drifter cohort. The coarsened GLO12 field is a spatially filtered high-resolution forecast, not a model dynamically rerun at 1/4 degree. Keep launch dates, observations, time steps and verification definitions identical when comparing GLO12, GLO12_025 and GLOENS.
+
+**Status:** committed, not yet executed or validated on the HPC cluster.
