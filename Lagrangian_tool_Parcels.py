@@ -451,7 +451,7 @@ def main():
         days = runtime["start_days"]
     # Weekly Wednesday forecast systems: only launch available initialization cycles.
     # Do not start a new 10-day trajectory on intervening calendar dates.
-    if args.lead.upper() == "FCST" and args.system.upper() in {"GLO12", "GLO12_TEST8", "GLONET", "GLONET2"}:
+    if args.lead.upper() == "FCST" and args.system.upper() in {"GLO12", "GLO12_TEST8", "GLO12_025", "GLONET", "GLONET2"}:
         original_count = len(days)
         days = [day for day in days if day.weekday() == 2]
         log.info("%s weekly Wednesday forecast launches: %d of %d dates selected",
