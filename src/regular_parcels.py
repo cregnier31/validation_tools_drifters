@@ -12,7 +12,7 @@ import xarray as xr
 def run_regular_parcels(velocities, day, lon0, lat0, output_path, *,
                      drift_days=7, u_name="uo", v_name="vo", depth=15.0,
                      scheme="AdvectionRK4", dt_minutes=30, sampling_hours=1,
-                     meshmask=None, log=None):
+                     meshmask=None, coarsen_025=False, weight_cache_dir=None, log=None):
     import parcels
 
     log = log or logging.getLogger(__name__)
@@ -32,6 +32,12 @@ def run_regular_parcels(velocities, day, lon0, lat0, output_path, *,
     v = v.sel(depth=float(depth), method="nearest")
     log.info("Regular-grid requested depth %.2f m, selected U %.3f m and V %.3f m",
              depth, float(u.depth), float(v.depth))
+    if coarsen_025:
+        from glo12_coarsening import conservative_glo12_to_025
+        filtered = conservative_glo12_to_025(
+            xr.Dataset({u_name: u, v_name: v}), u_name=u_name, v_name=v_name,
+            cache_dir=weight_cache_dir, log=log)
+        u, v = filtered[u_name], filtered[v_name]
     # Drop scalar depth coordinates so xarray does not attempt depth alignment.
     # Normalize either lat/lon or latitude/longitude coordinates.
     for coord, canonical in (("lat", "latitude"), ("lon", "longitude")):
