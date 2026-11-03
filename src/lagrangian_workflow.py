@@ -8,9 +8,9 @@ from configparser import ConfigParser
 
 # Models whose S3 forecast stores are named YYYYMMDD.zarr.
 DIRECT_DATE_ZARR_MODELS = frozenset({
-    "GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8",
+    "GLOW", "GLONET", "GLONET2", "GLO12", "GLO12_TEST8", "GLO12_025",
 })
-WEEKLY_WEDNESDAY_ZARR_MODELS = frozenset({"GLO12", "GLO12_TEST8", "GLONET", "GLONET2"})
+WEEKLY_WEDNESDAY_ZARR_MODELS = frozenset({"GLO12", "GLO12_TEST8", "GLO12_025", "GLONET", "GLONET2"})
 from data_io import Retrieve_data_local
 from trajectory_io import Retrieve_traj_files, Retrieve_drifters_traj,\
                      Traj_filter_parcels, retrieve_drifters_for_one_day_traj
