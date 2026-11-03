@@ -279,15 +279,6 @@ def process_one_day(day, config_dict):
                 log=log,
                 cache_dir=os.path.join(DIR_WORK, "zarr_ensemble_mean_cache"),
             ) as velocities:
-                if config_info.get("velocity_coarsening") == "conservative_025":
-                    from glo12_coarsening import conservative_glo12_to_025
-                    velocities = conservative_glo12_to_025(
-                        velocities,
-                        u_name=config_info["zarr_u_var"],
-                        v_name=config_info["zarr_v_var"],
-                        cache_dir=os.path.join(DIR_WORK, "glo12_025_weights"),
-                        log=log,
-                    )
                 if config_info["gridtype"] == "irregular":
                     from gloens_parcels import run_gloens_parcels
                     log.debug(f'Run gloens_parcels')
@@ -315,6 +306,8 @@ def process_one_day(day, config_dict):
                         dt_minutes=config_info["parcels_dt_minutes"],
                         sampling_hours=config_info["parcels_sampling_hours"],
                         meshmask=config_info.get("zarr_meshmask"),
+                        coarsen_025=config_info.get("velocity_coarsening") == "conservative_025",
+                        weight_cache_dir=os.path.join(DIR_WORK, "glo12_025_weights"),
                         log=log,
                     )
                 else:
