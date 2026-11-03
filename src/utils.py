@@ -88,6 +88,7 @@ def build_runtime_config(args, config_path, drift_days=None):
     # 3. Inject runtime args
     # ------------------------------------------
     config_info["SYSTEM"] = SYSTEM
+    config_info["velocity_coarsening"] = "conservative_025" if SYSTEM.upper() == "GLO12_025" and leadtime.upper() == "FCST" else None
     config_info["leadtime"] = leadtime
     config_info["gridtype"] = config_model_params[f'{SYSTEM}_{leadtime}']['grid_type']
     config_info["lon"] = config_model_params[f'{SYSTEM}_{leadtime}']['lon']
