@@ -44,6 +44,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--year", type=int, required=True)
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--plots-only", action="store_true",
+                        help="Regenerate figures from existing annual pickle and NetCDF")
     parser.add_argument("--status-fd", type=int, default=None)
     args = parser.parse_args()
 
@@ -56,14 +58,29 @@ def main():
     with (ROOT / "cfg/config_drifters.yaml").open(encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    cycles = discover_cycles(config, first, last)
-    if not cycles:
-        raise RuntimeError(f"No GLOENS Zarr forecast cycles discovered for {args.year}")
-
     base_args = ("FCST", "GLOENS", "AdvectionRK4", "COPERNICUS_DAILY", "parcels")
     # Annual runtime provides the final output filename and plot configuration.
     annual = build_runtime_config((first, last, *base_args), str(ROOT / "cfg/config_drifters.yaml"))
     log = annual["log"]
+    if args.plots_only:
+        with open(annual["pickle_file"], "rb") as stream:
+            saved_stats = pickle.load(stream)
+        if not saved_stats:
+            raise RuntimeError(f"No saved statistics in {annual['pickle_file']}")
+        if not Path(annual["stats_out"]).is_file():
+            raise FileNotFoundError(
+                f"Missing annual score NetCDF: {annual['stats_out']}")
+        plot_scores(annual["dir_out_imgs"], annual["stats_out"],
+                    annual["config_info"], log, list_days=[1, 3, 5, 10])
+        compute_and_plot_histograms(
+            saved_stats, annual["dir_out_imgs"], annual["config_info"],
+            log, days=[1, 3, 5, 7, 9, 12, 15, 20, 28])
+        report(f"[GLOENS] Figures regenerated in {annual['dir_out_imgs']}")
+        return
+
+    cycles = discover_cycles(config, first, last)
+    if not cycles:
+        raise RuntimeError(f"No GLOENS Zarr forecast cycles discovered for {args.year}")
     log.info("Found %d GLOENS forecast initialization dates", len(cycles))
     output = ROOT / "outputs" / f"gloens_{args.year}0101_{args.year}1231"
     output.mkdir(parents=True, exist_ok=True)
