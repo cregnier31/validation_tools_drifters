@@ -116,7 +116,7 @@ def main():
                 annual["config_info"], log, list_days=[1, 3, 5, 10])
     compute_and_plot_histograms(
         results_stats, annual["dir_out_imgs"], annual["config_info"],
-        log, days=[1, 3, 5, 7, 10]
+        log, days=[1, 3, 5, 7, 9, 12, 15, 20, 28]
     )
     report(f"[GLOENS] Annual summary: {len(succeeded)} OK, {len(failed)} FAIL")
     log.info("Completed %d cycles; failed %d; annual NetCDF: %s",
