@@ -440,6 +440,12 @@ def compute_and_plot_histograms(results,
         counts, _ = np.histogram(dist, bins=bins)
         freq = counts / len(dist)
 
+        # Light Gaussian smoothing (sigma = 1.5 bins = 1.5 km) reduces
+        # sampling spikes while retaining the original 1-km bin grid.
+        # The kernel is normalized, so total histogram frequency is preserved.
+        from scipy.ndimage import gaussian_filter1d
+        freq = gaussian_filter1d(freq, sigma=1.5, mode="reflect")
+
         bin_centres = bins[:-1] + (bins[1] - bins[0]) / 2
         peak_km = bin_centres[int(np.argmax(freq))]
         ax.plot(bin_centres, freq, lw=2, color=lead_colors.get(day, fallback_colors[i]),
