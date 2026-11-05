@@ -219,8 +219,9 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
         for variable in list_diags:
             for ech in list_lead:
                 for group in day_groups:
-                    # A shorter canvas avoids excessive whitespace between map rows.
-                    fig = plt.figure(figsize=(11, 7.6))
+                    # Compact two-row map layout: reduce vertical whitespace
+                    # between days 1/3 and 5/9 without changing map coverage.
+                    fig = plt.figure(figsize=(11, 6.0))
                     title_position = (0.5, 0.975)
                     fig.suptitle(
                         f"{variable} {system} {date1} - {date2} ({scheme}, {sampling} min)",
@@ -269,7 +270,7 @@ def plot_scores(dir_out, file_in, config, log, list_days=None):
                     # tight_layout previously pushed the row titles into the
                     # colorbars and left excessive space above the figure.
                     fig.subplots_adjust(left=0.05, right=0.97, bottom=0.07,
-                                        top=0.90, hspace=0.30, wspace=0.12)
+                                        top=0.89, hspace=0.12, wspace=0.12)
                     fig.savefig(filename_out, dpi=200)
                     plt.close(fig)
                     log.info("Saved score maps: %s", filename_out)
