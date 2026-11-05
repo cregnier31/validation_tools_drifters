@@ -448,6 +448,7 @@ def compute_and_plot_histograms(results,
     ax.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax.set_ylabel("Frequency")
     ax.set_xlim(0, 150)
+    ax.set_yscale("function", functions=(np.sqrt, np.square))
     # Keep the full day-1 peak visible instead of clipping frequencies at 0.15.
     ax.set_ylim(bottom=0)
     ax.relim()
@@ -530,6 +531,7 @@ def compute_and_plot_histograms(results,
     ax_sep.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax_sep.set_ylabel("Frequency")
     ax_sep.set_xlim(0, 150)
+    ax_sep.set_yscale("function", functions=(np.sqrt, np.square))
     ax_sep.set_ylim(bottom=0)
     ax_sep.relim()
     ax_sep.autoscale_view(scalex=False, scaley=True)
