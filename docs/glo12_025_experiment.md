@@ -17,13 +17,13 @@ git pull --ff-only origin feature/gloens-s3-zarr-discovery
 
 ## 3. Generate the weights (once per unchanged source grid)
 
-Use the same cache directory as the Parcels runner. The runtime's `DIR_WORK` is the configured `dir_work` plus the advection scheme (`AdvectionRK4/` by default).
+Use the same cache directory as the Parcels runner. The runtime uses the configured work directory directly, without an `AdvectionRK4/` subdirectory.
 
 ```bash
 conda run -n glo12_regrid python scripts/generate_glo12_025_weights.py \
   --store s3://oceanbench-bucket/public/GLO12/20240103.zarr \
   --endpoint-url https://s3.waw3-1.cloudferro.com \
-  --cache-dir /scratch/cregnier/WORK_lagrangian/AdvectionRK4/glo12_025_weights
+  --cache-dir /scratch/cregnier/WORK_lagrangian/glo12_025_weights
 ```
 
 This step alone imports xESMF/ESMF. The generated NetCDF sparse weight file is keyed by the exact source and target coordinate arrays. Generation may be memory-intensive for a global grid.
