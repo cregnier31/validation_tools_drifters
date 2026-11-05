@@ -423,7 +423,9 @@ def compute_and_plot_histograms(results,
 
 
     for i, day in enumerate(days):
-        bins = np.arange(0, 201, 5)
+        # Resolve the near-zero peak with 1-km bins up to 25 km,
+        # then use 5-km bins for the longer separation-distance tail.
+        bins = np.concatenate((np.arange(0, 26, 1), np.arange(30, 201, 5)))
 
         idx = day - 1
         if idx >= all_sep_daily.shape[1]:
