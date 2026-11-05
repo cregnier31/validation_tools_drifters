@@ -60,7 +60,7 @@ def main():
 
     base_args = ("FCST", "GLOENS", "AdvectionRK4", "COPERNICUS_DAILY", "parcels")
     # Annual runtime provides the final output filename and plot configuration.
-    annual = build_runtime_config((first, last, *base_args), str(ROOT / "cfg/config_drifters.yaml"))
+    annual = build_runtime_config((first, last, *base_args, False), str(ROOT / "cfg/config_drifters.yaml"))
     log = annual["log"]
     if args.plots_only:
         with open(annual["pickle_file"], "rb") as stream:
@@ -96,7 +96,7 @@ def main():
             try:
                 # Per-cycle runtime preserves the original trajectory/observation paths.
                 runtime = build_runtime_config(
-                    (day, day, *base_args), str(ROOT / "cfg/config_drifters.yaml")
+                    (day, day, *base_args, False), str(ROOT / "cfg/config_drifters.yaml")
                 )
                 result = process_one_day(day, runtime)
                 stats = read_traj_compute_scores(
