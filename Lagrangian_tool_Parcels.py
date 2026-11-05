@@ -402,23 +402,23 @@ def main():
             parser.error("--plots-only cannot be combined with --no-plots or --remove-old-trajectories")
         pickle_file = args.pickle_file if args.pickle_file is not None else Path(runtime["pickle_file"])
         stats_file = args.stats_file if args.stats_file is not None else Path(runtime["stats_out"])
-        if not pickle_file.is_file() or not stats_file.is_file():
-            parser.error(
-                f"--plots-only requires existing annual outputs: "
-                f"pickle={pickle_file} (exists={pickle_file.is_file()}), "
-                f"NetCDF={stats_file} (exists={stats_file.is_file()})"
-            )
+        if not pickle_file.is_file():
+            parser.error(f"--plots-only requires existing annual pickle: {pickle_file}")
+        if not stats_file.is_file():
+            log.warning("Annual NetCDF not found: %s; skipping score maps, "
+                        "but generating pickle-based diagnostic plots", stats_file)
         with pickle_file.open("rb") as stream:
             results_stats = pickle.load(stream)
         if not results_stats:
             parser.error(f"Annual results pickle contains no successful cycles: {pickle_file}")
         log.info("Plots only: %d cycles from %s; NetCDF %s",
                  len(results_stats), pickle_file, stats_file)
-        plot_scores(runtime["dir_out_imgs"], str(stats_file),
-                    runtime["config_info"], log,
-                    list_days=([1, 3, 5, 9, 12, 15, 20, 28]
-                               if args.system.upper() == "GLOENS"
-                               else [1, 3, 5, 9]))
+        if stats_file.is_file():
+            plot_scores(runtime["dir_out_imgs"], str(stats_file),
+                        runtime["config_info"], log,
+                        list_days=([1, 3, 5, 9, 12, 15, 20, 28]
+                                   if args.system.upper() == "GLOENS"
+                                   else [1, 3, 5, 9]))
         compute_and_plot_histograms(
             results_stats, runtime["dir_out_imgs"], runtime["config_info"], log,
             days=([1, 3, 5, 7, 9, 12, 15, 20, 28]
