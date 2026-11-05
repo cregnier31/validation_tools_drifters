@@ -404,6 +404,28 @@ def compute_and_plot_histograms(results,
     }
     fallback_colors = plt.cm.tab10(np.linspace(0, 1, max(len(days), 1)))
 
+    def label_curve_peaks(ax, units, precision):
+        """Mark each curve's maximum and label its x-position in curve color."""
+        for i, line in enumerate(ax.get_lines()):
+            x = np.asarray(line.get_xdata())
+            y = np.asarray(line.get_ydata())
+            valid = np.isfinite(x) & np.isfinite(y)
+            if not np.any(valid):
+                continue
+            x, y = x[valid], y[valid]
+            peak_idx = int(np.argmax(y))
+            peak_x, peak_y = float(x[peak_idx]), float(y[peak_idx])
+            color = line.get_color()
+            ax.plot(peak_x, peak_y, marker="o", ms=4, color=color,
+                    linestyle="None", zorder=5)
+            ax.annotate(
+                f"{line.get_label()}: {peak_x:.{precision}f}{units}",
+                xy=(peak_x, 0), xycoords=ax.get_xaxis_transform(),
+                xytext=(0, -17 - 16 * i), textcoords="offset points",
+                ha="left", va="top", fontsize=7, color=color,
+                annotation_clip=False,
+            )
+
     # ==========================================================
     # Separation distance histogram
     # ==========================================================
@@ -453,6 +475,7 @@ def compute_and_plot_histograms(results,
     ax.set_ylim(0, max(ax.get_ylim()[1], 0.01) * 1.05)
     ax.grid(True, which="major", axis="both", alpha=0.3,linestyle="--")
     ax.legend()
+    label_curve_peaks(ax, " km", 1)
 
     # ==========================================================
     # Liu score histogram
@@ -503,13 +526,15 @@ def compute_and_plot_histograms(results,
     ax.set_ylim(0, max(ax.get_ylim()[1], 0.01) * 1.05)
     ax.grid(True, which="major", axis="both", alpha=0.3,linestyle="--")
     ax.legend()
+    label_curve_peaks(ax, "", 2)
 
     # ==========================================================
     # Save
     # ==========================================================
 
-    plt.tight_layout()
-    plt.savefig(fig_out, dpi=300)
+    fig.set_size_inches(12, 7)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.92, bottom=0.38, wspace=0.25)
+    fig.savefig(fig_out, dpi=300, bbox_inches="tight")
     # Preserve axes for the separate separation-distance plot below.
 
     log.info(f"Saved: {fig_out}")
@@ -531,9 +556,10 @@ def compute_and_plot_histograms(results,
     ax_sep.set_ylim(0, max(ax_sep.get_ylim()[1], 0.01) * 1.05)
     ax_sep.grid(True, which="major", axis="both", alpha=0.3, linestyle="--")
     ax_sep.legend()
-    fig_sep.tight_layout()
+    label_curve_peaks(ax_sep, " km", 1)
+    fig_sep.subplots_adjust(left=0.10, right=0.97, top=0.92, bottom=0.35)
     sep_out = fig_out.replace("Hist_stats_", "Hist_sep_")
-    fig_sep.savefig(sep_out, dpi=300)
+    fig_sep.savefig(sep_out, dpi=300, bbox_inches="tight")
     plt.close(fig_sep)
     log.info("Saved: %s", sep_out)
     plt.close(fig)
