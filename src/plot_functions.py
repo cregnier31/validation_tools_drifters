@@ -423,8 +423,8 @@ def compute_and_plot_histograms(results,
 
 
     for i, day in enumerate(days):
-        # Uniform 1-km separation-distance bins across the full 0–200 km range.
-        bins = np.arange(0, 201, 1)
+        # Uniform 1-km separation-distance bins across the full 0–150 km range.
+        bins = np.arange(0, 151, 1)
 
         idx = day - 1
         if idx >= all_sep_daily.shape[1]:
@@ -447,7 +447,7 @@ def compute_and_plot_histograms(results,
 
     ax.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax.set_ylabel("Frequency")
-    ax.set_xlim(0, 200)
+    ax.set_xlim(0, 150)
     # Keep the full day-1 peak visible instead of clipping frequencies at 0.15.
     ax.set_ylim(bottom=0)
     ax.relim()
@@ -529,7 +529,7 @@ def compute_and_plot_histograms(results,
     ax_sep.set_title(f"{MODEL}, {DATE_START}-{DATE_END}")
     ax_sep.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax_sep.set_ylabel("Frequency")
-    ax_sep.set_xlim(0, 200)
+    ax_sep.set_xlim(0, 150)
     ax_sep.set_ylim(bottom=0)
     ax_sep.relim()
     ax_sep.autoscale_view(scalex=False, scaley=True)
