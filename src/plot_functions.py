@@ -445,7 +445,11 @@ def compute_and_plot_histograms(results,
     ax.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
     ax.set_ylabel("Frequency")
     ax.set_xlim(0, 200)
-    ax.set_ylim(0, 0.15)
+    # Keep the full day-1 peak visible instead of clipping frequencies at 0.15.
+    ax.set_ylim(bottom=0)
+    ax.relim()
+    ax.autoscale_view(scalex=False, scaley=True)
+    ax.set_ylim(0, max(ax.get_ylim()[1], 0.01) * 1.05)
     ax.grid(True, which="major", axis="both", alpha=0.3,linestyle="--")
     ax.legend()
 
@@ -491,7 +495,11 @@ def compute_and_plot_histograms(results,
     ax.set_xlabel("Liu index")
     ax.set_ylabel("Frequency")
     ax.set_xlim(0, 3)
-    ax.set_ylim(0, 0.20)
+    # Scale to the actual plotted peak, including day 1.
+    ax.set_ylim(bottom=0)
+    ax.relim()
+    ax.autoscale_view(scalex=False, scaley=True)
+    ax.set_ylim(0, max(ax.get_ylim()[1], 0.01) * 1.05)
     ax.grid(True, which="major", axis="both", alpha=0.3,linestyle="--")
     ax.legend()
 
@@ -501,9 +509,33 @@ def compute_and_plot_histograms(results,
 
     plt.tight_layout()
     plt.savefig(fig_out, dpi=300)
-    plt.close()
+    # Preserve axes for the separate separation-distance plot below.
 
     log.info(f"Saved: {fig_out}")
+
+    # Separate, larger separation-distance figure using the same plotted
+    # lead-time distributions and automatic y limits as the combined figure.
+    fig_sep, ax_sep = plt.subplots(figsize=(9, 5))
+    for line in axs[0].get_lines():
+        ax_sep.plot(line.get_xdata(), line.get_ydata(),
+                    color=line.get_color(), lw=line.get_linewidth(),
+                    label=line.get_label())
+    ax_sep.set_title(f"{MODEL}, {DATE_START}-{DATE_END}")
+    ax_sep.set_xlabel(f"Separation distance [km] {scheme} dt:{sampling}")
+    ax_sep.set_ylabel("Frequency")
+    ax_sep.set_xlim(0, 200)
+    ax_sep.set_ylim(bottom=0)
+    ax_sep.relim()
+    ax_sep.autoscale_view(scalex=False, scaley=True)
+    ax_sep.set_ylim(0, max(ax_sep.get_ylim()[1], 0.01) * 1.05)
+    ax_sep.grid(True, which="major", axis="both", alpha=0.3, linestyle="--")
+    ax_sep.legend()
+    fig_sep.tight_layout()
+    sep_out = fig_out.replace("Hist_stats_", "Hist_sep_")
+    fig_sep.savefig(sep_out, dpi=300)
+    plt.close(fig_sep)
+    log.info("Saved: %s", sep_out)
+    plt.close(fig)
     if config.get("SYSTEM", "").upper() != "GLOENS":
         plot_liu_diagnostics(results, dir_plot, config, log, list_days=days)
 
