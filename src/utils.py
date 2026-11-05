@@ -101,7 +101,7 @@ def build_runtime_config(args, config_path, drift_days=None):
     if config_info["input_format"] == "zarr":
         config_info["zarr_bucket"] = model_settings.get("bucket_name")
         config_info["zarr_endpoint_url"] = model_settings.get("endpoint_url")
-        config_info["zarr_prefix"] = model_settings.get("fname_prefix")
+        config_info["zarr_prefix"] = model_settings.get("fname_prefix") or ""
         config_info["zarr_u_store"] = model_settings.get("u_store")
         config_info["zarr_v_store"] = model_settings.get("v_store")
         config_info["zarr_u_var"] = model_settings["var_u"]
@@ -112,7 +112,7 @@ def build_runtime_config(args, config_path, drift_days=None):
         config_info["zarr_ensemble_member"] = model_settings.get("ensemble_member")
         config_info["zarr_u_depth"] = model_settings.get("u_depth", "depthu")
         config_info["zarr_v_depth"] = model_settings.get("v_depth", "depthv")
-        if not ((config_info["zarr_bucket"] and config_info["zarr_endpoint_url"] and config_info["zarr_prefix"]) or config_info["zarr_u_store"]):
+        if not ((config_info["zarr_bucket"] and config_info["zarr_endpoint_url"]) or config_info["zarr_u_store"]):
             raise ValueError(f"Configure either S3 discovery or u_store in model_params.{SYSTEM}_{leadtime}")
         if config_info["zarr_velocity_mode"] not in ("mean", "member", "deterministic"):
             raise ValueError("velocity_mode must be mean, member or deterministic")
