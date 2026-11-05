@@ -423,10 +423,8 @@ def compute_and_plot_histograms(results,
 
 
     for i, day in enumerate(days):
-        # Use 1-km bins through 100 km to avoid a visual bin-width
-        # transition near the main separation-distance distribution.
-        # Beyond 100 km, use 5-km bins for the tail.
-        bins = np.concatenate((np.arange(0, 101, 1), np.arange(105, 201, 5)))
+        # Uniform 1-km separation-distance bins across the full 0–200 km range.
+        bins = np.arange(0, 201, 1)
 
         idx = day - 1
         if idx >= all_sep_daily.shape[1]:
