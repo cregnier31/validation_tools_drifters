@@ -32,7 +32,11 @@ def main():
     ap.add_argument("--max-tracks", type=int, default=12)
     ap.add_argument("--gulf-stream-animation", action="store_true", help="Create Gulf Stream zoom GIF from existing model/observations")
     ap.add_argument("--frame-hours", type=int, default=6, help="Hours between animation frames")
+    ap.add_argument("--animation-scale", type=float, default=1.0,
+                    help="Scale animation lines, marker diameters, and map text")
     args = ap.parse_args()
+    if args.animation_scale <= 0:
+        ap.error("--animation-scale must be positive")
     if args.drift_days < 1:
         raise SystemExit("--drift-days must be positive")
     drift_hours = args.drift_days * 24
@@ -237,11 +241,14 @@ def main():
         ax.set_facecolor("#dbeef7")
         ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor="#dedbd1",
                        edgecolor="none", zorder=1)
-        ax.coastlines(resolution="50m", linewidth=.65, zorder=4)
-        gridlines = ax.gridlines(draw_labels=True, linewidth=.4, alpha=.4)
+        scale = args.animation_scale
+        ax.coastlines(resolution="50m", linewidth=.65 * scale, zorder=4)
+        gridlines = ax.gridlines(draw_labels=True, linewidth=.4 * scale, alpha=.4)
+        gridlines.xlabel_style = {"size": 10 * scale}
+        gridlines.ylabel_style = {"size": 10 * scale}
         gridlines.top_labels = False
         gridlines.right_labels = False
-        ax.set_title(f"GLOENS {args.cycle}: Gulf Stream trajectories")
+        ax.set_title(f"GLOENS {args.cycle}: Gulf Stream trajectories", fontsize=12 * scale)
         # Each line is a complete track history up to the current frame.
         # Do not bridge missing observations, time gaps, or dateline jumps.
         grouped = {}
@@ -265,17 +272,17 @@ def main():
                 for j in np.flatnonzero(adjacent):
                     segments.append(xy[j:j + 2])
             return segments
-        model_lines = LineCollection([], colors="tab:blue", linewidths=.8,
+        model_lines = LineCollection([], colors="tab:blue", linewidths=.8 * scale,
                                      alpha=.55, transform=ccrs.PlateCarree(), zorder=2)
-        obs_lines = LineCollection([], colors="tab:orange", linewidths=.8,
+        obs_lines = LineCollection([], colors="tab:orange", linewidths=.8 * scale,
                                    alpha=.65, transform=ccrs.PlateCarree(), zorder=3)
         ax.add_collection(model_lines)
         ax.add_collection(obs_lines)
-        model_points = ax.scatter([], [], s=9, color="tab:blue", label="GLOENS model",
+        model_points = ax.scatter([], [], s=9 * scale ** 2, color="tab:blue", label="GLOENS model",
                                   transform=ccrs.PlateCarree(), zorder=5)
-        obs_points = ax.scatter([], [], s=9, color="tab:orange", label="Observed drifters",
+        obs_points = ax.scatter([], [], s=9 * scale ** 2, color="tab:orange", label="Observed drifters",
                                 transform=ccrs.PlateCarree(), zorder=6)
-        ax.legend(loc="lower right")
+        ax.legend(loc="lower right", fontsize=10 * scale)
         stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top",
                              bbox=dict(facecolor="white", alpha=.8, edgecolor="none"),
                              zorder=7)
