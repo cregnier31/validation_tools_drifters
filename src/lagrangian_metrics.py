@@ -736,22 +736,91 @@ def LiuScore(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod, log)
     return S1, S3, S5, S7
     #sys.exit(1)
     
-def LiuScore2(traj_drifter_lon, traj_drifter_lat,traj_lon_mod, traj_lat_mod):
+def liu_score_diagnostics(traj_drifter_lon, traj_drifter_lat,
+                          traj_lon_mod, traj_lat_mod, n=1.0):
+    """Return lead-by-lead Liu skill components (time, drifter).
 
-    dli_drifters = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+    Inputs have shape (drifter, time). Each metric is NaN after the first
+    invalid step, and for zero cumulative observed displacement. The raw
+    normalized error is retained before clipping the skill at zero.
+    """
+    if not np.isfinite(n) or n <= 0:
+        raise ValueError("Liu tolerance n must be finite and positive")
+    arrays = [np.asarray(a) for a in (
+        traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod
+    )]
+    if any(a.ndim != 2 or a.shape != arrays[0].shape for a in arrays):
+        raise ValueError("All trajectory arrays must share a (drifter, time) shape")
+    if arrays[0].shape[1] < 2:
+        raise ValueError("At least two trajectory time samples are required")
 
-    #2. Calculate separation distance between Model drifter and SVP at each time step:(ignore starting position)
-    di_SVP_MOD = SepDistanceEachTimestep(traj_drifter_lon[:,1:],
-                                         traj_drifter_lat[:,1:],
-                                         traj_lon_mod[:,1:],
-                                         traj_lat_mod[:,1:]
-                                         )
-    liu_index = []
-    den = np.zeros(di_SVP_MOD.shape[0])
-    for i in range(di_SVP_MOD.shape[1]):
-        den += np.sum(dli_drifters[:,:i], axis=1)
-        liu_index.append(np.sum(di_SVP_MOD[:,:i], axis=1)/den)   
-    return np.array(liu_index)
+    observed_steps = TrajDistBetweenTimesteps(arrays[0], arrays[1])
+    separation = SepDistanceEachTimestep(
+        arrays[0][:, 1:], arrays[1][:, 1:],
+        arrays[2][:, 1:], arrays[3][:, 1:]
+    )
+    # Validate positions explicitly, including the initial observed and
+    # simulated locations, rather than relying only on distance routines.
+    finite_positions = np.logical_and.reduce([np.isfinite(a) for a in arrays])
+    valid_step = (finite_positions[:, :-1] & finite_positions[:, 1:]
+                  & np.isfinite(observed_steps) & np.isfinite(separation))
+    valid_prefix = np.logical_and.accumulate(valid_step, axis=1)
+    path = np.cumsum(np.where(valid_step, observed_steps, 0.0), axis=1)
+    cumulative_error = np.cumsum(np.where(valid_step, separation, 0.0), axis=1)
+    denominator = np.cumsum(path, axis=1)
+    usable = valid_prefix & (denominator > 0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.divide(cumulative_error, denominator,
+                          out=np.full(denominator.shape, np.nan, dtype=float),
+                          where=usable)
+    def masked(values):
+        return np.where(usable, values, np.nan).T
+
+    return {
+        "skill": masked(np.maximum(0.0, 1.0 - ratio / n)),
+        "normalized_error": masked(ratio),
+        "cumulative_separation_km": masked(cumulative_error),
+        "observed_path_km": masked(path),
+        "normalization_distance_km": masked(denominator),
+        "instantaneous_separation_km": masked(separation),
+        "valid_count": np.count_nonzero(usable, axis=0),
+        "clipped_count": np.count_nonzero(usable & (ratio >= n), axis=0),
+    }
+
+
+def LiuScore2(traj_drifter_lon, traj_drifter_lat, traj_lon_mod, traj_lat_mod, n=1.0):
+    """Liu-Weisberg trajectory skill (time, drifter), with 1=perfect.
+
+    At each lead, divide cumulative model-observation separation by the
+    sum of cumulative observed path lengths. Do not double-accumulate
+    the denominator. Invalid samples break a trajectory's valid prefix.
+    """
+    if not np.isfinite(n) or n <= 0:
+        raise ValueError("Liu tolerance n must be finite and positive")
+
+    observed_steps = TrajDistBetweenTimesteps(traj_drifter_lon, traj_drifter_lat)
+    separations = SepDistanceEachTimestep(
+        traj_drifter_lon[:, 1:], traj_drifter_lat[:, 1:],
+        traj_lon_mod[:, 1:], traj_lat_mod[:, 1:]
+    )
+    valid = np.isfinite(observed_steps) & np.isfinite(separations)
+    # A Liu score at lead k requires an uninterrupted observed/model
+    # trajectory from initialization through k.
+    valid_prefix = np.logical_and.accumulate(valid, axis=1)
+    steps = np.where(valid, observed_steps, 0.0)
+    errors = np.where(valid, separations, 0.0)
+    cumulative_observed_path = np.cumsum(steps, axis=1)
+    denominator = np.cumsum(cumulative_observed_path, axis=1)
+    numerator = np.cumsum(errors, axis=1)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        ratio = np.divide(
+            numerator, denominator,
+            out=np.full_like(numerator, np.nan, dtype=float),
+            where=denominator > 0,
+        )
+    skill = np.maximum(0.0, 1.0 - ratio / n)
+    return np.where(valid_prefix & (denominator > 0), skill, np.nan).T
+
 
 
 def ExtractSurface(model,u_files, v_files,zlevel,var_u, var_v, dir_out) :
