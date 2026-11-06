@@ -296,8 +296,12 @@ def main():
                                   transform=ccrs.PlateCarree(), zorder=5)
         obs_points = ax.scatter([], [], s=9 * scale ** 2, color="tab:orange", label="Observed drifters",
                                 transform=ccrs.PlateCarree(), zorder=6)
-        ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.10),
-                  ncol=2, fontsize=10 * scale, frameon=False)
+        # Use a figure-level legend in a reserved band below the map.
+        # Cartopy may reposition the geo axes to preserve their aspect ratio,
+        # so anchoring the legend to the axes can put it inside the map.
+        handles, labels = ax.get_legend_handles_labels()
+        fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, 0.025),
+                   ncol=2, fontsize=10 * scale, frameon=False)
         stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top",
                              bbox=dict(facecolor="white", alpha=.8, edgecolor="none"),
                              zorder=7, fontsize=10 * scale)
@@ -313,7 +317,7 @@ def main():
                 scatter.set_offsets(xy.reshape(-1, 2))
             stamp_text.set_text(f"Lead: {hour / 24:.2f} days")
             return model_lines, obs_lines, model_points, obs_points, stamp_text
-        fig.subplots_adjust(bottom=0.20)
+        fig.subplots_adjust(bottom=0.23)
         animation = FuncAnimation(fig, update, frames=frames, interval=180, blit=False)
         gif_path = out / (f"gulf_stream_zoom_{args.cycle}_drift{args.drift_days}d_"
                           f"frame{args.frame_hours}h.gif")
