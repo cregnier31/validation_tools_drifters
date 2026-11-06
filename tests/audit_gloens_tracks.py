@@ -285,7 +285,7 @@ def main():
         ax.legend(loc="lower right", fontsize=10 * scale)
         stamp_text = ax.text(.02, .97, "", transform=ax.transAxes, va="top",
                              bbox=dict(facecolor="white", alpha=.8, edgecolor="none"),
-                             zorder=7)
+                             zorder=7, fontsize=10 * scale)
         def update(hour):
             model_lines.set_segments(segments_at(hour, "model"))
             obs_lines.set_segments(segments_at(hour, "obs"))
