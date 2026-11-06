@@ -28,6 +28,8 @@ def main():
     ap.add_argument("--cycle", default="20240229")
     ap.add_argument("--drift-days", type=int, default=10, help="Forecast duration in days")
     ap.add_argument("--root", default="/scratch/cregnier/WORK_lagrangian/AdvectionRK4/DRIFT_GLOENS")
+    ap.add_argument("--trajectory-file", type=Path, default=None,
+                    help="Exact existing trajectory Parquet file to audit (overrides automatic dt5 discovery)")
     ap.add_argument("--output", default=None)
     ap.add_argument("--max-tracks", type=int, default=12)
     ap.add_argument("--gulf-stream-animation", action="store_true", help="Create Gulf Stream zoom GIF from existing model/observations")
@@ -41,11 +43,23 @@ def main():
         raise SystemExit("--drift-days must be positive")
     drift_hours = args.drift_days * 24
     base = Path(args.root)
-    candidates = sorted(base.glob(f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift{args.drift_days}_dt5_{args.cycle}-{args.cycle}*/ZONE_*/{args.cycle}"))
-    if len(candidates) != 1:
-        raise SystemExit(f"Expected one cycle directory; found {len(candidates)}: {candidates}")
-    cycle_dir = candidates[0]
-    pq = sorted(cycle_dir.glob("Trajectories_GLOENS_*at_SVPloc*.parquet"))
+    if args.trajectory_file is not None:
+        trajectory_file = args.trajectory_file.expanduser().resolve()
+        if not trajectory_file.is_file():
+            raise SystemExit(f"Trajectory file not found: {trajectory_file}")
+        cycle_dir = trajectory_file.parent
+        if cycle_dir.name != args.cycle:
+            raise SystemExit(f"Trajectory cycle directory {cycle_dir.name} does not match --cycle {args.cycle}")
+        pq = [trajectory_file]
+    else:
+        candidates = sorted(base.glob(
+            f"Parcels_Drift-GLOENS_FCST_AdvectionRK4_drift{args.drift_days}_dt5_"
+            f"{args.cycle}-{args.cycle}*/ZONE_*/{args.cycle}"
+        ))
+        if len(candidates) != 1:
+            raise SystemExit(f"Expected one cycle directory; found {len(candidates)}: {candidates}")
+        cycle_dir = candidates[0]
+        pq = sorted(cycle_dir.glob("Trajectories_GLOENS_*at_SVPloc*.parquet"))
     obsfiles = list((cycle_dir.parent / "DRIFTERS").glob("Drifters_*.csv"))
     if len(pq) != 1 or len(obsfiles) != 1:
         raise SystemExit(f"Expected one Parquet and one observation CSV: parquet={pq}, observations={obsfiles}")
