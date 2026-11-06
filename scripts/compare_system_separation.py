@@ -81,17 +81,17 @@ def draw_comparison(systems, days, output):
                 line.set_color(color)
         legend.append(Patch(facecolor=color, edgecolor=color, alpha=0.55, label=label))
     ax.set_xticks(range(len(days)), [str(d) for d in days])
-    ax.set_xlabel("Forecast lead (days)", fontsize=15)
-    ax.set_ylabel("Model–observation endpoint separation (km)", fontsize=15)
+    ax.set_xlabel("Forecast lead (days)", fontsize=17)
+    ax.set_ylabel("Model–observation endpoint separation (km)", fontsize=17)
     ax.set_title("Drifter separation distance: " + " vs ".join(name for name, _ in systems),
-                 fontsize=17, pad=16)
-    ax.tick_params(axis="both", which="major", labelsize=13)
+                 fontsize=20, pad=16)
+    ax.tick_params(axis="both", which="major", labelsize=17)
     ax.grid(axis="y", alpha=0.25)
     ax.set_axisbelow(True)
-    ax.legend(handles=legend, loc="upper left", fontsize=13)
+    ax.legend(handles=legend, loc="upper left", fontsize=17)
     fig.text(0.5, 0.01,
              "Boxes: 25th–75th percentile; center: median; whiskers: 1.5×IQR; outliers hidden.",
-             ha="center", fontsize=9)
+             ha="center", fontsize=15)
     fig.tight_layout(rect=(0, 0.045, 1, 1))
     output = Path(output)
     output.parent.mkdir(parents=True, exist_ok=True)
